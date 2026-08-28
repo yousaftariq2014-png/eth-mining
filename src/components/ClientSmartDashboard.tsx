@@ -27,7 +27,10 @@ import {
   RefreshCw,
   ExternalLink,
   Plus,
-  Timer
+  Timer,
+  Menu,
+  CalendarDays,
+  PiggyBank
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { UserProfile, MiningPackage, DepositRequest, EarningRecordItem, WithdrawalRecordItem, PackageType } from '../types';
@@ -62,12 +65,16 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   // Dashboard Package Category Switcher: 'daily' | 'flash_48h'
   const [dashCategory, setDashCategory] = useState<PackageType>('daily');
 
+  // Side drawer (hamburger menu) — holds Recharge / Exchange / Withdraw / Upgrade / Pair price
+  const [showSideMenu, setShowSideMenu] = useState<boolean>(false);
+
   // Active VIP Level and Package
   const activeApprovedDeposit = pendingDeposits.find(d => d.userId === user.id && d.status === 'approved');
   const userPendingDeposit = pendingDeposits.find(d => d.userId === user.id && d.status === 'pending');
   
   const currentVipLevel = activeApprovedDeposit ? activeApprovedDeposit.vipLevel : (user.vipLevel || 2);
   const currentPkg = packages.find(p => p.vipLevel === currentVipLevel) || packages[1];
+  const investedAmount = activeApprovedDeposit?.amountUsd ?? currentPkg.priceUsd;
 
   // Dynamic balances & live mining states
   const [exchangeInputEth, setExchangeInputEth] = useState<string>('2.03171117');
@@ -103,6 +110,18 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     }, 2000);
     return () => clearInterval(timer);
   }, [currentPkg]);
+
+  // Lock background scroll while side drawer is open
+  useEffect(() => {
+    if (showSideMenu) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [showSideMenu]);
 
   // Convert ETH to USDT
   const handleExchange = () => {
@@ -173,6 +192,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
 
     showToast(`Withdrawal of $${amountToWithdraw.toFixed(2)} USDT submitted! Status: Pending review`, 'success');
     setTimeout(() => {
+      setShowSideMenu(false);
       setShowWithdrawalRecordView(true);
     }, 600);
   };
@@ -350,11 +370,11 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
         </div>
       )}
 
-      {/* Top Header (Matching Screenshot 1) */}
+      {/* Top Header (Matching Screenshot 1) + Hamburger Menu Trigger */}
       <div className="p-4 bg-gradient-to-b from-[#0e1628] to-[#0a101f] border-b border-slate-800 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           {/* Prism Ethereum Logo */}
-          <div className="w-6 h-6 flex items-center justify-center">
+          <div className="w-6 h-6 flex items-center justify-center shrink-0">
             <svg viewBox="0 0 784.37 1277.39" className="w-5 h-5">
               <polygon points="392.07,0 383.5,29.11 383.5,872.9 392.07,881.46 784.13,649.65" fill="#f59e0b" />
               <polygon points="392.07,0 0,649.65 392.07,881.46 392.07,472.02" fill="#ec4899" />
@@ -362,14 +382,25 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
               <polygon points="392.07,1277.39 392.07,949.66 0,726.55" fill="#8b5cf6" />
             </svg>
           </div>
-          <span className="text-xs font-black tracking-wide text-amber-400 font-sans">
+          <span className="text-xs font-black tracking-wide text-amber-400 font-sans truncate">
             ETH2.0 Smart production
           </span>
         </div>
 
-        {/* English Pill */}
-        <div className="px-2 py-0.5 rounded-md bg-slate-800/80 border border-slate-700 text-[11px] text-slate-300">
-          English
+        <div className="flex items-center gap-2 shrink-0">
+          {/* English Pill */}
+          <div className="px-2 py-0.5 rounded-md bg-slate-800/80 border border-slate-700 text-[11px] text-slate-300">
+            English
+          </div>
+
+          {/* Hamburger Menu Button — opens side drawer with Recharge/Exchange/Withdraw/Upgrade/Pair price */}
+          <button
+            onClick={() => setShowSideMenu(true)}
+            title="More options"
+            className="p-1.5 rounded-lg bg-slate-800/80 border border-slate-700 text-slate-300 hover:text-amber-400 hover:border-amber-500/40 transition-colors cursor-pointer"
+          >
+            <Menu className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
@@ -390,7 +421,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
           </div>
         )}
 
-        {/* Live Active Mining Node Card */}
+        {/* ============ #1: PURCHASED PACKAGE (Active Mining Node Card) ============ */}
         <div className="rounded-2xl bg-gradient-to-r from-[#111c35] via-[#0d162b] to-[#111c35] border border-amber-500/40 p-4 space-y-2.5 shadow-lg">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -403,6 +434,10 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
             <span className="text-xs font-mono text-emerald-400 font-bold">
               +{currentPkg.dailyReturnPercent}% / day
             </span>
+          </div>
+
+          <div className="text-[11px] text-slate-400 font-mono">
+            {currentPkg.name}
           </div>
 
           <div className="grid grid-cols-2 gap-2 text-xs font-mono pt-1">
@@ -421,283 +456,65 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
           </div>
         </div>
 
-        {/* Package Upgrade & Selection Section */}
-        <div className="space-y-2.5">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-slate-300">Choose / Upgrade Investment Package</span>
-            
-            {/* Category Toggle: Daily vs 48H Flash */}
-            <div className="flex items-center gap-1 bg-[#10182c] p-0.5 rounded-xl border border-slate-800">
-              <button
-                type="button"
-                onClick={() => setDashCategory('daily')}
-                className={`px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
-                  dashCategory === 'daily' ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Daily 2%-3%
-              </button>
-              <button
-                type="button"
-                onClick={() => setDashCategory('flash_48h')}
-                className={`px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
-                  dashCategory === 'flash_48h' ? 'bg-rose-500 text-white' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                48H Flash
-              </button>
-            </div>
+        {/* ============ #2: INVESTMENT DETAILS ============ */}
+        <div className="rounded-2xl bg-[#0f172a] border border-slate-800/80 p-4 space-y-3">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-white">
+            <PiggyBank className="w-4 h-4 text-amber-400" />
+            <span>Investment Details</span>
           </div>
 
-          {/* Grid of Packages in the selected category */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {displayedCategoryPackages.map((pkg) => {
-              const isCurrent = pkg.vipLevel === currentVipLevel && (pkg.planType === activeApprovedDeposit?.planType || (!activeApprovedDeposit && pkg.planType === 'daily'));
-              const isFlash = pkg.planType === 'flash_48h';
-              return (
-                <button
-                  key={pkg.id}
-                  onClick={() => onSelectPackage(pkg)}
-                  className={`p-2.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                    isCurrent
-                      ? 'bg-amber-500/20 border-amber-500 text-white font-bold ring-1 ring-amber-500'
-                      : isFlash
-                      ? 'bg-[#151128] border-rose-950/60 text-slate-300 hover:border-rose-700/60'
-                      : 'bg-[#10182c] border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
-                  }`}
-                >
-                  <div className="flex items-center justify-between w-full">
-                    <span className={`text-[10px] font-black ${isFlash ? 'text-rose-400' : 'text-amber-400'}`}>
-                      {isFlash ? '48H FLASH' : `VIP ${pkg.vipLevel}`}
-                    </span>
-                    <span className="text-[9px] font-mono font-bold text-emerald-400">
-                      {isFlash ? `+${pkg.profitPercent}% (48h)` : pkg.profitRangeText || `+${pkg.dailyReturnPercent}%`}
-                    </span>
-                  </div>
-                  <div className="text-xs font-black font-mono mt-1 text-white">${pkg.priceUsd.toLocaleString()}</div>
-                  <div className="text-[9px] text-slate-400 truncate mt-0.5">{pkg.name}</div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* ▸ Pair price Card (Exact match to Screenshot 1) */}
-        <div className="rounded-2xl bg-[#0f172a] border border-slate-800/80 p-3.5 space-y-2 text-xs font-mono">
-          <div className="text-slate-400 font-bold flex items-center gap-1">
-            <span>▸</span>
-            <span>Pair price</span>
-          </div>
-
-          <div className="space-y-1 text-[11px] text-slate-300">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400">BTC/ETH</span>
-              <span className="font-bold text-white">{btcEthRatio}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400">BTC/USDT</span>
-              <span className="font-bold text-white">{btcPriceUsd.toLocaleString()}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400">ETH/USDT</span>
-              <span className="font-bold text-white">{ethPriceUsd.toLocaleString()}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400">BTC/USDC</span>
-              <span className="font-bold text-white">{btcUsdcPrice.toLocaleString()}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400">ETH/USDC</span>
-              <span className="font-bold text-white">{ethUsdcPrice.toLocaleString()}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* 3 Action Buttons: Recharge | Exchange (Active) | Withdraw */}
-        <div className="grid grid-cols-3 gap-2">
-          <button
-            onClick={() => {
-              setActionTab('recharge');
-              onSelectPackage(currentPkg);
-            }}
-            className={`py-2 px-3 rounded-full text-xs font-bold text-center transition-all cursor-pointer border ${
-              actionTab === 'recharge'
-                ? 'bg-[#f77f00] text-white border-transparent'
-                : 'bg-white text-slate-800 border-slate-200'
-            }`}
-          >
-            Recharge
-          </button>
-
-          <button
-            onClick={() => setActionTab('exchange')}
-            className={`py-2 px-3 rounded-full text-xs font-bold text-center transition-all cursor-pointer border ${
-              actionTab === 'exchange'
-                ? 'bg-[#f77f00] text-white border-transparent'
-                : 'bg-white text-slate-800 border-slate-200'
-            }`}
-          >
-            Exchange
-          </button>
-
-          <button
-            onClick={() => setActionTab('withdraw')}
-            className={`py-2 px-3 rounded-full text-xs font-bold text-center transition-all cursor-pointer border ${
-              actionTab === 'withdraw'
-                ? 'bg-[#f77f00] text-white border-transparent'
-                : 'bg-white text-slate-800 border-slate-200'
-            }`}
-          >
-            Withdraw
-          </button>
-        </div>
-
-        {/* ▎Exchange Card (Matching Screenshot 1) */}
-        {actionTab === 'exchange' && (
-          <div className="space-y-3">
-            <div className="text-xs font-bold text-white flex items-center gap-1.5">
-              <span className="text-emerald-400 text-sm">▎</span>
-              <span>Exchange</span>
-            </div>
-
-            {/* Inner Dark Swap Box with Rounded White Outline */}
-            <div className="rounded-2xl bg-[#090d16] border-2 border-slate-300 p-4 space-y-4 shadow-inner">
-              
-              {/* Swap Row: ETH on Left | Swap Icon Center | USDT on Right */}
-              <div className="flex items-center justify-between gap-2">
-                
-                {/* Left: ETH Input */}
-                <div className="flex-1">
-                  <input
-                    type="text"
-                    value={exchangeInputEth}
-                    onChange={(e) => setExchangeInputEth(e.target.value)}
-                    className="w-full bg-transparent text-sm font-mono font-bold text-white focus:outline-none border-b border-slate-700 pb-1"
-                  />
-                  <div className="text-[10px] text-slate-500 font-mono mt-1">Available: {exchangeableEth.toFixed(4)} ETH</div>
-                </div>
-
-                {/* Center: Green Swap Arrow */}
-                <div className="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold shrink-0">
-                  ⇄
-                </div>
-
-                {/* Right: Calculated USDT */}
-                <div className="flex-1 text-right">
-                  <div className="text-sm font-mono font-bold text-white border-b border-slate-700 pb-1">
-                    {(parseFloat(exchangeInputEth || '0') * ethPriceUsd).toFixed(2)}
-                  </div>
-                  <div className="text-[10px] text-slate-500 font-mono mt-1">Rate: 1 ETH = ${ethPriceUsd}</div>
-                </div>
-              </div>
-
-              {/* Bottom Row: Redeem All (Left) & USDT Green Badge (Right) */}
-              <div className="flex items-center justify-between text-xs pt-1">
-                <button
-                  type="button"
-                  onClick={() => setExchangeInputEth(exchangeableEth.toFixed(8))}
-                  className="text-xs font-bold text-slate-300 hover:text-white cursor-pointer underline"
-                >
-                  Redeem all
-                </button>
-
-                <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold border border-emerald-500/30">
-                  <span>₮</span>
-                  <span>USDT</span>
-                </div>
-              </div>
-
-            </div>
-
-            {/* Primary Action Button: Exchange (Dark Blue) */}
-            <button
-              onClick={handleExchange}
-              className="w-full py-3.5 rounded-2xl bg-[#0c1c38] hover:bg-[#11274f] text-white font-black text-xs sm:text-sm border border-slate-700 shadow-md cursor-pointer transition-all active:scale-98"
-            >
-              Exchange
-            </button>
-
-            {/* Secondary Action Button: Record (Dark Blue) -> Opens Screenshot 3 / 2 */}
-            <button
-              onClick={() => setShowWithdrawalRecordView(true)}
-              className="w-full py-3.5 rounded-2xl bg-[#0c1c38] hover:bg-[#11274f] text-white font-black text-xs sm:text-sm border border-slate-700 shadow-md cursor-pointer transition-all"
-            >
-              Record
-            </button>
-
-            {/* VIP Tier Badge (Centered) */}
-            <div className="flex items-center justify-center pt-1">
-              <span className="px-3 py-1 rounded-full bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-300 border border-amber-500/40 text-xs font-black font-mono">
-                VIP {currentVipLevel}
+          <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+            <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800">
+              <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                <DollarSign className="w-3 h-3" /> Amount Invested
               </span>
-            </div>
-
-            {/* Quick Link to Earnings Details */}
-            <div className="text-center pt-1">
-              <button
-                onClick={() => setShowEarningsDetailsView(true)}
-                className="text-xs text-slate-400 hover:text-amber-400 underline cursor-pointer"
-              >
-                View 6-Hour Cycle Earnings Details &rarr;
-              </button>
-            </div>
-
-          </div>
-        )}
-
-        {/* Withdraw Tab View */}
-        {actionTab === 'withdraw' && (
-          <div className="space-y-3 p-4 rounded-2xl bg-[#0f172a] border border-slate-800">
-            <div className="text-xs font-bold text-white flex items-center gap-1.5">
-              <span className="text-rose-400 text-sm">▎</span>
-              <span>USDT Withdrawal</span>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[11px] text-slate-400 font-mono">Destination Address (USDT-TRC20 / ERC20):</label>
-              <input
-                type="text"
-                value={withdrawAddress}
-                onChange={(e) => setWithdrawAddress(e.target.value)}
-                className="w-full bg-[#080c16] border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
-                <span>Amount:</span>
-                <span>Available: ${withdrawableUsdt.toFixed(2)} USDT</span>
+              <div className="text-sm font-black text-white mt-0.5">
+                ${investedAmount.toLocaleString()}
               </div>
-              <input
-                type="number"
-                value={withdrawInputUsdt}
-                onChange={(e) => setWithdrawInputUsdt(e.target.value)}
-                className="w-full bg-[#080c16] border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-amber-500 font-bold"
-              />
             </div>
+            <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800">
+              <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                <TrendingUp className="w-3 h-3" /> Daily Return
+              </span>
+              <div className="text-sm font-black text-emerald-400 mt-0.5">
+                {currentPkg.profitRangeText || `${currentPkg.dailyReturnPercent}%`}
+              </div>
+            </div>
+            <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800">
+              <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                <Wallet className="w-3 h-3" /> Wallet Balance
+              </span>
+              <div className="text-sm font-black text-white mt-0.5 truncate">
+                ${walletBalanceUsdt.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              </div>
+            </div>
+            <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800">
+              <span className="text-[10px] text-slate-400 flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" /> Withdrawable
+              </span>
+              <div className="text-sm font-black text-white mt-0.5 truncate">
+                ${withdrawableUsdt.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              </div>
+            </div>
+          </div>
 
+          {/* Quick Link to Earnings Details */}
+          <div className="text-center pt-1">
             <button
-              onClick={handleWithdraw}
-              className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs cursor-pointer shadow-lg shadow-amber-500/20 transition-all"
+              onClick={() => setShowEarningsDetailsView(true)}
+              className="text-xs text-slate-400 hover:text-amber-400 underline cursor-pointer"
             >
-              Submit Withdrawal Request
-            </button>
-
-            <button
-              onClick={() => setShowWithdrawalRecordView(true)}
-              className="w-full py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs cursor-pointer"
-            >
-              View Withdrawal History
+              View 6-Hour Cycle Earnings Details &rarr;
             </button>
           </div>
-        )}
+        </div>
 
       </div>
 
-      {/* Floating Live Support Bubble (Bottom-Right) */}
+      {/* Floating Live Support Bubble (Bottom-Right, above bottom nav) */}
       <button
         onClick={onOpenLiveSupport}
-        className="fixed sm:absolute bottom-16 right-4 z-40 w-12 h-12 rounded-full bg-blue-500 hover:bg-blue-400 text-white flex items-center justify-center shadow-2xl shadow-blue-500/50 cursor-pointer transition-transform hover:scale-110 active:scale-95"
+        className="fixed sm:absolute bottom-20 right-4 z-40 w-12 h-12 rounded-full bg-blue-500 hover:bg-blue-400 text-white flex items-center justify-center shadow-2xl shadow-blue-500/50 cursor-pointer transition-transform hover:scale-110 active:scale-95"
         title="Live Customer Service"
       >
         <MessageCircle className="w-6 h-6 fill-white text-white" />
@@ -739,6 +556,295 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
         {/* Small Bottom Horizontal Indicator Line (Matching screenshot) */}
         <div className="w-28 h-1 bg-white/70 rounded-full mt-1.5" />
       </div>
+
+      {/* =========================================================================
+          SIDE DRAWER — Recharge / Exchange / Withdraw / Upgrade Package / Pair price
+          Opens when hamburger (☰) icon is clicked
+          ========================================================================= */}
+      {showSideMenu && (
+        <div className="fixed inset-0 z-[60] flex justify-end">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150"
+            onClick={() => setShowSideMenu(false)}
+          />
+
+          {/* Sliding Panel */}
+          <div className="relative w-[85%] max-w-sm h-full bg-[#0c121e] border-l border-slate-800 shadow-2xl overflow-y-auto animate-in slide-in-from-right duration-200">
+            
+            {/* Drawer Header */}
+            <div className="sticky top-0 z-10 p-4 bg-[#0e1628]/95 backdrop-blur-md border-b border-slate-800 flex items-center justify-between">
+              <h2 className="text-sm font-black text-white">Wallet & Packages</h2>
+              <button
+                onClick={() => setShowSideMenu(false)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-4">
+
+              {/* 3 Action Buttons: Recharge | Exchange | Withdraw */}
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => {
+                    setActionTab('recharge');
+                    onSelectPackage(currentPkg);
+                  }}
+                  className={`py-2 px-3 rounded-full text-xs font-bold text-center transition-all cursor-pointer border ${
+                    actionTab === 'recharge'
+                      ? 'bg-[#f77f00] text-white border-transparent'
+                      : 'bg-white text-slate-800 border-slate-200'
+                  }`}
+                >
+                  Recharge
+                </button>
+
+                <button
+                  onClick={() => setActionTab('exchange')}
+                  className={`py-2 px-3 rounded-full text-xs font-bold text-center transition-all cursor-pointer border ${
+                    actionTab === 'exchange'
+                      ? 'bg-[#f77f00] text-white border-transparent'
+                      : 'bg-white text-slate-800 border-slate-200'
+                  }`}
+                >
+                  Exchange
+                </button>
+
+                <button
+                  onClick={() => setActionTab('withdraw')}
+                  className={`py-2 px-3 rounded-full text-xs font-bold text-center transition-all cursor-pointer border ${
+                    actionTab === 'withdraw'
+                      ? 'bg-[#f77f00] text-white border-transparent'
+                      : 'bg-white text-slate-800 border-slate-200'
+                  }`}
+                >
+                  Withdraw
+                </button>
+              </div>
+
+              {/* ▎Exchange Card */}
+              {actionTab === 'exchange' && (
+                <div className="space-y-3">
+                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <span className="text-emerald-400 text-sm">▎</span>
+                    <span>Exchange</span>
+                  </div>
+
+                  <div className="rounded-2xl bg-[#090d16] border-2 border-slate-300 p-4 space-y-4 shadow-inner">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex-1">
+                        <input
+                          type="text"
+                          value={exchangeInputEth}
+                          onChange={(e) => setExchangeInputEth(e.target.value)}
+                          className="w-full bg-transparent text-sm font-mono font-bold text-white focus:outline-none border-b border-slate-700 pb-1"
+                        />
+                        <div className="text-[10px] text-slate-500 font-mono mt-1">Available: {exchangeableEth.toFixed(4)} ETH</div>
+                      </div>
+
+                      <div className="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold shrink-0">
+                        ⇄
+                      </div>
+
+                      <div className="flex-1 text-right">
+                        <div className="text-sm font-mono font-bold text-white border-b border-slate-700 pb-1">
+                          {(parseFloat(exchangeInputEth || '0') * ethPriceUsd).toFixed(2)}
+                        </div>
+                        <div className="text-[10px] text-slate-500 font-mono mt-1">Rate: 1 ETH = ${ethPriceUsd}</div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between text-xs pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setExchangeInputEth(exchangeableEth.toFixed(8))}
+                        className="text-xs font-bold text-slate-300 hover:text-white cursor-pointer underline"
+                      >
+                        Redeem all
+                      </button>
+
+                      <div className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold border border-emerald-500/30">
+                        <span>₮</span>
+                        <span>USDT</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleExchange}
+                    className="w-full py-3.5 rounded-2xl bg-[#0c1c38] hover:bg-[#11274f] text-white font-black text-xs sm:text-sm border border-slate-700 shadow-md cursor-pointer transition-all active:scale-98"
+                  >
+                    Exchange
+                  </button>
+
+                  <button
+                    onClick={() => { setShowSideMenu(false); setShowWithdrawalRecordView(true); }}
+                    className="w-full py-3.5 rounded-2xl bg-[#0c1c38] hover:bg-[#11274f] text-white font-black text-xs sm:text-sm border border-slate-700 shadow-md cursor-pointer transition-all"
+                  >
+                    Record
+                  </button>
+
+                  <div className="flex items-center justify-center pt-1">
+                    <span className="px-3 py-1 rounded-full bg-gradient-to-r from-amber-500/20 to-orange-500/20 text-amber-300 border border-amber-500/40 text-xs font-black font-mono">
+                      VIP {currentVipLevel}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Withdraw Tab View */}
+              {actionTab === 'withdraw' && (
+                <div className="space-y-3 p-4 rounded-2xl bg-[#0f172a] border border-slate-800">
+                  <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                    <span className="text-rose-400 text-sm">▎</span>
+                    <span>USDT Withdrawal</span>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[11px] text-slate-400 font-mono">Destination Address (USDT-TRC20 / ERC20):</label>
+                    <input
+                      type="text"
+                      value={withdrawAddress}
+                      onChange={(e) => setWithdrawAddress(e.target.value)}
+                      className="w-full bg-[#080c16] border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+                      <span>Amount:</span>
+                      <span>Available: ${withdrawableUsdt.toFixed(2)} USDT</span>
+                    </div>
+                    <input
+                      type="number"
+                      value={withdrawInputUsdt}
+                      onChange={(e) => setWithdrawInputUsdt(e.target.value)}
+                      className="w-full bg-[#080c16] border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-amber-500 font-bold"
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleWithdraw}
+                    className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs cursor-pointer shadow-lg shadow-amber-500/20 transition-all"
+                  >
+                    Submit Withdrawal Request
+                  </button>
+
+                  <button
+                    onClick={() => { setShowSideMenu(false); setShowWithdrawalRecordView(true); }}
+                    className="w-full py-2.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs cursor-pointer"
+                  >
+                    View Withdrawal History
+                  </button>
+                </div>
+              )}
+
+              {/* Recharge tab: quick note, actual flow handled by onSelectPackage modal elsewhere */}
+              {actionTab === 'recharge' && (
+                <div className="space-y-3 p-4 rounded-2xl bg-[#0f172a] border border-slate-800 text-center">
+                  <div className="text-xs font-bold text-white">Recharge / Upgrade</div>
+                  <p className="text-[11px] text-slate-400">
+                    Pick a package below to top up or upgrade your mining plan.
+                  </p>
+                </div>
+              )}
+
+              {/* Package Upgrade & Selection Section */}
+              <div className="space-y-2.5 pt-2 border-t border-slate-800">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-slate-300">Choose / Upgrade Package</span>
+                  
+                  <div className="flex items-center gap-1 bg-[#10182c] p-0.5 rounded-xl border border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setDashCategory('daily')}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
+                        dashCategory === 'daily' ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Daily 2%-3%
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDashCategory('flash_48h')}
+                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
+                        dashCategory === 'flash_48h' ? 'bg-rose-500 text-white' : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      48H Flash
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  {displayedCategoryPackages.map((pkg) => {
+                    const isCurrent = pkg.vipLevel === currentVipLevel && (pkg.planType === activeApprovedDeposit?.planType || (!activeApprovedDeposit && pkg.planType === 'daily'));
+                    const isFlash = pkg.planType === 'flash_48h';
+                    return (
+                      <button
+                        key={pkg.id}
+                        onClick={() => onSelectPackage(pkg)}
+                        className={`p-2.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                          isCurrent
+                            ? 'bg-amber-500/20 border-amber-500 text-white font-bold ring-1 ring-amber-500'
+                            : isFlash
+                            ? 'bg-[#151128] border-rose-950/60 text-slate-300 hover:border-rose-700/60'
+                            : 'bg-[#10182c] border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between w-full">
+                          <span className={`text-[10px] font-black ${isFlash ? 'text-rose-400' : 'text-amber-400'}`}>
+                            {isFlash ? '48H FLASH' : `VIP ${pkg.vipLevel}`}
+                          </span>
+                          <span className="text-[9px] font-mono font-bold text-emerald-400">
+                            {isFlash ? `+${pkg.profitPercent}% (48h)` : pkg.profitRangeText || `+${pkg.dailyReturnPercent}%`}
+                          </span>
+                        </div>
+                        <div className="text-xs font-black font-mono mt-1 text-white">${pkg.priceUsd.toLocaleString()}</div>
+                        <div className="text-[9px] text-slate-400 truncate mt-0.5">{pkg.name}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Pair price Card */}
+              <div className="rounded-2xl bg-[#0f172a] border border-slate-800/80 p-3.5 space-y-2 text-xs font-mono">
+                <div className="text-slate-400 font-bold flex items-center gap-1">
+                  <span>▸</span>
+                  <span>Pair price</span>
+                </div>
+
+                <div className="space-y-1 text-[11px] text-slate-300">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">BTC/ETH</span>
+                    <span className="font-bold text-white">{btcEthRatio}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">BTC/USDT</span>
+                    <span className="font-bold text-white">{btcPriceUsd.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">ETH/USDT</span>
+                    <span className="font-bold text-white">{ethPriceUsd.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">BTC/USDC</span>
+                    <span className="font-bold text-white">{btcUsdcPrice.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-400">ETH/USDC</span>
+                    <span className="font-bold text-white">{ethUsdcPrice.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

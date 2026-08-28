@@ -81,8 +81,274 @@ export async function checkSupabaseConnection(): Promise<{ connected: boolean; e
 }
 
 // ----------------------------------------------------
-// CLIENTS / USERS SYNC
+// AUTHENTICATION & EMAIL ACTIVATION HELPERS
 // ----------------------------------------------------
+export async function signUpWithSupabase(
+  email: string,
+  password: string,
+  name: string
+): Promise<{ success: boolean; user?: UserProfile; needsActivation?: boolean; error?: string }> {
+  try {
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = name.trim() || cleanEmail.split('@')[0];
+
+    // 1. First check if user already exists in clients table
+    try {
+      const { data: existingClient } = await supabase
+        .from('clients')
+        .select('id, email')
+        .eq('email', cleanEmail)
+        .maybeSingle();
+
+      if (existingClient) {
+        return {
+          success: false,
+          error: 'An account with this email is already registered. Please sign in instead.'
+        };
+      }
+    } catch (e) {
+      console.warn('Clients table check failed:', e);
+    }
+
+    // 2. Call Supabase Auth SignUp
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email: cleanEmail,
+      password: password,
+      options: {
+        data: {
+          full_name: cleanName,
+        },
+        emailRedirectTo: window.location.origin,
+      },
+    });
+
+    if (authError) {
+      // Handle known Supabase Auth errors
+      if (authError.message.toLowerCase().includes('already registered') || authError.message.toLowerCase().includes('already in use')) {
+        return {
+          success: false,
+          error: 'An account with this email is already registered. Please sign in.'
+        };
+      }
+      return { success: false, error: authError.message };
+    }
+
+    const userId = authData.user?.id || `usr-${Date.now()}`;
+    const newUserProfile: UserProfile = {
+      id: userId,
+      name: cleanName,
+      email: cleanEmail,
+      plan: 'VIP 1 Starter',
+      vipLevel: 1,
+      joinedDate: new Date().toISOString().substring(0, 10),
+      isLoggedIn: true,
+      hasClaimedFreeBonus: true,
+    };
+
+    // 3. Save into clients table
+    try {
+      await supabase.from('clients').upsert({
+        id: userId,
+        name: cleanName,
+        email: cleanEmail,
+        plan: 'VIP 1 Starter',
+        vip_level: 1,
+        joined_date: newUserProfile.joinedDate,
+        is_logged_in: false,
+      });
+    } catch (e) {
+      console.warn('Clients record create warning:', e);
+    }
+
+    // 4. Check if email confirmation is required by Supabase
+    // If authData.user is created but session is null (or confirmed_at is null), confirmation email is sent!
+    const needsEmailConfirmation = !authData.session && !authData.user?.email_confirmed_at;
+
+    return {
+      success: true,
+      user: newUserProfile,
+      needsActivation: needsEmailConfirmation,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'Failed to complete registration. Please try again.',
+    };
+  }
+}
+
+export async function signInWithSupabase(
+  email: string,
+  password: string
+): Promise<{ success: boolean; user?: UserProfile; notActivated?: boolean; error?: string }> {
+  try {
+    const cleanEmail = email.trim().toLowerCase();
+
+    // 1. Supabase Auth Sign In
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email: cleanEmail,
+      password: password,
+    });
+
+    if (authError) {
+      const errMsg = authError.message.toLowerCase();
+
+      // Check for unconfirmed email
+      if (
+        errMsg.includes('email not confirmed') || 
+        errMsg.includes('not confirmed') || 
+        errMsg.includes('email confirmation')
+      ) {
+        return {
+          success: false,
+          notActivated: true,
+          error: 'Your account is not activated. Please check your inbox and click the activation link to verify your email before logging in.',
+        };
+      }
+
+      // Check if user is not in database at all
+      if (errMsg.includes('invalid login credentials') || errMsg.includes('user not found')) {
+        // Double check against database clients
+        const { data: clientCheck } = await supabase
+          .from('clients')
+          .select('id, email')
+          .eq('email', cleanEmail)
+          .maybeSingle();
+
+        if (!clientCheck) {
+          // Check local registered users
+          const localUsersStr = localStorage.getItem('hashforge_registered_users');
+          const localUsers: UserProfile[] = localUsersStr ? JSON.parse(localUsersStr) : [];
+          const existsLocally = localUsers.some(u => u.email.toLowerCase() === cleanEmail);
+
+          if (!existsLocally) {
+            return {
+              success: false,
+              error: 'No account found with this email address. You must sign up first before you can log in.',
+            };
+          }
+        }
+
+        return {
+          success: false,
+          error: 'Invalid password. Please check your password or use "Forgot Password".',
+        };
+      }
+
+      return {
+        success: false,
+        error: authError.message,
+      };
+    }
+
+    // 2. Fetch user profile from database
+    let userProfile: UserProfile = {
+      id: authData.user?.id || `user-${Date.now()}`,
+      name: (authData.user?.user_metadata?.full_name as string) || cleanEmail.split('@')[0],
+      email: cleanEmail,
+      plan: 'VIP 1 Starter',
+      vipLevel: 1,
+      joinedDate: authData.user?.created_at?.substring(0, 10) || new Date().toISOString().substring(0, 10),
+      isLoggedIn: true,
+      hasClaimedFreeBonus: true,
+    };
+
+    try {
+      const { data: dbClient } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('email', cleanEmail)
+        .maybeSingle();
+
+      if (dbClient) {
+        userProfile = {
+          id: dbClient.id,
+          name: dbClient.name || userProfile.name,
+          email: dbClient.email,
+          plan: dbClient.plan || `VIP ${dbClient.vip_level || 1}`,
+          vipLevel: dbClient.vip_level || 1,
+          joinedDate: dbClient.joined_date || userProfile.joinedDate,
+          isLoggedIn: true,
+          hasClaimedFreeBonus: true,
+        };
+      }
+    } catch (e) {
+      console.warn('DB client lookup warning:', e);
+    }
+
+    return {
+      success: true,
+      user: userProfile,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err?.message || 'Sign in failed. Please try again.',
+    };
+  }
+}
+
+export async function sendSupabasePasswordReset(
+  email: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const cleanEmail = email.trim().toLowerCase();
+
+    // Check if user exists in database first
+    const { data: clientCheck } = await supabase
+      .from('clients')
+      .select('id, email')
+      .eq('email', cleanEmail)
+      .maybeSingle();
+
+    const localUsersStr = localStorage.getItem('hashforge_registered_users');
+    const localUsers: UserProfile[] = localUsersStr ? JSON.parse(localUsersStr) : [];
+    const existsLocally = localUsers.some(u => u.email.toLowerCase() === cleanEmail);
+
+    if (!clientCheck && !existsLocally) {
+      return {
+        success: false,
+        error: 'No account found with this email. Please check the spelling or sign up for a new account.',
+      };
+    }
+
+    const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+      redirectTo: `${window.location.origin}/#reset-password`,
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to send reset email.' };
+  }
+}
+
+export async function resendSupabaseActivation(
+  email: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const cleanEmail = email.trim().toLowerCase();
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: cleanEmail,
+      options: {
+        emailRedirectTo: window.location.origin,
+      },
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to resend activation email.' };
+  }
+}
+
 export async function fetchSupabaseUsers(): Promise<UserProfile[] | null> {
   try {
     const { data, error } = await supabase

@@ -5,6 +5,7 @@ import { DepositPage } from './components/DepositPage';
 import { ClientSmartDashboard } from './components/ClientSmartDashboard';
 import { AdminPortal } from './components/AdminPortal';
 import { AuthModal } from './components/AuthModal';
+import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { LiveSupportWidget } from './components/LiveSupportWidget';
 
 import { 
@@ -81,13 +82,17 @@ export default function App() {
     return saved ? 'dashboard' : 'home';
   });
 
-  // Listen for Hash Changes (e.g. #admin)
+  // Listen for Hash Changes (e.g. #admin or #reset-password / recovery)
   useEffect(() => {
     const handleHashChange = () => {
-      if (window.location.hash === '#admin') {
+      const hash = window.location.hash;
+      if (hash === '#admin') {
         setCurrentTab('admin');
+      } else if (hash.includes('reset-password') || hash.includes('type=recovery') || hash.includes('access_token')) {
+        setIsResetPasswordOpen(true);
       }
     };
+    handleHashChange();
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
@@ -95,8 +100,8 @@ export default function App() {
   // 3. 5 Mining Packages
   const [packages] = useState<MiningPackage[]>(MINING_PACKAGES);
 
-  // 4. Selected Package for Deposit
-  const [selectedPackage, setSelectedPackage] = useState<MiningPackage>(MINING_PACKAGES[1]); // default VIP 2
+  // 4. Selected Package for Deposit (null by default so dashboard opens directly on login)
+  const [selectedPackage, setSelectedPackage] = useState<MiningPackage | null>(null);
 
   // 5. Registered Users Database (persisted in localStorage & synced with Supabase)
   const [registeredUsers, setRegisteredUsers] = useState<UserProfile[]>(() => {
@@ -227,11 +232,14 @@ export default function App() {
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('signup');
   const [isLiveSupportOpen, setIsLiveSupportOpen] = useState<boolean>(false);
+  const [isResetPasswordOpen, setIsResetPasswordOpen] = useState<boolean>(false);
 
   // User Actions
   const handleOpenAuth = (mode: 'login' | 'signup', targetPkg?: MiningPackage) => {
     if (targetPkg) {
       setSelectedPackage(targetPkg);
+    } else {
+      setSelectedPackage(null);
     }
     setAuthMode(mode);
     setIsAuthOpen(true);
@@ -374,7 +382,7 @@ export default function App() {
         {/* VIEW 2: DEPOSIT & RECHARGE PAGE */}
         {currentTab === 'deposit' && (
           <DepositPage
-            selectedPackage={selectedPackage}
+            selectedPackage={selectedPackage || packages[1]}
             user={user || {
               id: 'guest',
               name: 'Client User',
@@ -454,6 +462,18 @@ export default function App() {
         onClose={() => setIsAuthOpen(false)}
         initialMode={authMode}
         onLoginSuccess={handleLoginSuccess}
+      />
+
+      {/* Password Reset Modal (from Supabase email link) */}
+      <ResetPasswordModal
+        isOpen={isResetPasswordOpen}
+        onClose={() => {
+          setIsResetPasswordOpen(false);
+          window.location.hash = '';
+        }}
+        onSuccess={(updatedUser) => {
+          handleLoginSuccess(updatedUser);
+        }}
       />
 
       {/* Floating Live Support Widget */}

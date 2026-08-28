@@ -80,7 +80,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <Home className="w-3.5 h-3.5" />
-              <span>5 Packages</span>
+              <span>Investment Plans</span>
             </button>
 
             {/* Dashboard Tab (for logged in users) */}

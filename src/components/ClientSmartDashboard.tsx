@@ -26,11 +26,12 @@ import {
   Headphones,
   RefreshCw,
   ExternalLink,
-  Plus
+  Plus,
+  Timer
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { UserProfile, MiningPackage, DepositRequest, EarningRecordItem, WithdrawalRecordItem } from '../types';
-import { INITIAL_EARNINGS_RECORDS, INITIAL_WITHDRAWAL_RECORDS } from '../data/packagesData';
+import { UserProfile, MiningPackage, DepositRequest, EarningRecordItem, WithdrawalRecordItem, PackageType } from '../types';
+import { INITIAL_EARNINGS_RECORDS, INITIAL_WITHDRAWAL_RECORDS, DAILY_PACKAGES, FLASH_48H_PACKAGES } from '../data/packagesData';
 
 interface ClientSmartDashboardProps {
   user: UserProfile;
@@ -57,6 +58,9 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   const [showEarningsDetailsView, setShowEarningsDetailsView] = useState<boolean>(false);
   const [showWithdrawalRecordView, setShowWithdrawalRecordView] = useState<boolean>(false);
   const [withdrawalFilter, setWithdrawalFilter] = useState<'All' | 'Pending' | 'Withdrawal successfully' | 'Failed'>('All');
+
+  // Dashboard Package Category Switcher: 'daily' | 'flash_48h'
+  const [dashCategory, setDashCategory] = useState<PackageType>('daily');
 
   // Active VIP Level and Package
   const activeApprovedDeposit = pendingDeposits.find(d => d.userId === user.id && d.status === 'approved');
@@ -139,7 +143,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   const handleWithdraw = () => {
     const amountToWithdraw = parseFloat(withdrawInputUsdt);
     if (isNaN(amountToWithdraw) || amountToWithdraw <= 0) {
-      showToast('Please enter a valid USDT withdrawal amount', 'info');
+      showToast('Please enter a valid withdrawal amount', 'info');
       return;
     }
     if (amountToWithdraw > withdrawableUsdt) {
@@ -147,15 +151,12 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       return;
     }
     if (!withdrawAddress.trim()) {
-      showToast('Please enter your destination wallet address', 'info');
+      showToast('Please enter destination USDT address', 'info');
       return;
     }
 
-    setWithdrawableUsdt(prev => Math.max(0, Number((prev - amountToWithdraw).toFixed(2))));
-    setWalletBalanceUsdt(prev => Math.max(0, Number((prev - amountToWithdraw).toFixed(4))));
-
     const now = new Date();
-    const formattedDate = `${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}/${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    const formattedTime = `${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}/${now.getFullYear()} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
 
     const newRecord: WithdrawalRecordItem = {
       id: `w-${Date.now()}`,
@@ -163,11 +164,17 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       type: 'USDT-ERC',
       amount: -amountToWithdraw,
       status: 'Pending',
-      time: formattedDate,
+      time: formattedTime,
     };
 
     setWithdrawalRecords(prev => [newRecord, ...prev]);
-    showToast(`Withdrawal request for $${amountToWithdraw} USDT submitted to blockchain queue!`, 'success');
+    setWithdrawableUsdt(prev => Number((prev - amountToWithdraw).toFixed(2)));
+    setWalletBalanceUsdt(prev => Number((prev - amountToWithdraw).toFixed(4)));
+
+    showToast(`Withdrawal of $${amountToWithdraw.toFixed(2)} USDT submitted! Status: Pending review`, 'success');
+    setTimeout(() => {
+      setShowWithdrawalRecordView(true);
+    }, 600);
   };
 
   const showToast = (message: string, type: 'success' | 'info') => {
@@ -175,174 +182,141 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     setTimeout(() => setNotification(null), 3500);
   };
 
-  // ----------------------------------------------------
-  // SCREENSHOT 2: EARNINGS DETAILS VIEW
-  // ----------------------------------------------------
+  const filteredWithdrawals = withdrawalRecords.filter(r => {
+    if (withdrawalFilter === 'All') return true;
+    return r.status === withdrawalFilter;
+  });
+
+  /* =========================================================================
+     VIEW A: SCREENSHOT 2 - "Earnings details" Full Page
+     ========================================================================= */
   if (showEarningsDetailsView) {
     return (
-      <div id="earnings-details-view" className="max-w-md mx-auto bg-white min-h-[85vh] rounded-3xl overflow-hidden shadow-2xl text-slate-800 flex flex-col justify-between animate-in fade-in duration-150">
-        <div>
-          {/* Top Bar matching Screenshot 2 */}
-          <div className="bg-[#f8f9fa] border-b border-slate-200 px-4 py-2.5 flex items-center justify-between text-xs text-slate-600">
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-slate-800">defi-ETH</span>
-              <span className="text-slate-400">bx.eth-33.com</span>
-            </div>
-            <div className="w-5 h-5 rounded-full bg-slate-900 flex items-center justify-center p-1 text-white">
-              <svg viewBox="0 0 784.37 1277.39" className="w-3 h-3 fill-current">
-                <polygon points="392.07,0 383.5,29.11 383.5,872.9 392.07,881.46 784.13,649.65" />
-                <polygon points="392.07,0 0,649.65 392.07,881.46 392.07,472.02" />
-                <polygon points="392.07,949.66 386.66,956.26 386.66,1263.96 392.07,1277.39 784.37,726.55" />
-                <polygon points="392.07,1277.39 392.07,949.66 0,726.55" />
-              </svg>
-            </div>
-          </div>
-
-          {/* Header with Back Arrow */}
-          <div className="px-4 py-3.5 border-b border-slate-100 flex items-center gap-3">
+      <div id="earnings-details-view" className="max-w-md mx-auto min-h-[750px] bg-[#0c121e] text-white flex flex-col justify-between rounded-3xl border border-slate-800 shadow-2xl overflow-hidden animate-in fade-in duration-150">
+        
+        <div className="p-4 space-y-4">
+          {/* Header with Back Arrow & Title */}
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <button
               onClick={() => setShowEarningsDetailsView(false)}
-              className="p-1 text-slate-700 hover:text-black cursor-pointer font-bold"
+              className="p-1 text-slate-400 hover:text-white cursor-pointer"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <h1 className="text-base font-bold text-slate-900">Earnings Details</h1>
+            <h2 className="text-base font-bold text-white font-sans">Earnings details</h2>
+            <div className="w-5" />
           </div>
 
-          {/* Table Header */}
-          <div className="grid grid-cols-12 px-4 py-2.5 bg-[#fcfcfd] border-b border-slate-200 text-xs font-semibold text-slate-500">
-            <div className="col-span-4 text-left">Time</div>
-            <div className="col-span-4 text-center">Income</div>
-            <div className="col-span-4 text-right">Account Balance</div>
-          </div>
-
-          {/* Table Rows */}
-          <div className="divide-y divide-slate-100 max-h-[60vh] overflow-y-auto">
+          {/* List of 6-hour cycle earnings records */}
+          <div className="space-y-3 font-mono text-xs max-h-[580px] overflow-y-auto pr-1">
             {earningsData.map((item) => (
-              <div key={item.id} className="grid grid-cols-12 px-4 py-3 text-xs items-center hover:bg-slate-50 transition-colors">
-                <div className="col-span-4 text-slate-500 text-[11px] leading-tight">
-                  {item.time}
+              <div
+                key={item.id}
+                className="p-3.5 rounded-2xl bg-[#111726] border border-slate-800/80 space-y-1.5"
+              >
+                <div className="flex items-center justify-between text-slate-400 text-[11px]">
+                  <span>Time</span>
+                  <span className="text-slate-200">{item.time}</span>
                 </div>
-                <div className="col-span-4 text-center font-bold text-emerald-600 font-mono text-[11px]">
-                  {item.incomeEth}
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-400">Income</span>
+                  <span className="text-emerald-400 font-bold">{item.incomeEth}</span>
                 </div>
-                <div className="col-span-4 text-right font-mono text-slate-800 text-[11px]">
-                  {item.accountBalance}
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-slate-400">Account balance</span>
+                  <span className="text-white font-bold">{item.accountBalance}</span>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Bottom Back Button */}
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-          <button
-            onClick={() => setShowEarningsDetailsView(false)}
-            className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl cursor-pointer"
-          >
-            ← Return to Dashboard
-          </button>
+        {/* Bottom Navigation */}
+        <div className="bg-[#080c16] border-t border-slate-800 p-3 flex items-center justify-around text-xs font-semibold">
+          <button onClick={() => { setShowEarningsDetailsView(false); setActiveNav('financial'); }} className="text-slate-400 hover:text-white">Financial</button>
+          <button onClick={() => { setShowEarningsDetailsView(false); setActiveNav('reward'); }} className="text-slate-400 hover:text-white">Reward</button>
+          <button onClick={() => setShowEarningsDetailsView(false)} className="text-[#f77f00] font-bold">Assets</button>
         </div>
       </div>
     );
   }
 
-  // ----------------------------------------------------
-  // SCREENSHOT 3: WITHDRAWAL RECORD VIEW
-  // ----------------------------------------------------
+  /* =========================================================================
+     VIEW B: SCREENSHOT 3 - "Withdrawal record" Full Page
+     ========================================================================= */
   if (showWithdrawalRecordView) {
-    const filteredRecords = withdrawalRecords.filter(r => {
-      if (withdrawalFilter === 'All') return true;
-      return r.status === withdrawalFilter;
-    });
-
     return (
-      <div id="withdrawal-record-view" className="max-w-md mx-auto bg-white min-h-[85vh] rounded-3xl overflow-hidden shadow-2xl text-slate-800 flex flex-col justify-between animate-in fade-in duration-150">
-        <div>
-          {/* Top Bar matching Screenshot 3 */}
-          <div className="bg-[#f8f9fa] border-b border-slate-200 px-4 py-2.5 flex items-center justify-between text-xs text-slate-600">
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-slate-800">defi-ETH</span>
-              <span className="text-slate-400">bx.eth-33.com</span>
-            </div>
-            <div className="w-5 h-5 rounded-full bg-slate-900 flex items-center justify-center p-1 text-white">
-              <svg viewBox="0 0 784.37 1277.39" className="w-3 h-3 fill-current">
-                <polygon points="392.07,0 383.5,29.11 383.5,872.9 392.07,881.46 784.13,649.65" />
-                <polygon points="392.07,0 0,649.65 392.07,881.46 392.07,472.02" />
-                <polygon points="392.07,949.66 386.66,956.26 386.66,1263.96 392.07,1277.39 784.37,726.55" />
-                <polygon points="392.07,1277.39 392.07,949.66 0,726.55" />
-              </svg>
-            </div>
-          </div>
-
+      <div id="withdrawal-record-view" className="max-w-md mx-auto min-h-[750px] bg-[#0c121e] text-white flex flex-col justify-between rounded-3xl border border-slate-800 shadow-2xl overflow-hidden animate-in fade-in duration-150">
+        
+        <div className="p-4 space-y-4">
           {/* Header with Back Arrow */}
-          <div className="px-4 py-3.5 border-b border-slate-100 flex items-center gap-3">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <button
               onClick={() => setShowWithdrawalRecordView(false)}
-              className="p-1 text-slate-700 hover:text-black cursor-pointer font-bold"
+              className="p-1 text-slate-400 hover:text-white cursor-pointer"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <h1 className="text-base font-bold text-slate-900">Withdrawal Record</h1>
+            <h2 className="text-base font-bold text-white font-sans">Withdrawal record</h2>
+            <div className="w-5" />
           </div>
 
-          {/* Filter Tabs: All | Pending | Withdrawal successfully | Failed */}
-          <div className="flex items-center justify-around border-b border-slate-200 text-xs px-2 pt-1 font-semibold text-slate-500">
+          {/* 4 Status Tabs: All | Pending | Withdrawal successfully | Failed */}
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2 text-xs font-medium">
             {(['All', 'Pending', 'Withdrawal successfully', 'Failed'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setWithdrawalFilter(tab)}
-                className={`py-2.5 px-2 relative transition-all cursor-pointer ${
+                className={`pb-1.5 transition-colors cursor-pointer text-center ${
                   withdrawalFilter === tab
-                    ? 'text-blue-600 font-bold'
-                    : 'hover:text-slate-800'
+                    ? 'text-[#f77f00] font-bold border-b-2 border-[#f77f00]'
+                    : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                <span>{tab}</span>
-                {withdrawalFilter === tab && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-600 rounded-full" />
-                )}
+                {tab === 'Withdrawal successfully' ? 'Withdrawal succ...' : tab}
               </button>
             ))}
           </div>
 
-          {/* List of Withdrawal Records */}
-          <div className="divide-y divide-slate-100 max-h-[60vh] overflow-y-auto p-2">
-            {filteredRecords.length === 0 ? (
-              <div className="text-center py-16 text-xs text-slate-400">
-                No withdrawal records found in this category.
+          {/* Withdrawal Records List */}
+          <div className="space-y-3 font-mono text-xs max-h-[540px] overflow-y-auto pr-1">
+            {filteredWithdrawals.length === 0 ? (
+              <div className="text-center py-12 text-slate-500">
+                No withdrawal records found.
               </div>
             ) : (
-              filteredRecords.map((rec) => (
-                <div key={rec.id} className="p-3.5 space-y-1.5 hover:bg-slate-50 rounded-2xl transition-colors">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-bold shrink-0">
-                        ₮
-                      </div>
-                      <span className="text-xs font-bold text-slate-800">
-                        {rec.currency}
-                      </span>
-                    </div>
-
-                    <div className="text-right">
-                      <span className="text-sm font-bold text-rose-500 font-mono">
-                        {rec.amount}
-                      </span>
-                    </div>
+              filteredWithdrawals.map((rec) => (
+                <div
+                  key={rec.id}
+                  className="p-3.5 rounded-2xl bg-[#111726] border border-slate-800/80 space-y-1.5"
+                >
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Currency</span>
+                    <span className="text-white font-bold">{rec.currency}</span>
                   </div>
-
-                  <div className="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
-                    <span>{rec.time}</span>
-                    <span className={`font-semibold ${
-                      rec.status === 'Withdrawal successfully'
-                        ? 'text-blue-500'
-                        : rec.status === 'Pending'
-                        ? 'text-slate-400'
-                        : 'text-rose-500'
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Type</span>
+                    <span className="text-slate-300">{rec.type}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Amount</span>
+                    <span className="text-rose-400 font-bold">{rec.amount.toLocaleString()}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Status</span>
+                    <span className={`font-bold ${
+                      rec.status === 'Pending' 
+                        ? 'text-amber-400' 
+                        : rec.status === 'Withdrawal successfully' 
+                        ? 'text-emerald-400' 
+                        : 'text-rose-400'
                     }`}>
                       {rec.status}
                     </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="text-slate-400">Time</span>
+                    <span className="text-slate-400">{rec.time}</span>
                   </div>
                 </div>
               ))
@@ -350,33 +324,28 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
           </div>
         </div>
 
-        {/* Bottom Back Button */}
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-          <button
-            onClick={() => setShowWithdrawalRecordView(false)}
-            className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl cursor-pointer"
-          >
-            ← Return to Dashboard
-          </button>
+        {/* Bottom Navigation */}
+        <div className="bg-[#080c16] border-t border-slate-800 p-3 flex items-center justify-around text-xs font-semibold">
+          <button onClick={() => { setShowWithdrawalRecordView(false); setActiveNav('financial'); }} className="text-slate-400 hover:text-white">Financial</button>
+          <button onClick={() => { setShowWithdrawalRecordView(false); setActiveNav('reward'); }} className="text-slate-400 hover:text-white">Reward</button>
+          <button onClick={() => setShowWithdrawalRecordView(false)} className="text-[#f77f00] font-bold">Assets</button>
         </div>
       </div>
     );
   }
 
-  // ----------------------------------------------------
-  // MAIN DASHBOARD (SCREENSHOT 1): ASSETS & SMART PRODUCTION
-  // ----------------------------------------------------
+  /* =========================================================================
+     VIEW C: SCREENSHOT 1 - Main "Assets" Smart Production Dashboard
+     ========================================================================= */
+  const displayedCategoryPackages = dashCategory === 'daily' ? DAILY_PACKAGES : FLASH_48H_PACKAGES;
+
   return (
-    <div id="client-smart-dashboard" className="max-w-md mx-auto bg-[#070b16] rounded-3xl border border-slate-800 overflow-hidden shadow-2xl text-white relative pb-16 animate-in fade-in duration-200">
+    <div id="client-smart-dashboard-view" className="max-w-md mx-auto min-h-[820px] bg-[#0c121e] text-white flex flex-col justify-between rounded-3xl border border-slate-800 shadow-2xl overflow-hidden relative pb-16">
       
-      {/* Toast Notification */}
+      {/* Toast */}
       {notification && (
-        <div className={`absolute top-4 left-4 right-4 z-50 p-3 rounded-2xl text-xs font-bold flex items-center gap-2 shadow-2xl border ${
-          notification.type === 'success'
-            ? 'bg-emerald-950/90 text-emerald-300 border-emerald-500/50'
-            : 'bg-slate-900/90 text-amber-300 border-amber-500/50'
-        }`}>
-          <CheckCircle2 className="w-4 h-4 shrink-0" />
+        <div className="absolute top-3 left-4 right-4 z-50 p-3 rounded-2xl bg-amber-500 text-slate-950 font-bold text-xs shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
+          <Sparkles className="w-4 h-4 shrink-0" />
           <span>{notification.message}</span>
         </div>
       )}
@@ -452,29 +421,61 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
           </div>
         </div>
 
-        {/* 5 Packages Quick Switcher / Upgrade Grid */}
-        <div className="space-y-2">
+        {/* Package Upgrade & Selection Section */}
+        <div className="space-y-2.5">
           <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-slate-300">Choose / Upgrade Mining Package</span>
-            <span className="text-[11px] text-amber-400 font-mono">5 Packages</span>
+            <span className="font-bold text-slate-300">Choose / Upgrade Investment Package</span>
+            
+            {/* Category Toggle: Daily vs 48H Flash */}
+            <div className="flex items-center gap-1 bg-[#10182c] p-0.5 rounded-xl border border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDashCategory('daily')}
+                className={`px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
+                  dashCategory === 'daily' ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Daily 2%-3%
+              </button>
+              <button
+                type="button"
+                onClick={() => setDashCategory('flash_48h')}
+                className={`px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
+                  dashCategory === 'flash_48h' ? 'bg-rose-500 text-white' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                48H Flash
+              </button>
+            </div>
           </div>
 
-          <div className="grid grid-cols-5 gap-1.5">
-            {packages.map((pkg) => {
-              const isCurrent = pkg.vipLevel === currentVipLevel;
+          {/* Grid of Packages in the selected category */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {displayedCategoryPackages.map((pkg) => {
+              const isCurrent = pkg.vipLevel === currentVipLevel && (pkg.planType === activeApprovedDeposit?.planType || (!activeApprovedDeposit && pkg.planType === 'daily'));
+              const isFlash = pkg.planType === 'flash_48h';
               return (
                 <button
                   key={pkg.id}
                   onClick={() => onSelectPackage(pkg)}
-                  className={`p-2 rounded-2xl border text-center transition-all cursor-pointer flex flex-col items-center justify-between ${
+                  className={`p-2.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
                     isCurrent
                       ? 'bg-amber-500/20 border-amber-500 text-white font-bold ring-1 ring-amber-500'
+                      : isFlash
+                      ? 'bg-[#151128] border-rose-950/60 text-slate-300 hover:border-rose-700/60'
                       : 'bg-[#10182c] border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
                   }`}
                 >
-                  <div className="text-[10px] font-black text-amber-400">VIP {pkg.vipLevel}</div>
-                  <div className="text-xs font-black font-mono mt-0.5">${pkg.priceUsd}</div>
-                  <div className="text-[9px] text-emerald-400 font-mono">+{pkg.dailyReturnPercent}%</div>
+                  <div className="flex items-center justify-between w-full">
+                    <span className={`text-[10px] font-black ${isFlash ? 'text-rose-400' : 'text-amber-400'}`}>
+                      {isFlash ? '48H FLASH' : `VIP ${pkg.vipLevel}`}
+                    </span>
+                    <span className="text-[9px] font-mono font-bold text-emerald-400">
+                      {isFlash ? `+${pkg.profitPercent}% (48h)` : pkg.profitRangeText || `+${pkg.dailyReturnPercent}%`}
+                    </span>
+                  </div>
+                  <div className="text-xs font-black font-mono mt-1 text-white">${pkg.priceUsd.toLocaleString()}</div>
+                  <div className="text-[9px] text-slate-400 truncate mt-0.5">{pkg.name}</div>
                 </button>
               );
             })}
@@ -735,10 +736,8 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
 
         </div>
 
-        {/* Domain Pill at Base (h-yield-00.com) */}
-        <div className="text-[10px] text-slate-500 font-mono pt-0.5">
-          h-yield-00.com
-        </div>
+        {/* Small Bottom Horizontal Indicator Line (Matching screenshot) */}
+        <div className="w-28 h-1 bg-white/70 rounded-full mt-1.5" />
       </div>
 
     </div>

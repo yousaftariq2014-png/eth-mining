@@ -12,7 +12,9 @@ import {
   Zap, 
   DollarSign, 
   Wallet,
-  ArrowRight
+  ArrowRight,
+  Flame,
+  Timer
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { MiningPackage, DepositRequest, UserProfile } from '../types';
@@ -40,6 +42,8 @@ export const DepositPage: React.FC<DepositPageProps> = ({
   const [copied, setCopied] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
+  const isFlash = selectedPackage.planType === 'flash_48h';
+
   // Address map
   const depositAddresses = {
     TRC20: 'TQn9Y2khEsLJW1ChV8N8N6uG2X734fjk',
@@ -49,7 +53,7 @@ export const DepositPage: React.FC<DepositPageProps> = ({
 
   const currentAddress = depositAddresses[network];
 
-  // Check if there is an active pending deposit for this package or recent
+  // Check if there is an active pending deposit for this user
   const userPendingDeposit = pendingDeposits.find(
     (d) => d.userId === user.id && d.status === 'pending'
   );
@@ -79,6 +83,7 @@ export const DepositPage: React.FC<DepositPageProps> = ({
         userName: user.name,
         packageId: selectedPackage.id,
         packageName: selectedPackage.name,
+        planType: selectedPackage.planType,
         vipLevel: selectedPackage.vipLevel,
         amountUsd: amount,
         network,
@@ -133,7 +138,7 @@ export const DepositPage: React.FC<DepositPageProps> = ({
 
             <div className="text-left sm:text-right font-mono">
               <div className="text-xs text-slate-400">Order Amount</div>
-              <div className="text-2xl font-black text-amber-400">${userPendingDeposit.amountUsd} USDT</div>
+              <div className="text-2xl font-black text-amber-400">${userPendingDeposit.amountUsd.toLocaleString()} USDT</div>
             </div>
           </div>
 
@@ -169,8 +174,10 @@ export const DepositPage: React.FC<DepositPageProps> = ({
                   ⏳
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-amber-400">Admin Review & Cloud Hashrate Allocation</div>
-                  <div className="text-[11px] text-slate-400">Admin is verifying your deposit to activate your live mining dashboard.</div>
+                  <div className="text-xs font-bold text-amber-400">Admin Review & Allocation</div>
+                  <div className="text-[11px] text-slate-400">
+                    Admin is reviewing your transaction to activate your contract.
+                  </div>
                 </div>
               </div>
             </div>
@@ -180,11 +187,13 @@ export const DepositPage: React.FC<DepositPageProps> = ({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono bg-slate-900/60 p-4 rounded-2xl border border-slate-800">
             <div>
               <div className="text-slate-500 text-[10px]">Package</div>
-              <div className="font-bold text-white mt-0.5">{userPendingDeposit.packageName}</div>
+              <div className="font-bold text-white mt-0.5 truncate">{userPendingDeposit.packageName}</div>
             </div>
             <div>
-              <div className="text-slate-500 text-[10px]">Tier</div>
-              <div className="font-bold text-amber-400 mt-0.5">VIP {userPendingDeposit.vipLevel}</div>
+              <div className="text-slate-500 text-[10px]">Plan Model</div>
+              <div className="font-bold text-amber-400 mt-0.5">
+                {userPendingDeposit.planType === 'flash_48h' ? '48H Flash Contract' : `Daily Mining VIP ${userPendingDeposit.vipLevel}`}
+              </div>
             </div>
             <div>
               <div className="text-slate-500 text-[10px]">Network</div>
@@ -239,154 +248,163 @@ export const DepositPage: React.FC<DepositPageProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
           <div>
             <div className="flex items-center gap-2">
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-400 border border-amber-500/40">
-                VIP {selectedPackage.vipLevel}
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                isFlash 
+                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' 
+                  : 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+              }`}>
+                {isFlash ? '48H Flash Contract' : `Daily Mining VIP ${selectedPackage.vipLevel}`}
               </span>
               <span className="text-xs font-mono text-emerald-400 font-bold">
-                +{selectedPackage.dailyReturnPercent}% Daily Yield
+                {isFlash ? `+${selectedPackage.profitPercent}% in 48 Hours` : selectedPackage.profitRangeText || `+${selectedPackage.dailyReturnPercent}% Daily`}
               </span>
             </div>
-            <h2 className="text-xl sm:text-2xl font-black text-white mt-1">
+            <h2 className="text-2xl font-black text-white mt-1">
               Deposit & Activate {selectedPackage.name}
             </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
-              Hashrate: <span className="text-amber-400 font-bold font-mono">{selectedPackage.hashrate} {selectedPackage.hashrateUnit}</span> • 4 Cycle Payouts Every 6 Hours
-            </p>
           </div>
 
-          <div className="text-left sm:text-right font-mono bg-slate-900/80 p-3 rounded-2xl border border-slate-800">
-            <div className="text-[10px] text-slate-400 uppercase tracking-wider">Required Deposit</div>
-            <div className="text-2xl font-black text-white">${selectedPackage.priceUsd} <span className="text-xs text-amber-400">USDT</span></div>
+          <div className="text-left sm:text-right font-mono">
+            <div className="text-xs text-slate-400">Required Capital</div>
+            <div className="text-2xl sm:text-3xl font-black text-amber-400">
+              ${selectedPackage.priceUsd.toLocaleString()} USDT
+            </div>
           </div>
         </div>
 
-        {/* Network Selection */}
+        {/* 48H Flash Return Breakdown Box */}
+        {isFlash && selectedPackage.totalPayoutUsd && (
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-rose-950/40 via-purple-950/40 to-slate-900 border border-rose-500/40 space-y-2">
+            <div className="flex items-center gap-2 text-xs font-bold text-rose-300">
+              <Flame className="w-4 h-4 text-orange-400" />
+              <span>48-Hour Return Breakdown (Automated Lump Sum Settlement):</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-xs font-mono pt-1">
+              <div className="p-2 rounded-xl bg-slate-900/80 border border-slate-800">
+                <span className="text-[10px] text-slate-400">Your Capital</span>
+                <div className="text-sm font-black text-white mt-0.5">${selectedPackage.priceUsd.toLocaleString()}</div>
+              </div>
+              <div className="p-2 rounded-xl bg-slate-900/80 border border-slate-800">
+                <span className="text-[10px] text-slate-400">Fixed Profit ({selectedPackage.profitPercent}%)</span>
+                <div className="text-sm font-black text-emerald-400 mt-0.5">+${selectedPackage.oneTimeProfitUsd?.toLocaleString()}</div>
+              </div>
+              <div className="p-2 rounded-xl bg-slate-900/80 border border-rose-900/60">
+                <span className="text-[10px] text-rose-300">Total Return</span>
+                <div className="text-sm font-black text-amber-400 mt-0.5">${selectedPackage.totalPayoutUsd.toLocaleString()}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Network Selection: TRC20 | ERC20 | BEP20 */}
         <div className="space-y-2">
-          <label className="text-xs font-bold text-slate-300">Select Deposit Network</label>
-          <div className="grid grid-cols-3 gap-2">
+          <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+            1. Select USDT Deposit Network
+          </label>
+          <div className="grid grid-cols-3 gap-3">
             {(['TRC20', 'ERC20', 'BEP20'] as const).map((net) => (
               <button
                 key={net}
                 type="button"
                 onClick={() => setNetwork(net)}
-                className={`py-3 px-3 rounded-2xl text-xs font-bold transition-all cursor-pointer border text-center ${
+                className={`py-3 rounded-2xl border text-xs font-bold font-mono transition-all cursor-pointer ${
                   network === net
-                    ? 'bg-amber-500/20 border-amber-500 text-amber-300 font-black shadow-md shadow-amber-500/10'
-                    : 'bg-[#131d35] border-slate-800 text-slate-400 hover:text-white'
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md font-black'
+                    : 'bg-slate-900/80 text-slate-300 border-slate-800 hover:border-slate-700'
                 }`}
               >
-                <div>USDT - {net}</div>
-                <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                  {net === 'TRC20' ? 'Low Fee (Fast)' : net === 'ERC20' ? 'Ethereum Mainnet' : 'BNB Smart Chain'}
-                </div>
+                USDT-{net}
               </button>
             ))}
           </div>
         </div>
 
-        {/* Deposit Address & QR Code Box */}
-        <div className="rounded-2xl bg-[#131d35] border border-slate-700/60 p-5 space-y-4">
-          <div className="flex flex-col sm:flex-row items-center gap-5">
-            
-            {/* QR code */}
-            <div className="w-28 h-28 bg-white rounded-2xl p-2 flex items-center justify-center shrink-0 shadow-lg">
-              <QrCode className="w-24 h-24 text-slate-950" />
+        {/* Deposit Address Box */}
+        <div className="space-y-2">
+          <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+            2. Send Payment to Platform Address
+          </label>
+
+          <div className="p-4 rounded-2xl bg-[#090d16] border border-slate-700/80 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono text-slate-400">USDT-{network} Official Deposit Address:</span>
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="inline-flex items-center gap-1 text-xs font-mono font-bold text-amber-400 hover:text-amber-300 cursor-pointer"
+              >
+                {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copied ? 'Copied!' : 'Copy'}</span>
+              </button>
             </div>
 
-            {/* Address Info */}
-            <div className="space-y-2 flex-1 w-full text-center sm:text-left">
-              <div className="flex items-center justify-center sm:justify-between">
-                <span className="text-xs font-bold text-slate-400">Official USDT ({network}) Receiving Address:</span>
-                <span className="hidden sm:inline text-[10px] font-mono text-emerald-400 font-bold">● Network Online</span>
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 text-amber-300 font-mono text-xs sm:text-sm font-bold break-all select-all flex items-center justify-between gap-2">
-                <span>{currentAddress}</span>
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  className="p-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/40 text-amber-400 text-xs font-bold shrink-0 cursor-pointer flex items-center gap-1"
-                >
-                  {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span className="text-[10px]">{copied ? 'Copied' : 'Copy'}</span>
-                </button>
-              </div>
-
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                Send exactly <strong className="text-white font-mono">${selectedPackage.priceUsd} USDT</strong> via the <strong className="text-amber-300">{network}</strong> network to the address above.
-              </p>
+            <div className="p-3 rounded-xl bg-slate-950 font-mono text-xs text-amber-300 break-all select-all border border-slate-800">
+              {currentAddress}
             </div>
+
+            <p className="text-[11px] text-slate-400">
+              ⚠️ Please transfer only <strong>USDT ({network})</strong> to this address. Funds will be credited after network broadcast confirmation and admin approval.
+            </p>
           </div>
         </div>
 
-        {/* Deposit Submission Form */}
-        <form onSubmit={handleSubmit} className="space-y-4 pt-2">
-          
-          {/* Amount Field */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
-              <span>Deposit Amount (USDT)</span>
-              <span className="text-[11px] text-slate-400 font-mono font-normal">Package Price: ${selectedPackage.priceUsd}</span>
-            </label>
-            <div className="relative">
+        {/* Deposit Proof Submission Form */}
+        <form onSubmit={handleSubmit} className="space-y-4 pt-2 border-t border-slate-800">
+          <div className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+            3. Submit Deposit Transaction Details
+          </div>
+
+          <div className="space-y-3">
+            <div>
+              <label className="block text-xs font-mono text-slate-400 mb-1">
+                Deposit Amount (USDT):
+              </label>
               <input
                 type="number"
                 value={amount}
                 onChange={(e) => setAmount(Number(e.target.value))}
-                min={selectedPackage.priceUsd}
+                min={10}
                 required
-                className="w-full bg-[#131d35] border border-slate-700 rounded-xl px-4 py-3 text-sm font-mono font-bold text-white focus:outline-none focus:border-amber-500"
+                className="w-full bg-[#090d16] border border-slate-700 rounded-xl px-4 py-2.5 text-sm font-mono text-white focus:outline-none focus:border-amber-500 font-bold"
               />
-              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 font-mono">
-                USDT
-              </span>
             </div>
-          </div>
 
-          {/* TXID / Sender Hash Field */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-300 flex items-center justify-between">
-              <span>Your Sender Wallet Address / Transaction Hash (TXID)</span>
-              <span className="text-[11px] text-amber-400 font-normal">Required for verification</span>
-            </label>
-            <input
-              type="text"
-              value={senderTxid}
-              onChange={(e) => setSenderTxid(e.target.value)}
-              placeholder="e.g. 0x8f2a... or TQv97... or TXID hash"
-              required
-              className="w-full bg-[#131d35] border border-slate-700 rounded-xl px-4 py-3 text-xs sm:text-sm font-mono text-white placeholder:text-slate-600 focus:outline-none focus:border-amber-500"
-            />
-          </div>
-
-          {/* Security Notice */}
-          <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 flex items-start gap-2.5 text-xs text-slate-400">
-            <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-            <span>
-              After submitting, the deposit will be marked as <strong className="text-amber-300">Pending</strong>. Once reviewed and approved by the admin, your mining node will immediately activate.
-            </span>
+            <div>
+              <label className="block text-xs font-mono text-slate-400 mb-1">
+                Your Transfer Transaction Hash (TXID) or Sender Address:
+              </label>
+              <input
+                type="text"
+                value={senderTxid}
+                onChange={(e) => setSenderTxid(e.target.value)}
+                placeholder="e.g. 0x8a94e... or TX7894291..."
+                required
+                className="w-full bg-[#090d16] border border-slate-700 rounded-xl px-4 py-2.5 text-xs font-mono text-white focus:outline-none focus:border-amber-500 placeholder:text-slate-600"
+              />
+            </div>
           </div>
 
           {/* Submit Button */}
           <button
             type="submit"
             disabled={isSubmitting}
-            className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm tracking-wide shadow-xl shadow-amber-500/20 flex items-center justify-center gap-2 cursor-pointer transition-all disabled:opacity-50"
+            className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-sm shadow-xl shadow-amber-500/20 cursor-pointer transition-all disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {isSubmitting ? (
-              <span>Submitting Deposit...</span>
+              <>
+                <Clock className="w-4 h-4 animate-spin" />
+                <span>Broadcasting to Blockchain...</span>
+              </>
             ) : (
               <>
-                <Zap className="w-4 h-4 fill-slate-950" />
-                <span>Submit ${amount} USDT Deposit for Approval</span>
+                <span>Submit Deposit for Activation</span>
+                <ArrowRight className="w-4 h-4" />
               </>
             )}
           </button>
-
         </form>
 
       </div>
-
     </div>
   );
 };

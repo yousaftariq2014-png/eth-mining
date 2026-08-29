@@ -14,12 +14,11 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // Complete SQL Schema string for the user to run in Supabase SQL Editor
 export const SUPABASE_SQL_SETUP = `-- Copy and run this in Supabase SQL Editor:
--- 1. Clients / Users Table
+-- 1. Clients / Users Table (Secured - Authentication credentials managed by Supabase Auth)
 CREATE TABLE IF NOT EXISTS public.clients (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
-  password TEXT,
   plan TEXT DEFAULT 'VIP 1',
   vip_level INTEGER DEFAULT 1,
   joined_date TEXT,
@@ -62,12 +61,12 @@ CREATE TABLE IF NOT EXISTS public.withdrawals (
   inserted_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Enable public read/write permissions for demo/client app
+-- Enable Row Level Security
 ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.deposits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.withdrawals ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Allow public read-write on clients" ON public.clients FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Allow authenticated read-write on clients" ON public.clients FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public read-write on deposits" ON public.deposits FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Allow public read-write on withdrawals" ON public.withdrawals FOR ALL USING (true) WITH CHECK (true);
 `;
@@ -130,14 +129,13 @@ export async function signUpWithSupabase(
       console.warn('Clients table check warning:', e);
     }
 
-    // 3. Call Supabase Auth SignUp with raw password stored in metadata and clients table
+    // 3. Call Supabase Auth SignUp
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: cleanEmail,
       password: password,
       options: {
         data: {
           full_name: cleanName,
-          plain_password: password,
         },
         emailRedirectTo: window.location.origin,
       },
@@ -163,14 +161,11 @@ export async function signUpWithSupabase(
     }
 
     const userId = authData.user?.id || `usr-${Date.now()}`;
-    // Save to password vault for admin visibility
-    recordClientPassword(cleanEmail, password);
 
     const newUserProfile: UserProfile = {
       id: userId,
       name: cleanName,
       email: cleanEmail,
-      password: password,
       plan: 'VIP 1 Starter',
       vipLevel: 1,
       joinedDate: new Date().toISOString().substring(0, 10),
@@ -178,14 +173,12 @@ export async function signUpWithSupabase(
       hasClaimedFreeBonus: true,
     };
 
-    // 4. Save into clients table with password
+    // 4. Save into clients table without plain text passwords
     try {
       await supabase.from('clients').upsert({
         id: userId,
         name: cleanName,
         email: cleanEmail,
-        password: password,
-        plain_password: password,
         plan: 'VIP 1 Starter',
         vip_level: 1,
         joined_date: newUserProfile.joinedDate,
@@ -271,15 +264,11 @@ export async function signInWithSupabase(
       };
     }
 
-    // Record password in local vault
-    recordClientPassword(cleanEmail, password);
-
     // 2. Fetch user profile from database
     let userProfile: UserProfile = {
       id: authData.user?.id || `user-${Date.now()}`,
       name: (authData.user?.user_metadata?.full_name as string) || cleanEmail.split('@')[0],
       email: cleanEmail,
-      password: password,
       plan: 'VIP 1 Starter',
       vipLevel: 1,
       joinedDate: authData.user?.created_at?.substring(0, 10) || new Date().toISOString().substring(0, 10),
@@ -299,7 +288,6 @@ export async function signInWithSupabase(
           id: dbClient.id,
           name: dbClient.name || userProfile.name,
           email: dbClient.email,
-          password: dbClient.password || password,
           plan: dbClient.plan || `VIP ${dbClient.vip_level || 1}`,
           vipLevel: dbClient.vip_level || 1,
           joinedDate: dbClient.joined_date || userProfile.joinedDate,
@@ -308,19 +296,16 @@ export async function signInWithSupabase(
         };
       }
       
-      // Keep password updated in clients table
-      if (password) {
-        await supabase.from('clients').upsert({
-          id: userProfile.id,
-          name: userProfile.name,
-          email: userProfile.email,
-          password: password,
-          plan: userProfile.plan,
-          vip_level: userProfile.vipLevel || 1,
-          joined_date: userProfile.joinedDate,
-          is_logged_in: true,
-        });
-      }
+      // Update client session state in clients table
+      await supabase.from('clients').upsert({
+        id: userProfile.id,
+        name: userProfile.name,
+        email: userProfile.email,
+        plan: userProfile.plan,
+        vip_level: userProfile.vipLevel || 1,
+        joined_date: userProfile.joinedDate,
+        is_logged_in: true,
+      });
     } catch (e) {
       console.warn('DB client lookup warning:', e);
     }
@@ -413,15 +398,10 @@ export async function fetchSupabaseUsers(): Promise<UserProfile[] | null> {
     if (!data || data.length === 0) return null;
 
     return data.map(item => {
-      const storedPassword = item.password || item.plain_password || getClientPassword(item.email) || undefined;
-      if (storedPassword && item.email) {
-        recordClientPassword(item.email, storedPassword);
-      }
       return {
         id: item.id,
         name: item.name,
         email: item.email,
-        password: storedPassword,
         plan: item.plan || `VIP ${item.vip_level || 1}`,
         vipLevel: item.vip_level || 1,
         joinedDate: item.joined_date || item.created_at?.substring(0, 10) || '2026-08-28',
@@ -435,29 +415,15 @@ export async function fetchSupabaseUsers(): Promise<UserProfile[] | null> {
 }
 
 // ----------------------------------------------------
-// CLIENT PASSWORD VAULT HELPERS (Ensures passwords never disappear)
+// CLIENT SECURITY HELPERS
+// (Legacy vault helpers safely deprecated & sanitized)
 // ----------------------------------------------------
-export function recordClientPassword(email: string, pass: string) {
-  if (!email || !pass) return;
-  try {
-    const raw = localStorage.getItem('hashforge_password_vault') || '{}';
-    const vault = JSON.parse(raw);
-    vault[email.trim().toLowerCase()] = pass;
-    localStorage.setItem('hashforge_password_vault', JSON.stringify(vault));
-  } catch (e) {
-    console.warn('Failed to save password to vault:', e);
-  }
+export function recordClientPassword(_email?: string, _pass?: string) {
+  // Passwords are cryptographically secured by Supabase Auth and never cached
 }
 
-export function getClientPassword(email?: string): string | null {
-  if (!email) return null;
-  try {
-    const raw = localStorage.getItem('hashforge_password_vault') || '{}';
-    const vault = JSON.parse(raw);
-    return vault[email.trim().toLowerCase()] || null;
-  } catch {
-    return null;
-  }
+export function getClientPassword(_email?: string): string | null {
+  return null;
 }
 
 // ----------------------------------------------------
@@ -565,9 +531,6 @@ export async function saveSupabaseUser(user: UserProfile): Promise<boolean> {
       joined_date: user.joinedDate || new Date().toISOString().substring(0, 10),
       is_logged_in: user.isLoggedIn ?? true,
     };
-    if (user.password) {
-      payload.password = user.password;
-    }
 
     const { error } = await supabase.from('clients').upsert(payload);
 

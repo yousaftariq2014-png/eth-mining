@@ -10,7 +10,6 @@ import {
   supabase, 
   fetchSupabaseUsers, 
   fetchSupabaseDeposits,
-  getClientPassword,
   purgeAllTestData
 } from '../lib/supabaseClient';
 
@@ -65,25 +64,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [withdrawalFilter, setWithdrawalFilter] = useState<'all' | 'pending' | 'approved' | 'failed'>('pending');
   const [searchQuery, setSearchQuery] = useState<string>('');
   
-  // Client password visibility toggle and copy state
-  const [showAllPasswords, setShowAllPasswords] = useState<boolean>(false);
-  const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
-
   // Purge Confirmation Modal
   const [showPurgeConfirm, setShowPurgeConfirm] = useState<boolean>(false);
   const [isPurging, setIsPurging] = useState<boolean>(false);
   const [purgeSuccessMsg, setPurgeSuccessMsg] = useState<string>('');
-
-  const togglePasswordVisibility = (userId: string) => {
-    setVisiblePasswords(prev => ({ ...prev, [userId]: !prev[userId] }));
-  };
-
-  const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedKey(id);
-    setTimeout(() => setCopiedKey(null), 2000);
-  };
 
   // Perform full system reset
   const handleExecutePurge = async () => {
@@ -529,19 +513,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </button>
               )}
 
-              {/* Reveal / Hide All Passwords */}
-              <button
-                onClick={() => setShowAllPasswords(prev => !prev)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all border ${
-                  showAllPasswords 
-                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' 
-                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
-                }`}
-              >
-                {showAllPasswords ? <EyeOff className="w-3.5 h-3.5 text-amber-400" /> : <Eye className="w-3.5 h-3.5 text-amber-400" />}
-                <span>{showAllPasswords ? 'Mask All Passwords' : 'Show All Passwords'}</span>
-              </button>
-
+              {/* Purge All */}
               <button
                 onClick={() => setShowPurgeConfirm(true)}
                 className="px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/20 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all"
@@ -553,7 +525,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input 
                   type="text" 
-                  placeholder="Search name, email, password..." 
+                  placeholder="Search name, email, VIP tier..." 
                   value={searchQuery} 
                   onChange={(e) => setSearchQuery(e.target.value)} 
                   className="bg-[#121c33] border border-slate-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-500 w-full sm:w-64" 
@@ -565,7 +537,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           <div className="rounded-2xl bg-[#0f172a] border border-slate-800 overflow-hidden shadow-xl">
             <div className="grid grid-cols-12 px-4 py-3 bg-[#131e36] border-b border-slate-800 text-xs font-bold text-slate-400 uppercase tracking-wider">
               <div className="col-span-4 sm:col-span-3">Client</div>
-              <div className="col-span-4 sm:col-span-4">Login Password</div>
+              <div className="col-span-4 sm:col-span-4">Security / Auth Status</div>
               <div className="col-span-2 sm:col-span-2">VIP Tier</div>
               <div className="hidden sm:block sm:col-span-2">Joined Date</div>
               <div className="col-span-2 sm:col-span-1 text-right">Delete</div>
@@ -576,13 +548,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 <div className="text-center py-12 text-slate-500 text-xs space-y-2">
                   <Users className="w-8 h-8 text-slate-600 mx-auto" />
                   <p>No registered clients found. Clean zero-base database.</p>
-                  <p className="text-[11px] text-slate-600">When clients sign up on the website, their credentials and passwords will appear here in real-time.</p>
+                  <p className="text-[11px] text-slate-600">When clients sign up on the website, their authenticated profiles will appear here in real-time.</p>
                 </div>
               ) : (
                 filteredUsers.map((clientUser) => {
-                  const isPasswordVisible = showAllPasswords || !!visiblePasswords[clientUser.id];
-                  const clientPassword = clientUser.password || getClientPassword(clientUser.email) || (clientUser as any).plain_password || '';
-
                   return (
                     <div key={clientUser.id} className="grid grid-cols-12 px-4 py-3.5 text-xs items-center hover:bg-slate-900/60 transition-colors gap-2">
                       {/* Name & Email */}
@@ -591,37 +560,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         <div className="text-[11px] text-slate-400 font-mono truncate">{clientUser.email}</div>
                       </div>
 
-                      {/* Client Login Password with Eye Toggle and Copy */}
+                      {/* Security Status - Cryptographically Protected */}
                       <div className="col-span-4 sm:col-span-4">
-                        <div className="inline-flex items-center gap-1.5 bg-[#121c33] px-2.5 py-1.5 rounded-xl border border-slate-700/80 max-w-full">
-                          <Key className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                          <span className="font-mono text-xs text-amber-300 font-bold truncate select-all">
-                            {isPasswordVisible 
-                              ? (clientPassword || 'Saved in Auth DB') 
-                              : '••••••••••••'}
+                        <div className="inline-flex items-center gap-1.5 bg-emerald-500/10 px-2.5 py-1.5 rounded-xl border border-emerald-500/20 max-w-full">
+                          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                          <span className="font-mono text-[11px] text-emerald-300 font-medium truncate">
+                            Supabase Auth Encrypted
                           </span>
-                          
-                          {/* Toggle View */}
-                          <button
-                            type="button"
-                            onClick={() => togglePasswordVisibility(clientUser.id)}
-                            className="p-1 rounded-lg text-slate-400 hover:text-amber-300 hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
-                            title={isPasswordVisible ? 'Hide Password' : 'Show Password'}
-                          >
-                            {isPasswordVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                          </button>
-
-                          {/* 1-Click Copy */}
-                          {clientPassword && (
-                            <button
-                              type="button"
-                              onClick={() => copyToClipboard(clientPassword, `pwd-${clientUser.id}`)}
-                              className="p-1 rounded-lg text-slate-400 hover:text-emerald-400 hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
-                              title="Copy Password"
-                            >
-                              {copiedKey === `pwd-${clientUser.id}` ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                            </button>
-                          )}
                         </div>
                       </div>
 

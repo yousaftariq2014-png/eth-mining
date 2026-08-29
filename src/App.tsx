@@ -49,6 +49,13 @@ export default function App() {
     return saved ? 'dashboard' : 'home';
   });
 
+  // Clean up any legacy plaintext password vault immediately for security
+  useEffect(() => {
+    try {
+      localStorage.removeItem('hashforge_password_vault');
+    } catch {}
+  }, []);
+
   // Listen for Hash Changes (e.g. #admin or #reset-password / recovery)
   useEffect(() => {
     const handleHashChange = () => {

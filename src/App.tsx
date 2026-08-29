@@ -307,7 +307,12 @@ export default function App() {
     );
 
     // Sync approval to Supabase
-    updateSupabaseDepositStatus(depositId, 'approved', approvedTimestamp);
+    // FIX: 4th argument (explorerConfirmed = true) added — the client dashboard
+    // only treats a deposit as usable once BOTH status === 'approved' AND
+    // explorer_confirmed === true in the database. Without this, deposits were
+    // marked "approved" but never counted, so the client's purchased package
+    // never appeared on their dashboard.
+    updateSupabaseDepositStatus(depositId, 'approved', approvedTimestamp, true);
 
     // Update user VIP level in registered users database & active user session
     const targetDeposit = deposits.find(d => d.id === depositId);

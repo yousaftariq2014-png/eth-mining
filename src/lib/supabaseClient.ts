@@ -88,6 +88,30 @@ export async function checkSupabaseConnection(): Promise<{ connected: boolean; e
 // ----------------------------------------------------
 // AUTHENTICATION & EMAIL ACTIVATION HELPERS
 // ----------------------------------------------------
+export function getAppAuthRedirectUrl(type: 'signup' | 'recovery' = 'signup'): string {
+  const defaultPublicOrigin = 'https://ais-pre-q52bihbqpd7vjsdd6trsyw-416902820996.asia-southeast1.run.app';
+  let cleanOrigin = defaultPublicOrigin;
+
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    let current = window.location.origin.replace(/\/+$/, '');
+    // If running in development sandbox (ais-dev), transform to public shared preview (ais-pre)
+    // so mobile users and external clients clicking email links do NOT get Google 403 Forbidden
+    if (current.includes('ais-dev-')) {
+      current = current.replace('ais-dev-', 'ais-pre-');
+    }
+    // If inside Google AI Studio host frame, fallback to public shared applet URL
+    if (current.includes('aistudio.google.com') || current.includes('google.com')) {
+      current = defaultPublicOrigin;
+    }
+    cleanOrigin = current;
+  }
+
+  if (type === 'recovery') {
+    return `${cleanOrigin}/#reset-password`;
+  }
+  return `${cleanOrigin}/#activated=true`;
+}
+
 export async function signUpWithSupabase(
   email: string,
   password: string,
@@ -129,6 +153,8 @@ export async function signUpWithSupabase(
       console.warn('Clients table check warning:', e);
     }
 
+    const redirectUrl = getAppAuthRedirectUrl('signup');
+
     // 3. Call Supabase Auth SignUp
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: cleanEmail,
@@ -137,7 +163,7 @@ export async function signUpWithSupabase(
         data: {
           full_name: cleanName,
         },
-        emailRedirectTo: window.location.origin,
+        emailRedirectTo: redirectUrl,
       },
     });
 
@@ -346,8 +372,10 @@ export async function sendSupabasePasswordReset(
       };
     }
 
+    const resetRedirectUrl = getAppAuthRedirectUrl('recovery');
+
     const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
-      redirectTo: `${window.location.origin}/#reset-password`,
+      redirectTo: resetRedirectUrl,
     });
 
     if (error) {
@@ -365,11 +393,13 @@ export async function resendSupabaseActivation(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const cleanEmail = email.trim().toLowerCase();
+    const activationRedirectUrl = getAppAuthRedirectUrl('signup');
+
     const { error } = await supabase.auth.resend({
       type: 'signup',
       email: cleanEmail,
       options: {
-        emailRedirectTo: window.location.origin,
+        emailRedirectTo: activationRedirectUrl,
       },
     });
 

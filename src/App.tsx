@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { CheckCircle2, X } from 'lucide-react';
 import { Header } from './components/Header';
 import { HomePage } from './components/HomePage';
 import { DepositPage } from './components/DepositPage';
@@ -44,10 +45,13 @@ export default function App() {
 
   // 2. Navigation State: 'home' | 'deposit' | 'dashboard' | 'admin'
   const [currentTab, setCurrentTab] = useState<string>(() => {
-    if (window.location.hash === '#admin') return 'admin';
+    if (typeof window !== 'undefined' && window.location.hash === '#admin') return 'admin';
     const saved = localStorage.getItem('hashforge_user');
     return saved ? 'dashboard' : 'home';
   });
+
+  // Activation & System Notice Toast
+  const [activationToast, setActivationToast] = useState<string | null>(null);
 
   // Clean up any legacy plaintext password vault immediately for security
   useEffect(() => {
@@ -56,19 +60,96 @@ export default function App() {
     } catch {}
   }, []);
 
-  // Listen for Hash Changes (e.g. #admin or #reset-password / recovery)
+  // Listen for Supabase Auth Events & URL Hash/Search parameters
   useEffect(() => {
-    const handleHashChange = () => {
-      const hash = window.location.hash;
+    // 1. URL Inspection (Hash and Search query parameters)
+    const checkUrlAuth = () => {
+      const hash = window.location.hash || '';
+      const search = window.location.search || '';
+
       if (hash === '#admin') {
         setCurrentTab('admin');
-      } else if (hash.includes('reset-password') || hash.includes('type=recovery') || hash.includes('access_token')) {
+        return;
+      }
+
+      // Password Recovery Flow
+      if (
+        hash.includes('reset-password') ||
+        hash.includes('type=recovery') ||
+        search.includes('type=recovery')
+      ) {
         setIsResetPasswordOpen(true);
+        return;
+      }
+
+      // Email Confirmation / Activation Flow
+      if (
+        hash.includes('activated=true') ||
+        hash.includes('type=signup') ||
+        hash.includes('type=email_change') ||
+        search.includes('type=signup')
+      ) {
+        setActivationToast('🎉 Your account has been verified and activated! Welcome to the ETH2.0 Mining Platform.');
+        setCurrentTab('dashboard');
+        // Clean hash from address bar gracefully
+        try {
+          window.history.replaceState(null, '', window.location.pathname);
+        } catch {}
       }
     };
-    handleHashChange();
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
+
+    checkUrlAuth();
+    window.addEventListener('hashchange', checkUrlAuth);
+
+    // 2. Supabase Auth State Change Listener
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsResetPasswordOpen(true);
+      } else if (event === 'SIGNED_IN' && session?.user) {
+        const u = session.user;
+        const freshUser: UserProfile = {
+          id: u.id,
+          name: (u.user_metadata?.full_name as string) || u.email?.split('@')[0] || 'Client',
+          email: u.email || '',
+          plan: 'VIP 1 Starter',
+          vipLevel: 1,
+          joinedDate: new Date().toISOString().substring(0, 10),
+          isLoggedIn: true,
+        };
+
+        setUser(prev => {
+          if (!prev || prev.id !== freshUser.id) {
+            localStorage.setItem('hashforge_user', JSON.stringify(freshUser));
+            return freshUser;
+          }
+          return prev;
+        });
+
+        setRegisteredUsers(prev => {
+          if (!prev.some(x => x.email.toLowerCase() === freshUser.email.toLowerCase())) {
+            return [freshUser, ...prev];
+          }
+          return prev;
+        });
+
+        saveSupabaseUser(freshUser);
+
+        // If coming from confirmation link
+        const currentHash = window.location.hash || '';
+        if (currentHash.includes('type=signup') || currentHash.includes('activated')) {
+          setActivationToast('🎉 Email activation successful! You are now logged into your Mining Dashboard.');
+          setCurrentTab('dashboard');
+          try {
+            window.history.replaceState(null, '', window.location.pathname);
+          } catch {}
+        }
+      }
+    });
+
+    return () => {
+      window.removeEventListener('hashchange', checkUrlAuth);
+      authListener?.subscription?.unsubscribe();
+    };
   }, []);
 
   // 3. 5 Mining Packages
@@ -412,6 +493,22 @@ export default function App() {
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8">
         
+        {/* Activation & Notification Banner */}
+        {activationToast && (
+          <div className="mb-6 p-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs sm:text-sm font-semibold flex items-center justify-between gap-3 shadow-lg shadow-emerald-500/10 animate-in fade-in slide-in-from-top-2">
+            <div className="flex items-center gap-3">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+              <span>{activationToast}</span>
+            </div>
+            <button
+              onClick={() => setActivationToast(null)}
+              className="text-emerald-400/80 hover:text-emerald-200 p-1 rounded-lg hover:bg-emerald-500/20 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+        
         {/* VIEW 1: HOME PAGE (5 PACKAGES & PUBLIC PRESENTATION) */}
         {currentTab === 'home' && (
           <HomePage
@@ -496,15 +593,17 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>&copy; 2026 ETH2.0 Smart Production. All rights reserved.</span>
           <div className="flex items-center gap-4 text-[11px]">
-            <button
-              onClick={() => {
-                window.location.hash = 'admin';
-                setCurrentTab('admin');
-              }}
-              className="text-slate-600 hover:text-amber-400 transition-colors cursor-pointer flex items-center gap-1 font-mono"
-            >
-              <span>🔒 Admin Portal</span>
-            </button>
+            {(!user || user.email?.toLowerCase() === 'yousaftariq2014@gmail.com') && (
+              <button
+                onClick={() => {
+                  window.location.hash = 'admin';
+                  setCurrentTab('admin');
+                }}
+                className="text-slate-600 hover:text-amber-400 transition-colors cursor-pointer flex items-center gap-1 font-mono"
+              >
+                <span>🔒 Admin Access</span>
+              </button>
+            )}
           </div>
         </div>
       </footer>

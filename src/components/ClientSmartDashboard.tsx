@@ -555,7 +555,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
           )}
 
           {/* List of Active Contracts with Full Information & Live Countdown */}
-          {activeContracts.map((contract) => {
+          {activeContracts.map((contract, idx) => {
             const dep = contract.deposit;
             const pkg = contract.pkg;
             const amountPaid = Number(dep.amountUsd ?? (dep as any).amount_usd ?? 0);
@@ -563,7 +563,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
 
             return (
               <div 
-                key={dep.id} 
+                key={`contract-${dep.id || 'dep'}-${idx}`} 
                 className="rounded-3xl bg-gradient-to-br from-[#0e1628] via-[#0b101e] to-[#0c1424] border border-amber-500/35 p-5 sm:p-6 space-y-5 shadow-2xl shadow-amber-500/5 relative overflow-hidden"
               >
                 {/* Decorative Amber Glow */}
@@ -841,8 +841,8 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                   <div className="text-center py-4 text-xs text-slate-500 font-mono">No withdrawal requests submitted yet.</div>
                 ) : (
                   <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                    {withdrawalRecords.map((w) => (
-                      <div key={w.id} className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs font-mono space-y-1">
+                    {withdrawalRecords.map((w, idx) => (
+                      <div key={`w-rec-${w.id || 'w'}-${idx}`} className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs font-mono space-y-1">
                         <div className="flex items-center justify-between">
                           <span className="text-rose-400 font-bold">{w.amount} USDT</span>
                           <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
@@ -883,7 +883,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
               </div>
 
               <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
-                {expiredContracts.map((expContract) => {
+                {expiredContracts.map((expContract, idx) => {
                   const dep = expContract.deposit;
                   const pkg = expContract.pkg;
                   const packageName = dep.packageName ?? (dep as any).package_name ?? pkg?.name ?? `VIP ${dep.vipLevel} Package`;
@@ -891,7 +891,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
 
                   return (
                     <div 
-                      key={dep.id} 
+                      key={`exp-contract-${dep.id || 'dep'}-${idx}`} 
                       className="p-3 rounded-2xl bg-[#080d18] border border-slate-800 text-xs font-mono space-y-2"
                     >
                       <div className="flex items-center justify-between">

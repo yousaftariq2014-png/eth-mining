@@ -32,6 +32,7 @@ app.get("/api/crypto/market", async (req, res) => {
   try {
     // Return structured live market metrics with simulated micro-volatility
     const now = Date.now();
+    const ethFluctuation = (Math.sin(now / 11000) * 18.5) + (Math.cos(now / 4000) * 4.2) + 3488.50;
     const btcFluctuation = (Math.sin(now / 15000) * 450) + 96420;
     const etcFluctuation = (Math.cos(now / 12000) * 1.2) + 29.8;
     const kasFluctuation = (Math.sin(now / 8000) * 0.008) + 0.168;
@@ -42,6 +43,7 @@ app.get("/api/crypto/market", async (req, res) => {
     res.json({
       timestamp: new Date().toISOString(),
       prices: {
+        ETH: { priceUsd: Number(ethFluctuation.toFixed(2)), change24h: 3.28, difficulty: "12.85 P", blockReward: "2.0 ETH + Fees", algo: "ETH2.0 Stratum / PoS", networkHash: "1.14 PH/s", gasGwei: 16.4 },
         BTC: { priceUsd: Number(btcFluctuation.toFixed(2)), change24h: 3.42, difficulty: "84.23 T", blockReward: "3.125 BTC", algo: "SHA-256", networkHash: "680.4 EH/s" },
         ETC: { priceUsd: Number(etcFluctuation.toFixed(2)), change24h: -0.85, difficulty: "2.14 P", blockReward: "2.56 ETC", algo: "Etchash", networkHash: "175.2 TH/s" },
         KAS: { priceUsd: Number(kasFluctuation.toFixed(4)), change24h: 6.78, difficulty: "428.1 P", blockReward: "115.6 KAS", algo: "kHeavyHash", networkHash: "320.8 PH/s" },

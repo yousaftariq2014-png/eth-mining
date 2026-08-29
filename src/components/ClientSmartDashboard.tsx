@@ -24,11 +24,24 @@ import {
   ArrowUpRight,
   ArrowDownLeft,
   Flame,
-  AlertCircle
+  AlertCircle,
+  ArrowRightLeft,
+  ArrowDown,
+  Cpu,
+  Info
 } from 'lucide-react';
-import { UserProfile, MiningPackage, DepositRequest, WithdrawalRecordItem, PackageType } from '../types';
+import { 
+  UserProfile, 
+  MiningPackage, 
+  DepositRequest, 
+  WithdrawalRecordItem, 
+  PackageType,
+  ExchangeRecordItem 
+} from '../types';
 import { DAILY_PACKAGES, FLASH_48H_PACKAGES, MINING_PACKAGES } from '../data/packagesData';
 import { supabase } from '../lib/supabaseClient';
+import { EthMiningPanel } from './EthMiningPanel';
+import { EthToUsdtSwapModal } from './EthToUsdtSwapModal';
 
 interface ClientSmartDashboardProps {
   user: UserProfile;
@@ -127,8 +140,9 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   pendingDeposits: externalPendingDeposits,
   onClearUserPackages,
 }) => {
-  const [actionTab, setActionTab] = useState<'withdraw' | 'recharge' | 'history'>('withdraw');
-  const [showWithdrawalModal, setShowWithdrawalModal] = useState<boolean>(false);
+  // Action tabs: 'exchange' | 'withdraw' | 'history' | 'swap_history'
+  const [actionTab, setActionTab] = useState<'exchange' | 'withdraw' | 'history' | 'swap_history'>('exchange');
+  const [isSwapModalOpen, setIsSwapModalOpen] = useState<boolean>(false);
   const [withdrawalFilter, setWithdrawalFilter] = useState<'All' | 'Pending' | 'Withdrawal successfully' | 'Failed'>('All');
   const [dashCategory, setDashCategory] = useState<PackageType>('daily');
 
@@ -137,9 +151,28 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   const [approvedDeposits, setApprovedDeposits] = useState<DepositRequest[]>([]);
   const [pendingDeposits, setPendingDeposits] = useState<DepositRequest[]>([]);
   const [withdrawalRecords, setWithdrawalRecords] = useState<WithdrawalRecordItem[]>([]);
+  const [exchangeRecords, setExchangeRecords] = useState<ExchangeRecordItem[]>(() => {
+    try {
+      const saved = localStorage.getItem(`hashforge_swaps_${user.id}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
+  // Live ETH Price Telemetry State
+  const [ethPriceUsd, setEthPriceUsd] = useState<number>(3488.50);
+  const [ethPriceChange24h, setEthPriceChange24h] = useState<number>(3.28);
+  const [isPriceRefreshing, setIsPriceRefreshing] = useState<boolean>(false);
+
+  // Form Inputs
   const [withdrawInputUsdt, setWithdrawInputUsdt] = useState<string>('');
   const [withdrawAddress, setWithdrawAddress] = useState<string>('');
+  const [withdrawNetwork, setWithdrawNetwork] = useState<'USDT-TRC20' | 'USDT-ERC20' | 'USDT-BEP20'>('USDT-TRC20');
+
+  // Embedded Swap Inputs
+  const [embedSwapEthInput, setEmbedSwapEthInput] = useState<string>('');
+
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
   const [copiedTxid, setCopiedTxid] = useState<string | null>(null);
 
@@ -153,6 +186,40 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     return () => clearInterval(timer);
   }, []);
 
+  // Fetch Live ETH Price from backend API
+  const fetchLiveEthPrice = async () => {
+    try {
+      setIsPriceRefreshing(true);
+      const res = await fetch('/api/crypto/market');
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.prices?.ETH?.priceUsd) {
+          setEthPriceUsd(data.prices.ETH.priceUsd);
+          if (data.prices.ETH.change24h !== undefined) {
+            setEthPriceChange24h(data.prices.ETH.change24h);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Could not fetch market price API, using live fallback:', e);
+    } finally {
+      setIsPriceRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLiveEthPrice();
+    const priceInterval = setInterval(fetchLiveEthPrice, 15000);
+    return () => clearInterval(priceInterval);
+  }, []);
+
+  // Save exchange records to localStorage whenever updated
+  useEffect(() => {
+    try {
+      localStorage.setItem(`hashforge_swaps_${user.id}`, JSON.stringify(exchangeRecords));
+    } catch {}
+  }, [exchangeRecords, user.id]);
+
   // Check if a package is already purchased/owned by this user (1 purchase max limit)
   const isPackageOwned = (pkg: MiningPackage): boolean => {
     return approvedDeposits.some(d => 
@@ -164,17 +231,6 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       d.packageName === pkg.name || 
       (d.vipLevel === pkg.vipLevel && (d.planType === pkg.planType || (!d.planType && pkg.planType === 'daily')))
     );
-  };
-
-  const handleResetClientPackages = async () => {
-    if (window.confirm('Reset all mining contracts for your account to clean zero state?')) {
-      if (onClearUserPackages) {
-        await onClearUserPackages();
-      }
-      setApprovedDeposits([]);
-      setPendingDeposits([]);
-      showToast('All mining contracts cleared. Dashboard is now at clean zero state.', 'success');
-    }
   };
 
   // Fetch this client's real deposits + withdrawals from Supabase on load
@@ -263,26 +319,20 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       ? (matchedPkg?.dailyReturnUsd || (amountUsd * 0.05))
       : (matchedPkg?.dailyReturnUsd || (amountUsd * (matchedPkg?.dailyReturnPercent || 2.5) / 100));
 
-    // Yield accrual rule:
-    // - For 48h Flash packages: When expired, total payout (Principal + 10% profit) is unlocked. While running, only the accrued portion of profit is produced.
-    // - For Daily 365d packages: Daily return is unlocked progressively based on elapsed days.
+    // Yield accrual rule
     let accruedYieldUsd = 0;
     if (isFlash) {
       if (isExpired) {
-        // Expired 48h node unlocks total return (principal + full profit)
         accruedYieldUsd = estTotalYieldUsd;
       } else {
-        // Running 48h node produces daily mining profit (5% per 24h)
         const elapsedDays = totalElapsedMs / (24 * 60 * 60 * 1000);
         const flashProfitOnly = estTotalYieldUsd - amountUsd;
         accruedYieldUsd = Math.min(flashProfitOnly, (flashProfitOnly / 2) * elapsedDays);
       }
     } else {
-      // Daily mining: produces daily yield continuously
       const elapsedDays = Math.min(matchedPkg?.durationDays || 365, totalElapsedMs / (24 * 60 * 60 * 1000));
       accruedYieldUsd = dailyYieldUsd * elapsedDays;
       if (isExpired) {
-        // Upon 365d expiration, full cycle return is completely unlocked
         accruedYieldUsd = estTotalYieldUsd;
       }
     }
@@ -308,27 +358,49 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   const activeContracts = processedContracts.filter(c => !c.isExpired);
   const expiredContracts = processedContracts.filter(c => c.isExpired);
 
-  // REAL FINANCIAL VALUES:
+  // REAL FINANCIAL & ETH MINING VALUES:
   // 1. Total Active Capital = principal in running mining nodes
   const totalActiveCapital = activeContracts.reduce((sum, c) => sum + Number(c.deposit.amountUsd ?? (c.deposit as any).amount_usd ?? 0), 0);
   
-  // 2. Total Earned Mined Profit (Daily returns produced + Expired 48h Total Returns)
-  const totalEarnedProfits = processedContracts.reduce((sum, c) => sum + c.accruedYieldUsd, 0);
+  // 2. Total Earned Mined Profit (in USD)
+  const totalEarnedProfitsUsd = processedContracts.reduce((sum, c) => sum + c.accruedYieldUsd, 0);
 
-  // 3. Today's Daily Mining Production (sum of daily yields from active contracts)
+  // 3. Today's Daily Mining Production in USD
   const todayDailyReturnUsd = activeContracts.reduce((sum, c) => sum + c.dailyYieldUsd, 0);
 
-  // 4. Settled from Expired Contracts (Principal + Profit)
-  const totalSettledFromExpired = expiredContracts.reduce((sum, c) => sum + c.estTotalYieldUsd, 0);
+  // 4. Daily ETH Mining Output Rate
+  const dailyEthRate = ethPriceUsd > 0 ? (todayDailyReturnUsd / ethPriceUsd) : 0;
 
-  // 5. Total Withdrawn by user
-  const totalWithdrawn = withdrawalRecords
+  // 5. Total Total Earned Mined ETH
+  const totalMinedEthLifetime = ethPriceUsd > 0 ? (totalEarnedProfitsUsd / ethPriceUsd) : 0;
+
+  // 6. Total Swapped ETH & Converted USDT by user
+  const totalSwappedEth = exchangeRecords
+    .filter(e => e.status === 'Completed')
+    .reduce((sum, e) => sum + e.fromAmount, 0);
+
+  const totalConvertedUsdt = exchangeRecords
+    .filter(e => e.status === 'Completed')
+    .reduce((sum, e) => sum + e.toAmount, 0);
+
+  // 7. Net Current Mined ETH Balance
+  const minedEthBalance = Math.max(0, totalMinedEthLifetime - totalSwappedEth);
+
+  // 8. Total Withdrawn by user (USDT)
+  const totalWithdrawnUsdt = withdrawalRecords
     .filter(w => w.status !== 'Failed')
     .reduce((sum, w) => sum + Math.abs(Number(w.amount)), 0);
 
-  // 6. Withdrawable Balance = Earned Profit + Expired Node Return - Total Withdrawn
-  const withdrawableUsdt = Math.max(0, totalEarnedProfits - totalWithdrawn);
-  const walletBalanceUsdt = withdrawableUsdt;
+  // 9. Withdrawable Available USDT Balance (Must be converted from ETH first!)
+  // If user hasn't swapped yet, available USDT comes strictly from completed swaps minus withdrawals
+  const availableUsdtBalance = Math.max(0, totalConvertedUsdt - totalWithdrawnUsdt);
+
+  // 10. Total Hashrate Calculation
+  const totalHashrateTh = activeContracts.reduce((sum, c) => {
+    const hashrateNum = c.pkg?.hashrate || (c.deposit.vipLevel * 25);
+    return sum + hashrateNum;
+  }, 0);
+  const totalHashrateDisplay = totalHashrateTh > 0 ? `${totalHashrateTh.toLocaleString()} TH/s` : '0 TH/s';
 
   const handleCopyTxid = (txid: string, id: string) => {
     navigator.clipboard.writeText(txid);
@@ -336,6 +408,56 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     setTimeout(() => setCopiedTxid(null), 2000);
   };
 
+  // Execute Swap: Convert ETH -> USDT
+  const handleExecuteSwap = async (ethAmount: number, usdtAmount: number, rate: number): Promise<ExchangeRecordItem | null> => {
+    if (ethAmount <= 0 || ethAmount > minedEthBalance + 0.00001) {
+      showToast('Insufficient mined ETH balance to exchange', 'info');
+      return null;
+    }
+
+    const randomTxHash = '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    
+    const newSwapRecord: ExchangeRecordItem = {
+      id: `swap-${Date.now()}`,
+      userId: user.id,
+      userName: user.name,
+      fromCoin: 'ETH',
+      toCoin: 'USDT',
+      fromAmount: ethAmount,
+      toAmount: usdtAmount,
+      rate: rate,
+      feeUsd: 0,
+      time: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      txHash: randomTxHash,
+      status: 'Completed'
+    };
+
+    setExchangeRecords(prev => [newSwapRecord, ...prev]);
+    showToast(`Successfully converted ${ethAmount.toFixed(6)} ETH to $${usdtAmount.toFixed(2)} USDT!`, 'success');
+    setEmbedSwapEthInput('');
+    return newSwapRecord;
+  };
+
+  // Handle Embedded Swap Submit
+  const handleEmbedSwap = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const ethAmt = parseFloat(embedSwapEthInput);
+    if (isNaN(ethAmt) || ethAmt <= 0) {
+      showToast('Please enter a valid ETH amount to exchange', 'info');
+      return;
+    }
+    if (ethAmt > minedEthBalance) {
+      showToast(`Exceeds your mined ETH balance (${minedEthBalance.toFixed(6)} ETH)`, 'info');
+      return;
+    }
+    const usdtAmt = ethAmt * ethPriceUsd;
+    const res = await handleExecuteSwap(ethAmt, usdtAmt, ethPriceUsd);
+    if (res) {
+      setActionTab('withdraw');
+    }
+  };
+
+  // Submit USDT Withdrawal
   const handleWithdraw = async () => {
     const amountToWithdraw = parseFloat(withdrawInputUsdt);
     if (isNaN(amountToWithdraw) || amountToWithdraw <= 0) {
@@ -346,8 +468,8 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       showToast('Minimum withdrawal amount is $10.00 USDT. You cannot withdraw less than $10.00.', 'info');
       return;
     }
-    if (amountToWithdraw > withdrawableUsdt) {
-      showToast(`Withdrawal amount exceeds your withdrawable profit balance ($${withdrawableUsdt.toFixed(2)} USDT)`, 'info');
+    if (amountToWithdraw > availableUsdtBalance) {
+      showToast(`Withdrawal amount exceeds your available USDT wallet balance ($${availableUsdtBalance.toFixed(2)} USDT). Please exchange your mined ETH to USDT first.`, 'info');
       return;
     }
     if (!withdrawAddress.trim()) {
@@ -360,7 +482,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       userId: user.id,
       userName: user.name,
       currency: 'USDT',
-      type: withdrawAddress.length === 42 ? 'USDT-ERC20' : 'USDT-TRC20',
+      type: withdrawNetwork,
       amount: -amountToWithdraw,
       walletAddress: withdrawAddress.trim(),
       status: 'Pending',
@@ -425,75 +547,32 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
         </div>
       )}
 
+      {/* Swap Modal */}
+      <EthToUsdtSwapModal
+        isOpen={isSwapModalOpen}
+        onClose={() => setIsSwapModalOpen(false)}
+        ethBalance={minedEthBalance}
+        ethPriceUsd={ethPriceUsd}
+        onExecuteSwap={handleExecuteSwap}
+        onProceedToWithdraw={() => setActionTab('withdraw')}
+      />
+
       {/* =========================================================================
-          TOP STATS & WELCOME HERO BANNER (FULL WIDTH RESPONSIVE)
+          1. TOP HERO: DEDICATED LIVE ETH MINING HARDWARE CONSOLE PANEL
           ========================================================================= */}
-      <div className="rounded-3xl bg-gradient-to-r from-[#0c1424] via-[#0f1b33] to-[#0c1424] border border-slate-800/90 p-5 sm:p-6 lg:p-7 shadow-2xl relative overflow-hidden">
-        <div className="absolute right-0 top-0 w-96 h-96 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
-        
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6 relative z-10">
-          
-          {/* User Welcome & Status */}
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-                Client Mining Dashboard
-              </h1>
-              <span className="px-3 py-1 rounded-full bg-amber-500/15 text-amber-300 text-xs font-mono font-bold border border-amber-500/30">
-                {user.plan || `VIP ${user.vipLevel || 1}`}
-              </span>
-            </div>
-            <p className="text-xs sm:text-sm text-slate-400 flex items-center gap-2">
-              <span>Account: <strong className="text-slate-200">{user.name}</strong> ({user.email})</span>
-              <span className="hidden sm:inline text-slate-600">•</span>
-              <span className="flex items-center gap-1.5 text-emerald-400 font-mono text-xs font-bold">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                Live Node Production
-              </span>
-            </p>
-          </div>
-
-          {/* Quick Metrics Bar — Showing Real Daily Returns and Withdrawable Profit */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800">
-              <span className="text-[10px] sm:text-xs text-slate-400 font-mono flex items-center gap-1">
-                <Wallet className="w-3.5 h-3.5 text-emerald-400" /> Withdrawable Profit
-              </span>
-              <div className="text-base sm:text-lg font-black text-emerald-400 font-mono mt-1">
-                ${withdrawableUsdt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </div>
-            </div>
-
-            <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800">
-              <span className="text-[10px] sm:text-xs text-slate-400 font-mono flex items-center gap-1">
-                <TrendingUp className="w-3.5 h-3.5 text-amber-400" /> Daily Return Rate
-              </span>
-              <div className="text-base sm:text-lg font-black text-amber-400 font-mono mt-1">
-                ${todayDailyReturnUsd.toFixed(2)} <span className="text-xs font-normal text-slate-400">/day</span>
-              </div>
-            </div>
-
-            <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800">
-              <span className="text-[10px] sm:text-xs text-slate-400 font-mono flex items-center gap-1">
-                <Crown className="w-3.5 h-3.5 text-cyan-400" /> Active Nodes
-              </span>
-              <div className="text-base sm:text-lg font-black text-cyan-400 font-mono mt-1">
-                {activeContracts.length} <span className="text-xs font-normal text-slate-400">(${totalActiveCapital})</span>
-              </div>
-            </div>
-
-            <div className="p-3 sm:p-3.5 rounded-2xl bg-slate-950/70 border border-slate-800">
-              <span className="text-[10px] sm:text-xs text-slate-400 font-mono flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-slate-400" /> Settled Contracts
-              </span>
-              <div className="text-base sm:text-lg font-black text-slate-300 font-mono mt-1">
-                {expiredContracts.length} <span className="text-xs font-normal text-slate-400">(${totalSettledFromExpired.toFixed(0)})</span>
-              </div>
-            </div>
-          </div>
-
-        </div>
-      </div>
+      <EthMiningPanel
+        ethPriceUsd={ethPriceUsd}
+        ethPriceChange24h={ethPriceChange24h}
+        onRefreshPrice={fetchLiveEthPrice}
+        isPriceRefreshing={isPriceRefreshing}
+        minedEthBalance={minedEthBalance}
+        dailyEthRate={dailyEthRate}
+        activeContractsCount={activeContracts.length}
+        totalHashrateDisplay={totalHashrateDisplay}
+        onOpenExchangeModal={() => setIsSwapModalOpen(true)}
+        onOpenWithdrawModal={() => setActionTab('withdraw')}
+        availableUsdtBalance={availableUsdtBalance}
+      />
 
       {/* Pending Deposit Notification Banner */}
       {userPendingDeposit && (
@@ -511,7 +590,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       )}
 
       {/* =========================================================================
-          MAIN RESPONSIVE 2-COLUMN GRID (LEFT: ACTIVE PACKAGES, RIGHT: SUMMARY & WALLET)
+          2. MAIN 2-COLUMN SECTION (LEFT: ACTIVE PACKAGES, RIGHT: EXCHANGE & WITHDRAWAL ENGINE)
           ========================================================================= */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
 
@@ -522,13 +601,13 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
             <div className="flex items-center gap-2">
               <Crown className="w-5 h-5 text-amber-400" />
               <h2 className="text-base sm:text-lg font-black text-white">
-                Active Purchased Packages ({activeContracts.length})
+                Active Mining Contracts ({activeContracts.length})
               </h2>
             </div>
             {activeContracts.length > 0 && (
-              <span className="text-xs font-mono font-bold text-emerald-400 flex items-center gap-1.5 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                Live Hashing
+              <span className="text-xs font-mono font-bold text-cyan-400 flex items-center gap-1.5 bg-cyan-500/10 px-2.5 py-1 rounded-full border border-cyan-500/20">
+                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                Live ETH Hashing
               </span>
             )}
           </div>
@@ -540,16 +619,16 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                 <Layers className="w-7 h-7" />
               </div>
               <div className="space-y-1">
-                <h3 className="text-base font-bold text-white">No Active Mining Package Running</h3>
+                <h3 className="text-base font-bold text-white">No Active Cloud Mining Node Running</h3>
                 <p className="text-xs text-slate-400 max-w-md mx-auto">
-                  Activate a mining contract from the packages below to initiate automated stratum computing power and daily USDT returns.
+                  Select and activate a mining package below to connect dedicated Stratum computing power and begin accumulating real-time ETH rewards.
                 </p>
               </div>
               <button
                 onClick={() => onSelectPackage(packages[0] || DAILY_PACKAGES[0])}
                 className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition-all shadow-lg shadow-amber-500/20 cursor-pointer"
               >
-                Browse & Activate Packages
+                Browse Mining Packages
               </button>
             </div>
           )}
@@ -560,15 +639,13 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
             const pkg = contract.pkg;
             const amountPaid = Number(dep.amountUsd ?? (dep as any).amount_usd ?? 0);
             const packageName = dep.packageName ?? (dep as any).package_name ?? pkg?.name ?? `VIP ${dep.vipLevel} Package`;
+            const contractDailyEth = ethPriceUsd > 0 ? (contract.dailyYieldUsd / ethPriceUsd) : 0;
 
             return (
               <div 
                 key={`contract-${dep.id || 'dep'}-${idx}`} 
-                className="rounded-3xl bg-gradient-to-br from-[#0e1628] via-[#0b101e] to-[#0c1424] border border-amber-500/35 p-5 sm:p-6 space-y-5 shadow-2xl shadow-amber-500/5 relative overflow-hidden"
+                className="rounded-3xl bg-gradient-to-br from-[#0e1628] via-[#0b101e] to-[#0c1424] border border-cyan-500/30 p-5 sm:p-6 space-y-5 shadow-2xl shadow-cyan-500/5 relative overflow-hidden"
               >
-                {/* Decorative Amber Glow */}
-                <div className="absolute right-0 top-0 w-48 h-48 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-
                 {/* Card Header */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative z-10">
                   <div>
@@ -576,32 +653,32 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                       <span className="text-lg sm:text-xl font-black text-white">
                         {packageName}
                       </span>
-                      <span className="px-2.5 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 text-xs font-mono font-bold border border-amber-500/30">
+                      <span className="px-2.5 py-0.5 rounded-lg bg-cyan-500/20 text-cyan-300 text-xs font-mono font-bold border border-cyan-500/30">
                         VIP {dep.vipLevel}
                       </span>
                     </div>
                     <div className="text-xs text-slate-400 mt-1 flex items-center gap-1.5">
-                      <Activity className="w-3.5 h-3.5 text-amber-400" />
+                      <Activity className="w-3.5 h-3.5 text-cyan-400" />
                       <span>{contract.durationLabel}</span>
                     </div>
                   </div>
 
                   <div className="text-left sm:text-right bg-slate-950/60 sm:bg-transparent p-2.5 sm:p-0 rounded-xl border sm:border-0 border-slate-800">
                     <div className="text-[11px] text-slate-400 font-mono uppercase">Principal Invested</div>
-                    <div className="text-lg sm:text-xl font-black text-amber-400 font-mono">
+                    <div className="text-lg sm:text-xl font-black text-cyan-300 font-mono">
                       ${amountPaid.toLocaleString()} USDT
                     </div>
                   </div>
                 </div>
 
                 {/* REAL-TIME EXPIRATION COUNTDOWN TIMER BANNER */}
-                <div className="p-4 rounded-2xl bg-slate-950/90 border border-amber-500/30 space-y-3 relative z-10">
+                <div className="p-4 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-3 relative z-10">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <span className="text-amber-300 font-bold flex items-center gap-2 font-mono text-xs sm:text-sm">
-                      <Hourglass className="w-4 h-4 text-amber-400 animate-spin" />
+                    <span className="text-cyan-300 font-bold flex items-center gap-2 font-mono text-xs sm:text-sm">
+                      <Hourglass className="w-4 h-4 text-cyan-400 animate-spin" />
                       Time Left to Expire:
                     </span>
-                    <span className="font-mono font-black text-amber-400 text-sm sm:text-base bg-amber-500/15 px-3 py-1 rounded-xl border border-amber-500/30 text-center">
+                    <span className="font-mono font-black text-cyan-300 text-sm sm:text-base bg-cyan-500/15 px-3 py-1 rounded-xl border border-cyan-500/30 text-center">
                       {contract.timeRemainingText}
                     </span>
                   </div>
@@ -610,7 +687,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                   <div className="space-y-1.5">
                     <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-700/60">
                       <div 
-                        className="h-full bg-gradient-to-r from-amber-500 via-amber-400 to-emerald-400 rounded-full transition-all duration-500"
+                        className="h-full bg-gradient-to-r from-cyan-500 via-cyan-400 to-emerald-400 rounded-full transition-all duration-500"
                         style={{ width: `${contract.progressPercent}%` }}
                       />
                     </div>
@@ -628,7 +705,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                       <CalendarDays className="w-4 h-4" />
                     </div>
                     <div>
-                      <span className="text-slate-500 text-[10px] block">Activated On (Approved):</span>
+                      <span className="text-slate-500 text-[10px] block">Activated On:</span>
                       <span className="text-slate-200 font-bold">{formatDateTimeDisplay(contract.activationDate)}</span>
                     </div>
                   </div>
@@ -638,34 +715,34 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                       <Clock className="w-4 h-4" />
                     </div>
                     <div>
-                      <span className="text-slate-500 text-[10px] block">Expires On (Maturation):</span>
+                      <span className="text-slate-500 text-[10px] block">Expires On:</span>
                       <span className="text-slate-200 font-bold">{formatDateTimeDisplay(contract.expirationDate)}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* DETAILED SPECIFICATIONS GRID */}
+                {/* DETAILED SPECIFICATIONS GRID (WITH ETH PRODUCTION METRICS) */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs font-mono">
                   <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
-                    <span className="text-[10px] text-slate-400 block">Hashrate</span>
+                    <span className="text-[10px] text-slate-400 block">Stratum Hashrate</span>
                     <div className="text-xs font-bold text-white mt-0.5 truncate">
                       {pkg?.hashrate ? `${pkg.hashrate} ${pkg.hashrateUnit}` : 'Stratum Pro'}
                     </div>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
-                    <span className="text-[10px] text-slate-400 block">Return Rate</span>
-                    <div className="text-xs font-bold text-emerald-400 mt-0.5 truncate">
-                      {contract.isFlash ? '10% in 48 Hours' : (pkg?.profitRangeText || `${pkg?.dailyReturnPercent || 2.5}% Daily`)}
+                    <span className="text-[10px] text-slate-400 block">Daily ETH Output</span>
+                    <div className="text-xs font-bold text-cyan-300 mt-0.5 truncate">
+                      {contractDailyEth.toFixed(6)} ETH
                     </div>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
-                    <span className="text-[10px] text-slate-400 block">Daily Yield</span>
+                    <span className="text-[10px] text-slate-400 block">Daily Yield (USDT)</span>
                     <div className="text-xs font-bold text-emerald-400 mt-0.5">
-                      ${contract.dailyYieldUsd.toFixed(2)} USDT
+                      ${contract.dailyYieldUsd.toFixed(2)}
                     </div>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
-                    <span className="text-[10px] text-slate-400 block">Total Maturation Return</span>
+                    <span className="text-[10px] text-slate-400 block">Cycle Total Return</span>
                     <div className="text-xs font-bold text-amber-300 mt-0.5 truncate">
                       ${contract.estTotalYieldUsd.toFixed(2)} USDT
                     </div>
@@ -695,93 +772,235 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
 
         </div>
 
-        {/* RIGHT COLUMN: ACCOUNT SUMMARY & WALLET OPERATIONS & EXPIRED CONTRACTS (LG:COL-SPAN-5) */}
+        {/* RIGHT COLUMN: 2-STEP EXCHANGE & WITHDRAWAL WALLET HUB (LG:COL-SPAN-5) */}
         <div className="lg:col-span-5 space-y-4">
           
-          {/* ACCOUNT SUMMARY CARD — DISPLAYING ACCURATE MINING RETURN / EXPIRATION PROFITS */}
+          {/* WALLET HUB CARD */}
           <div className="rounded-3xl bg-[#0b101c] border border-slate-800/90 p-5 sm:p-6 space-y-4 shadow-xl">
-            <div className="flex items-center justify-between">
+            
+            {/* Header with 4 Action Tabs */}
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2">
-                <PiggyBank className="w-5 h-5 text-amber-400" />
-                <h2 className="text-base font-black text-white">Account Summary</h2>
+                <Wallet className="w-5 h-5 text-cyan-400" />
+                <h2 className="text-base font-black text-white">Wallet & Cashout</h2>
               </div>
-              <div className="flex items-center gap-1 text-xs font-mono">
-                <span className="text-emerald-400 font-bold">{activeContracts.length} Active</span>
-                <span className="text-slate-600">/</span>
-                <span className="text-slate-400 font-bold">{expiredContracts.length} Expired</span>
+              
+              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-mono">
+                <button
+                  onClick={() => setActionTab('exchange')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                    actionTab === 'exchange' ? 'bg-cyan-500 text-slate-950 font-black shadow' : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="Step 1: Exchange ETH to USDT"
+                >
+                  ⚡ Exchange
+                </button>
+                <button
+                  onClick={() => setActionTab('withdraw')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                    actionTab === 'withdraw' ? 'bg-amber-500 text-slate-950 font-black shadow' : 'text-slate-400 hover:text-white'
+                  }`}
+                  title="Step 2: Withdraw USDT"
+                >
+                  🚀 Withdraw
+                </button>
+                <button
+                  onClick={() => setActionTab('history')}
+                  className={`px-2 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                    actionTab === 'history' || actionTab === 'swap_history' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:text-slate-300'
+                  }`}
+                  title="Transaction Records"
+                >
+                  History
+                </button>
               </div>
             </div>
 
-            {/* Financial Overview Tiles: Real Daily Mined Profit + Available Withdrawable */}
+            {/* DUAL BALANCES OVERVIEW TILES */}
             <div className="grid grid-cols-2 gap-3 font-mono">
-              <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800">
-                <span className="text-[11px] text-slate-400 block">Daily Mining Yield</span>
-                <div className="text-base sm:text-lg font-black text-amber-400 mt-1">
-                  ${todayDailyReturnUsd.toFixed(2)} <span className="text-xs font-normal text-slate-400">/day</span>
+              
+              {/* Tile 1: Mined ETH Wallet */}
+              <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-cyan-500/30 relative overflow-hidden">
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <span>Mined ETH Balance</span>
+                  <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+                </div>
+                <div className="text-base sm:text-lg font-black text-cyan-300 mt-1 truncate">
+                  {minedEthBalance.toFixed(6)} <span className="text-xs font-bold">ETH</span>
+                </div>
+                <div className="text-[10px] text-slate-400 mt-0.5">
+                  ≈ ${(minedEthBalance * ethPriceUsd).toFixed(2)} USDT
                 </div>
               </div>
-              <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800">
-                <span className="text-[11px] text-slate-400 block">Active Mining Capital</span>
-                <div className="text-base sm:text-lg font-black text-cyan-400 mt-1 truncate">
-                  ${totalActiveCapital.toLocaleString()} USDT
+
+              {/* Tile 2: Available USDT Wallet */}
+              <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-emerald-500/30 relative overflow-hidden">
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <span>Available USDT</span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                </div>
+                <div className="text-base sm:text-lg font-black text-emerald-400 mt-1 truncate">
+                  ${availableUsdtBalance.toFixed(2)} <span className="text-xs font-bold">USDT</span>
+                </div>
+                <div className="text-[10px] text-emerald-400/80 mt-0.5">
+                  Ready for Cashout
                 </div>
               </div>
-              <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800 col-span-2 flex items-center justify-between">
-                <div>
-                  <span className="text-[11px] text-slate-400 block">Available Withdrawable Profit</span>
-                  <div className="text-lg font-black text-emerald-400 mt-0.5 font-mono">
-                    ${withdrawableUsdt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDT
-                  </div>
-                  <span className="text-[10px] text-slate-500 block mt-0.5">
-                    (Mined returns + 48h expired payouts available to withdraw)
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => setActionTab('withdraw')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      actionTab === 'withdraw' ? 'bg-amber-500 text-slate-950 font-black' : 'bg-slate-800 text-slate-300 hover:text-white'
-                    }`}
-                  >
-                    Withdraw
-                  </button>
-                  <button
-                    onClick={() => setActionTab('history')}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      actionTab === 'history' ? 'bg-amber-500 text-slate-950 font-black' : 'bg-slate-800 text-slate-300 hover:text-white'
-                    }`}
-                  >
-                    History
-                  </button>
-                </div>
-              </div>
+
             </div>
 
-            {/* WITHDRAWAL FORM */}
-            {actionTab === 'withdraw' && (
-              <div className="p-4 rounded-2xl bg-[#0e1628] border border-slate-800 space-y-3.5 animate-fadeIn">
+            {/* TAB 1: EMBEDDED FAST EXCHANGE (ETH -> USDT) */}
+            {actionTab === 'exchange' && (
+              <div className="p-4 rounded-2xl bg-[#0e1628] border border-cyan-500/25 space-y-3.5 animate-fadeIn">
+                
                 <div className="flex items-center justify-between">
                   <div className="text-xs font-black text-white flex items-center gap-1.5">
-                    <ArrowUpRight className="w-4 h-4 text-rose-400" />
-                    <span>Instant USDT Profit Withdrawal</span>
+                    <ArrowRightLeft className="w-4 h-4 text-cyan-400" />
+                    <span>Step 1: Exchange Mined ETH to USDT</span>
                   </div>
-                  <span className="text-[10px] font-mono text-emerald-400 font-bold">
-                    Max: ${withdrawableUsdt.toFixed(2)}
+                  <span className="text-[10px] font-mono text-cyan-300 font-bold bg-cyan-500/15 px-2 py-0.5 rounded-md border border-cyan-500/30">
+                    1 ETH = ${ethPriceUsd.toFixed(2)}
                   </span>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-[11px] text-slate-400 font-mono">Destination Address (USDT TRC20 / ERC20):</label>
+                <p className="text-[11px] text-slate-400 leading-relaxed font-mono">
+                  Convert your mined Ethereum into USDT at guaranteed zero-slippage pool rates to enable direct withdrawal.
+                </p>
+
+                <form onSubmit={handleEmbedSwap} className="space-y-3">
+                  
+                  {/* From ETH Input */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
+                      <label>Amount to Convert (ETH):</label>
+                      <span className="text-cyan-400">Available: {minedEthBalance.toFixed(6)} ETH</span>
+                    </div>
+                    
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        placeholder="0.000000"
+                        value={embedSwapEthInput}
+                        onChange={(e) => setEmbedSwapEthInput(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono font-bold text-white focus:outline-none focus:border-cyan-500 pr-16"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setEmbedSwapEthInput(minedEthBalance.toFixed(6))}
+                        className="absolute right-2 top-1.5 px-2 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 font-mono font-bold text-[10px] cursor-pointer"
+                      >
+                        MAX
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Calculated Output USDT */}
+                  <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 flex items-center justify-between text-xs font-mono">
+                    <span className="text-slate-400">You Will Receive:</span>
+                    <strong className="text-emerald-400 text-sm">
+                      +${((parseFloat(embedSwapEthInput) || 0) * ethPriceUsd).toFixed(2)} USDT
+                    </strong>
+                  </div>
+
+                  {/* Submit Button */}
+                  <button
+                    type="submit"
+                    disabled={minedEthBalance <= 0 || !parseFloat(embedSwapEthInput)}
+                    className={`w-full py-2.5 rounded-xl font-black text-xs transition-all shadow-lg flex items-center justify-center gap-1.5 ${
+                      minedEthBalance > 0 && parseFloat(embedSwapEthInput) > 0
+                        ? 'bg-gradient-to-r from-cyan-500 to-emerald-400 hover:from-cyan-400 hover:to-emerald-300 text-slate-950 shadow-cyan-500/20 cursor-pointer'
+                        : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                    }`}
+                  >
+                    <ArrowRightLeft className="w-3.5 h-3.5" />
+                    <span>Convert ETH to USDT</span>
+                  </button>
+
+                  <div className="text-center pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsSwapModalOpen(true)}
+                      className="text-[10px] font-mono text-cyan-400 hover:underline cursor-pointer"
+                    >
+                      Open Full Screen Exchange Modal ↗
+                    </button>
+                  </div>
+
+                </form>
+
+              </div>
+            )}
+
+            {/* TAB 2: WITHDRAW USDT FORM */}
+            {actionTab === 'withdraw' && (
+              <div className="p-4 rounded-2xl bg-[#0e1628] border border-slate-800 space-y-3.5 animate-fadeIn">
+                
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-black text-white flex items-center gap-1.5">
+                    <ArrowUpRight className="w-4 h-4 text-amber-400" />
+                    <span>Step 2: Submit USDT Withdrawal</span>
+                  </div>
+                  <span className="text-[10px] font-mono text-emerald-400 font-bold">
+                    Available: ${availableUsdtBalance.toFixed(2)}
+                  </span>
+                </div>
+
+                {/* Helpful Prompt if user has 0 USDT but has Mined ETH */}
+                {availableUsdtBalance < 10 && minedEthBalance > 0 && (
+                  <div className="p-3 rounded-xl bg-cyan-500/10 border border-cyan-500/30 space-y-2 text-xs font-mono">
+                    <div className="flex items-start gap-2 text-cyan-300">
+                      <Info className="w-4 h-4 shrink-0 mt-0.5 text-cyan-400" />
+                      <span>
+                        You have <strong>{minedEthBalance.toFixed(6)} ETH</strong> (~${(minedEthBalance * ethPriceUsd).toFixed(2)} USDT) in your mining wallet. Please exchange your ETH to USDT first to process your withdrawal.
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setActionTab('exchange')}
+                      className="w-full py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow"
+                    >
+                      <ArrowRightLeft className="w-3.5 h-3.5" />
+                      <span>⚡ Exchange ETH to USDT Now</span>
+                    </button>
+                  </div>
+                )}
+
+                {/* Network Selection */}
+                <div className="space-y-1">
+                  <label className="text-[11px] text-slate-400 font-mono">Withdrawal Network:</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {(['USDT-TRC20', 'USDT-ERC20', 'USDT-BEP20'] as const).map((net) => (
+                      <button
+                        key={net}
+                        type="button"
+                        onClick={() => setWithdrawNetwork(net)}
+                        className={`py-1.5 px-2 rounded-xl text-[11px] font-mono font-bold border transition-all cursor-pointer ${
+                          withdrawNetwork === net
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                            : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
+                        }`}
+                      >
+                        {net.replace('USDT-', '')}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Destination Address */}
+                <div className="space-y-1">
+                  <label className="text-[11px] text-slate-400 font-mono">Destination {withdrawNetwork} Address:</label>
                   <input
                     type="text"
-                    placeholder="e.g. TQn9Y2... or 0x742d..."
+                    placeholder={withdrawNetwork === 'USDT-TRC20' ? 'e.g. TQn9Y2... (Tron TRC20)' : 'e.g. 0x742d...'}
                     value={withdrawAddress}
                     onChange={(e) => setWithdrawAddress(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
                   />
                 </div>
 
-                <div className="space-y-1.5">
+                {/* Withdrawal Amount */}
+                <div className="space-y-1">
                   <div className="flex items-center justify-between">
                     <label className="text-[11px] text-slate-400 font-mono">Amount to Withdraw (USDT):</label>
                     <span className="text-[10px] font-mono text-amber-400 font-bold">Min: $10.00 USDT</span>
@@ -798,7 +1017,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                     />
                     <button
                       type="button"
-                      onClick={() => setWithdrawInputUsdt(withdrawableUsdt.toString())}
+                      onClick={() => setWithdrawInputUsdt(availableUsdtBalance.toString())}
                       className="absolute right-2 top-1.5 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 font-mono text-[10px] cursor-pointer"
                     >
                       MAX
@@ -806,65 +1025,113 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                   </div>
                 </div>
 
-                {/* Minimum Withdrawal Rule Notice */}
-                <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-between text-[11px] font-mono text-amber-300">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                    <span>Minimum Withdrawal:</span>
-                  </div>
-                  <strong className="text-amber-400">$10.00 USDT</strong>
+                {/* Network Fee Summary */}
+                <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800/80 flex items-center justify-between text-[11px] font-mono">
+                  <span className="text-slate-400">Estimated Gas Fee:</span>
+                  <span className="text-emerald-400 font-bold">$0.00 (Zero Fee VIP)</span>
                 </div>
 
                 <button
                   onClick={handleWithdraw}
-                  className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition-all shadow-lg shadow-amber-500/20 cursor-pointer"
+                  disabled={availableUsdtBalance < 10 || !withdrawAddress}
+                  className={`w-full py-2.5 rounded-xl font-black text-xs transition-all shadow-lg cursor-pointer ${
+                    availableUsdtBalance >= 10 && withdrawAddress
+                      ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20'
+                      : 'bg-slate-800 text-slate-500 cursor-not-allowed border border-slate-700'
+                  }`}
                 >
-                  Submit Withdrawal for Admin Approval
+                  Submit USDT Withdrawal for Review
                 </button>
+
               </div>
             )}
 
-            {/* WITHDRAWAL HISTORY */}
-            {actionTab === 'history' && (
+            {/* TAB 3 & 4: TRANSACTION RECORDS (SWAP HISTORY & WITHDRAWAL HISTORY) */}
+            {(actionTab === 'history' || actionTab === 'swap_history') && (
               <div className="p-4 rounded-2xl bg-[#0e1628] border border-slate-800 space-y-3 animate-fadeIn">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-white">Your Withdrawal History ({withdrawalRecords.length})</span>
+                
+                <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
+                  <div className="flex items-center gap-2 text-xs font-bold">
+                    <button
+                      onClick={() => setActionTab('history')}
+                      className={`pb-0.5 font-mono cursor-pointer ${actionTab === 'history' ? 'text-amber-400 border-b-2 border-amber-400 font-bold' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Withdrawals ({withdrawalRecords.length})
+                    </button>
+                    <span className="text-slate-600">|</span>
+                    <button
+                      onClick={() => setActionTab('swap_history')}
+                      className={`pb-0.5 font-mono cursor-pointer ${actionTab === 'swap_history' ? 'text-cyan-400 border-b-2 border-cyan-400 font-bold' : 'text-slate-400 hover:text-white'}`}
+                    >
+                      Swaps ({exchangeRecords.length})
+                    </button>
+                  </div>
+
                   <button
                     onClick={() => setActionTab('withdraw')}
-                    className="text-[11px] text-amber-400 hover:underline cursor-pointer"
+                    className="text-[10px] text-amber-400 hover:underline cursor-pointer"
                   >
-                    + New Withdrawal
+                    + New
                   </button>
                 </div>
 
-                {withdrawalRecords.length === 0 ? (
-                  <div className="text-center py-4 text-xs text-slate-500 font-mono">No withdrawal requests submitted yet.</div>
-                ) : (
-                  <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                    {withdrawalRecords.map((w, idx) => (
-                      <div key={`w-rec-${w.id || 'w'}-${idx}`} className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs font-mono space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span className="text-rose-400 font-bold">{w.amount} USDT</span>
-                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                            w.status === 'Withdrawal successfully'
-                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                              : w.status === 'Failed'
-                              ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                              : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                          }`}>
-                            {w.status}
-                          </span>
+                {/* Withdrawals List */}
+                {actionTab === 'history' && (
+                  withdrawalRecords.length === 0 ? (
+                    <div className="text-center py-4 text-xs text-slate-500 font-mono">No withdrawal requests submitted yet.</div>
+                  ) : (
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      {withdrawalRecords.map((w, idx) => (
+                        <div key={`w-rec-${w.id || 'w'}-${idx}`} className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs font-mono space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-rose-400 font-bold">{w.amount} USDT</span>
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                              w.status === 'Withdrawal successfully'
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : w.status === 'Failed'
+                                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                            }`}>
+                              {w.status}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-[10px] text-slate-500">
+                            <span className="truncate max-w-[150px]">{w.walletAddress || w.type}</span>
+                            <span>{w.time}</span>
+                          </div>
                         </div>
-                        <div className="flex items-center justify-between text-[10px] text-slate-500">
-                          <span className="truncate max-w-[150px]">{w.walletAddress || w.type}</span>
-                          <span>{w.time}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )
                 )}
+
+                {/* Swaps List */}
+                {actionTab === 'swap_history' && (
+                  exchangeRecords.length === 0 ? (
+                    <div className="text-center py-4 text-xs text-slate-500 font-mono">No ETH ➔ USDT swaps executed yet.</div>
+                  ) : (
+                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                      {exchangeRecords.map((s, idx) => (
+                        <div key={`swap-rec-${s.id || 's'}-${idx}`} className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs font-mono space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-cyan-300 font-bold">{s.fromAmount.toFixed(6)} ETH ➔ +${s.toAmount.toFixed(2)} USDT</span>
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                              Completed
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-[10px] text-slate-500">
+                            <span>Rate: ${s.rate.toFixed(2)}</span>
+                            <span>{s.time}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                )}
+
               </div>
             )}
+
           </div>
 
           {/* EXPIRED & COMPLETED CONTRACTS SECTION */}
@@ -878,7 +1145,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                   </h3>
                 </div>
                 <span className="text-[10px] text-emerald-400 font-mono font-bold bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                  Full Yield Settled & Withdrawable
+                  Yield Fully Settled
                 </span>
               </div>
 
@@ -917,11 +1184,6 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-800/80">
-                        <span>Activated: {formatDateTimeDisplay(expContract.activationDate).split(',')[0]}</span>
-                        <span>Matured: {formatDateTimeDisplay(expContract.expirationDate).split(',')[0]}</span>
-                      </div>
-
                       {pkg && (
                         <button
                           onClick={() => onSelectPackage(pkg)}
@@ -943,7 +1205,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       </div>
 
       {/* =========================================================================
-          BOTTOM SECTION: PACKAGES OFFERING & UPGRADES (FULL WIDTH GRID)
+          3. BOTTOM SECTION: PACKAGES OFFERING & UPGRADES (FULL WIDTH GRID)
           ========================================================================= */}
       <div className="rounded-3xl bg-[#0b101c] border border-slate-800/90 p-5 sm:p-6 lg:p-7 space-y-5 shadow-xl">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -951,10 +1213,10 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
             <Layers className="w-5 h-5 text-amber-400" />
             <div>
               <h2 className="text-base sm:text-lg font-black text-white">
-                Available Mining Packages & Upgrades
+                Available Cloud Mining Packages & Upgrades
               </h2>
               <p className="text-xs text-slate-400">
-                Choose a plan to deploy cloud mining nodes or upgrade your existing capacity
+                Deploy high-efficiency cloud mining nodes to produce automated daily ETH distributions
               </p>
             </div>
           </div>
@@ -986,6 +1248,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
           {displayedCategoryPackages.map((pkg) => {
             const owned = isPackageOwned(pkg);
+            const estDailyEth = ethPriceUsd > 0 ? (pkg.dailyReturnUsd / ethPriceUsd) : 0;
 
             return (
               <div
@@ -993,11 +1256,11 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                 className={`p-4 rounded-2xl border transition-all flex flex-col justify-between space-y-3 group shadow-md ${
                   owned 
                     ? 'bg-[#0a1220] border-emerald-500/40 opacity-90' 
-                    : 'bg-gradient-to-b from-[#0f172a] to-[#090d18] border-slate-800 hover:border-amber-500/40'
+                    : 'bg-gradient-to-b from-[#0f172a] to-[#090d18] border-slate-800 hover:border-cyan-500/40'
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className={`text-xs font-black font-mono ${owned ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  <span className={`text-xs font-black font-mono ${owned ? 'text-emerald-400' : 'text-cyan-400'}`}>
                     VIP {pkg.vipLevel}
                   </span>
                   {owned ? (
@@ -1015,8 +1278,11 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                 <div>
                   <div className="text-lg font-black text-white font-mono">${pkg.priceUsd.toLocaleString()} <span className="text-xs text-slate-400 font-normal">USDT</span></div>
                   <div className="text-xs font-bold text-slate-200 truncate mt-0.5">{pkg.name}</div>
-                  <div className={`text-[11px] font-mono font-bold mt-1 ${owned ? 'text-emerald-400' : 'text-emerald-400'}`}>
-                    {owned ? 'Producing Live Returns' : (pkg.profitRangeText || `${pkg.dailyReturnPercent}% Daily`)}
+                  <div className="text-[11px] font-mono text-cyan-300 font-bold mt-1">
+                    ~{estDailyEth.toFixed(5)} ETH / day
+                  </div>
+                  <div className="text-[10px] font-mono text-slate-400">
+                    {pkg.profitRangeText || `${pkg.dailyReturnPercent}% Daily`}
                   </div>
                 </div>
 
@@ -1032,7 +1298,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                   {owned ? (
                     <>
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Owned & Active (1/1)</span>
+                      <span>Active Mining (1/1)</span>
                     </>
                   ) : (
                     <>

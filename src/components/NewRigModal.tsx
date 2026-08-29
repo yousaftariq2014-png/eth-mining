@@ -40,6 +40,7 @@ export const NewRigModal: React.FC<NewRigModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const algoMap: Record<SupportedCoin, string> = {
+      ETH: 'Ethash / PoS Stratum',
       BTC: 'SHA-256',
       KAS: 'kHeavyHash',
       ETC: 'Etchash',

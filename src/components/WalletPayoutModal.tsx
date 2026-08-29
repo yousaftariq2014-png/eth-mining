@@ -57,7 +57,7 @@ export const WalletPayoutModal: React.FC<WalletPayoutModalProps> = ({
     const amountNum = parseFloat(withdrawAmount);
     if (!amountNum || amountNum <= 0) return;
 
-    const coinPrice = selectedCoin === 'BTC' ? 96450 : selectedCoin === 'KAS' ? 0.168 : 30;
+    const coinPrice = selectedCoin === 'BTC' ? 96450 : selectedCoin === 'ETH' ? 3488.50 : selectedCoin === 'KAS' ? 0.168 : 30;
     const usdVal = amountNum * coinPrice;
     if (usdVal < 10) {
       setErrorNotice(`Minimum withdrawal limit is $10.00 USD (Your current amount is ~$${usdVal.toFixed(2)} USD). Please increase withdrawal amount.`);
@@ -74,11 +74,11 @@ export const WalletPayoutModal: React.FC<WalletPayoutModalProps> = ({
         timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
         coin: selectedCoin,
         amount: amountNum,
-        amountUsd: amountNum * (selectedCoin === 'BTC' ? 96450 : selectedCoin === 'KAS' ? 0.168 : 30),
+        amountUsd: amountNum * coinPrice,
         txHash: randomHex,
         destinationAddress: destinationAddress || currentWallet.walletAddress,
         status: 'completed',
-        networkFee: selectedCoin === 'BTC' ? 0.00002 : 0.001,
+        networkFee: selectedCoin === 'BTC' ? 0.00002 : selectedCoin === 'ETH' ? 0.0004 : 0.001,
         payoutType: payoutType === 'lightning' ? 'lightning' : 'instant',
       };
 

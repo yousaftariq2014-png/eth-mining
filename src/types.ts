@@ -1,8 +1,23 @@
 export type Language = 'en';
 
-export type SupportedCoin = 'BTC' | 'ETC' | 'KAS' | 'LTC' | 'XMR' | 'DOGE' | 'RVN';
+export type SupportedCoin = 'ETH' | 'BTC' | 'ETC' | 'KAS' | 'LTC' | 'XMR' | 'DOGE' | 'RVN';
 
 export type PackageType = 'daily' | 'flash_48h';
+
+export interface ExchangeRecordItem {
+  id: string;
+  userId?: string;
+  userName?: string;
+  fromCoin: 'ETH';
+  toCoin: 'USDT';
+  fromAmount: number;
+  toAmount: number;
+  rate: number;
+  feeUsd: number;
+  time: string;
+  txHash: string;
+  status: 'Completed' | 'Processing' | 'Failed';
+}
 
 export interface MiningPackage {
   id: string;

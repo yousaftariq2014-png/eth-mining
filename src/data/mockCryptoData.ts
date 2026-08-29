@@ -1,6 +1,20 @@
 import { CoinInfo, MiningRig, CloudContract, StratumPool, HardwareBenchmark, WalletBalance, PayoutTransaction } from '../types';
 
 export const INITIAL_COINS: Record<string, CoinInfo> = {
+  ETH: {
+    symbol: 'ETH',
+    name: 'Ethereum',
+    algorithm: 'ETH2.0 Stratum / PoS',
+    priceUsd: 3488.50,
+    change24h: 3.28,
+    difficulty: '12.85 P',
+    blockReward: '2.0 ETH + Fees',
+    networkHash: '1.14 PH/s',
+    color: '#627EEA',
+    iconBg: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
+    minPayout: 0.005,
+    unit: 'ETH',
+  },
   BTC: {
     symbol: 'BTC',
     name: 'Bitcoin',

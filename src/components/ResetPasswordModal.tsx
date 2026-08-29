@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Lock, KeyRound, CheckCircle2, ShieldAlert, ArrowRight, Eye, EyeOff } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { supabase } from '../lib/supabase';
+import { supabase } from '../lib/supabaseClient';
 import { UserProfile } from '../types';
 
 interface ResetPasswordModalProps {

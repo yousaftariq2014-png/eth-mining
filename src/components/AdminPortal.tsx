@@ -29,7 +29,8 @@ import {
   Flame,
   FileSpreadsheet,
   Activity,
-  UserCheck
+  UserCheck,
+  ShieldAlert
 } from 'lucide-react';
 import { UserProfile, DepositRequest, MiningPackage, WithdrawalRecordItem } from '../types';
 import { 
@@ -48,6 +49,7 @@ import { CustomerDetailModal } from './CustomerDetailModal';
 export const MASTER_ADMIN_EMAIL = 'yousaftariq2014@gmail.com';
 
 interface AdminPortalProps {
+  currentUser?: UserProfile | null;
   onBackToClientApp: () => void;
   deposits: DepositRequest[];
   onApproveDeposit: (depositId: string) => void;
@@ -64,6 +66,7 @@ interface AdminPortalProps {
 }
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({
+  currentUser,
   onBackToClientApp,
   deposits,
   onApproveDeposit,
@@ -152,6 +155,38 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     checkExistingSession();
   }, []);
 
+  // AUTOMATIC REAL-TIME SYNC WITH SUPABASE:
+  // Listens to live database mutations & performs automated 5s heartbeats so admin dashboard always stays in sync
+  useEffect(() => {
+    if (!isAdminLoggedIn) return;
+
+    // Periodic auto-sync interval
+    const interval = setInterval(() => {
+      if (onRefreshData) {
+        onRefreshData();
+      }
+    }, 6000);
+
+    // Supabase Realtime channel subscription for instant auto-sync
+    const channel = supabase
+      .channel('admin_live_data_stream')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'clients' }, () => {
+        if (onRefreshData) onRefreshData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'deposits' }, () => {
+        if (onRefreshData) onRefreshData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'withdrawals' }, () => {
+        if (onRefreshData) onRefreshData();
+      })
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
+  }, [isAdminLoggedIn, onRefreshData]);
+
   const handleAdminLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
@@ -159,14 +194,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
     const normalizedEmail = adminEmail.trim().toLowerCase();
 
-    // STRICT MASTER ADMIN LOCK - No original email exposed
+    // STRICT MASTER ADMIN RESTRICTION:
+    // Under NO circumstances can any other email or client credential open the Admin Dashboard
     if (normalizedEmail !== MASTER_ADMIN_EMAIL.toLowerCase()) {
-      setLoginError('Access Denied: Invalid administrator credentials or unauthorized account.');
+      setLoginError(`Access Denied: Only Master Admin (${MASTER_ADMIN_EMAIL}) is authorized to access this portal. Client accounts and passwords cannot open the Admin Dashboard.`);
       setIsSubmittingLogin(false);
       return;
     }
 
     try {
+      // 1. Authenticate with Supabase Auth
       const { data, error } = await supabase.auth.signInWithPassword({
         email: normalizedEmail,
         password: adminPassword,
@@ -179,7 +216,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         return;
       }
 
-      setLoginError('Access Denied: Invalid administrator password or credentials.');
+      setLoginError('Access Denied: Invalid administrator password. Client passwords cannot be used to unlock the Admin Dashboard.');
     } catch (err: any) {
       setLoginError('Access Denied: Invalid administrator credentials.');
     } finally {
@@ -342,7 +379,37 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   }
 
   // ----------------------------------------------------
-  // VIEW 1: ADMIN LOGIN SCREEN
+  // STRICT SECURITY GATE: If active logged in user is a client (NOT Master Admin)
+  // Completely prohibit and block access to the Admin Dashboard
+  // ----------------------------------------------------
+  if (currentUser && currentUser.email?.toLowerCase() !== MASTER_ADMIN_EMAIL.toLowerCase()) {
+    return (
+      <div className="max-w-md mx-auto my-12 p-6 sm:p-8 rounded-3xl bg-[#0e1424] border border-rose-500/30 shadow-2xl space-y-6 text-center animate-in fade-in duration-300">
+        <div className="w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 mx-auto shadow-lg shadow-rose-500/10">
+          <ShieldAlert className="w-8 h-8" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-xl font-black text-white">Access Prohibited</h2>
+          <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs font-mono">
+            Signed in as: <strong className="text-white">{currentUser.email}</strong>
+          </div>
+          <p className="text-xs text-slate-400 leading-relaxed pt-1">
+            Client accounts and credentials cannot open or access the Administrator Console. Administrative access is strictly restricted to master administrator <strong className="text-amber-400 font-mono">{MASTER_ADMIN_EMAIL}</strong>.
+          </p>
+        </div>
+        <button
+          onClick={onBackToClientApp}
+          className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-amber-500/10"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>Return to My Mining Dashboard</span>
+        </button>
+      </div>
+    );
+  }
+
+  // ----------------------------------------------------
+  // VIEW 1: ADMIN LOGIN SCREEN (Master Admin yousaftariq2014@gmail.com Only)
   // ----------------------------------------------------
   if (!isAdminLoggedIn) {
     return (
@@ -353,7 +420,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           </div>
           <h1 className="text-2xl font-black text-white">Administrator Portal</h1>
           <p className="text-xs text-slate-400">
-            High-security management dashboard for client portfolio tracking, smart production approvals, and treasury operations.
+            High-security management console. Only authorized master administrator ({MASTER_ADMIN_EMAIL}) can sign in. Client passwords are strictly unauthorized.
           </p>
         </div>
 
@@ -366,20 +433,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
         <form onSubmit={handleAdminLogin} className="space-y-4">
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-300">Administrator Email / Identifier</label>
+            <label className="text-xs font-bold text-slate-300">Administrator Email</label>
             <input
               type="email"
               value={adminEmail}
               onChange={(e) => setAdminEmail(e.target.value)}
               required
               autoComplete="username"
-              placeholder="admin@system.domain"
+              placeholder="yousaftariq2014@gmail.com"
               className="w-full bg-[#131d33] border border-slate-700 rounded-xl px-4 py-3 text-xs sm:text-sm font-mono text-white focus:outline-none focus:border-amber-500"
             />
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-300">Master Key / Password</label>
+            <label className="text-xs font-bold text-slate-300">Master Password</label>
             <input
               type="password"
               value={adminPassword}
@@ -396,7 +463,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             disabled={isSubmittingLogin}
             className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs sm:text-sm shadow-xl shadow-amber-500/20 cursor-pointer transition-all disabled:opacity-60"
           >
-            {isSubmittingLogin ? 'Authenticating…' : 'Access Executive Console'}
+            {isSubmittingLogin ? 'Authenticating Master Session…' : 'Access Executive Console'}
           </button>
         </form>
 
@@ -439,9 +506,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                 Master Admin Verified
               </span>
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold tracking-wider bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1.5 font-mono">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                <span>Auto-Sync Active (Supabase Cloud)</span>
+              </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Real-time customer 360° analytics, automated production yields, blockchain deposits, and non-custodial payouts.
+              Authorized session: <strong className="text-amber-400 font-mono">{MASTER_ADMIN_EMAIL}</strong> &bull; Auto-syncing real-time client logins, deposits, and smart yields.
             </p>
           </div>
         </div>

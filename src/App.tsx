@@ -32,6 +32,8 @@ import {
 // Initial Empty Registered Clients (clean zero-base)
 const INITIAL_DEMO_USERS: UserProfile[] = [];
 
+export const MASTER_ADMIN_EMAIL = 'yousaftariq2014@gmail.com';
+
 export default function App() {
   // 1. Current Authenticated Client User (saved in localStorage)
   const [user, setUser] = useState<UserProfile | null>(() => {
@@ -45,9 +47,15 @@ export default function App() {
 
   // 2. Navigation State: 'home' | 'deposit' | 'dashboard' | 'admin'
   const [currentTab, setCurrentTab] = useState<string>(() => {
-    if (typeof window !== 'undefined' && window.location.hash === '#admin') return 'admin';
     const saved = localStorage.getItem('hashforge_user');
-    return saved ? 'dashboard' : 'home';
+    const parsedUser = saved ? JSON.parse(saved) : null;
+    if (typeof window !== 'undefined' && window.location.hash === '#admin') {
+      if (parsedUser && parsedUser.email?.toLowerCase() !== MASTER_ADMIN_EMAIL.toLowerCase()) {
+        return 'dashboard';
+      }
+      return 'admin';
+    }
+    return parsedUser ? 'dashboard' : 'home';
   });
 
   // Activation & System Notice Toast
@@ -68,6 +76,16 @@ export default function App() {
       const search = window.location.search || '';
 
       if (hash === '#admin') {
+        const savedUserStr = localStorage.getItem('hashforge_user');
+        const activeClient = savedUserStr ? JSON.parse(savedUserStr) : user;
+        if (activeClient && activeClient.email?.toLowerCase() !== MASTER_ADMIN_EMAIL.toLowerCase()) {
+          setActivationToast('⛔ Access Denied: Administrator Console is strictly restricted to master admin (yousaftariq2014@gmail.com). Client accounts cannot access Admin.');
+          try {
+            window.history.replaceState(null, '', window.location.pathname);
+          } catch {}
+          setCurrentTab('dashboard');
+          return;
+        }
         setCurrentTab('admin');
         return;
       }
@@ -150,7 +168,7 @@ export default function App() {
       window.removeEventListener('hashchange', checkUrlAuth);
       authListener?.subscription?.unsubscribe();
     };
-  }, []);
+  }, [user]);
 
   // 3. 5 Mining Packages
   const [packages] = useState<MiningPackage[]>(MINING_PACKAGES);
@@ -511,6 +529,14 @@ export default function App() {
     }
   };
 
+  // Periodic Cloud Auto-Sync in background every 10s
+  useEffect(() => {
+    const syncInterval = setInterval(() => {
+      handleAdminRefreshData();
+    }, 10000);
+    return () => clearInterval(syncInterval);
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-slate-950">
       
@@ -603,6 +629,7 @@ export default function App() {
         {/* VIEW 4: DEDICATED SEPARATE ADMIN PORTAL & APPROVAL CONSOLE */}
         {currentTab === 'admin' && (
           <AdminPortal
+            currentUser={user}
             onBackToClientApp={() => {
               window.location.hash = '';
               setCurrentTab(user ? 'dashboard' : 'home');
@@ -629,9 +656,13 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>&copy; 2026 ETH2.0 Smart Production. All rights reserved.</span>
           <div className="flex items-center gap-4 text-[11px]">
-            {(!user || user.email?.toLowerCase() === 'yousaftariq2014@gmail.com') && (
+            {(!user || user.email?.toLowerCase() === MASTER_ADMIN_EMAIL.toLowerCase()) && (
               <button
                 onClick={() => {
+                  if (user && user.email?.toLowerCase() !== MASTER_ADMIN_EMAIL.toLowerCase()) {
+                    setActivationToast('⛔ Access Denied: Admin portal is restricted to master administrator.');
+                    return;
+                  }
                   window.location.hash = 'admin';
                   setCurrentTab('admin');
                 }}

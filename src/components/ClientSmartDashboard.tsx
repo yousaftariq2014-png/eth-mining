@@ -360,7 +360,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   const displayedCategoryPackages = dashCategory === 'daily' ? DAILY_PACKAGES : FLASH_48H_PACKAGES;
 
   return (
-    <div id="client-smart-dashboard-view" className="max-w-md mx-auto min-h-[820px] bg-[#0c121e] text-white flex flex-col justify-between rounded-3xl border border-slate-800 shadow-2xl overflow-hidden relative pb-16">
+    <div id="client-smart-dashboard-view" className="max-w-md mx-auto min-h-[820px] bg-[#0c121e] text-white flex flex-col rounded-3xl border border-slate-800 shadow-2xl overflow-hidden relative pb-16">
       
       {/* Toast */}
       {notification && (
@@ -506,6 +506,70 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
             >
               View 6-Hour Cycle Earnings Details &rarr;
             </button>
+          </div>
+        </div>
+
+        {/* ============ #3: PACKAGES WE OFFER ============ */}
+        <div className="space-y-2.5">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-bold text-slate-300 flex items-center gap-1.5">
+              <Layers className="w-3.5 h-3.5 text-amber-400" />
+              Packages We Offer
+            </span>
+
+            {/* Category Toggle: Daily vs 48H Flash */}
+            <div className="flex items-center gap-1 bg-[#10182c] p-0.5 rounded-xl border border-slate-800">
+              <button
+                type="button"
+                onClick={() => setDashCategory('daily')}
+                className={`px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
+                  dashCategory === 'daily' ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Daily 2%-3%
+              </button>
+              <button
+                type="button"
+                onClick={() => setDashCategory('flash_48h')}
+                className={`px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
+                  dashCategory === 'flash_48h' ? 'bg-rose-500 text-white' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                48H Flash
+              </button>
+            </div>
+          </div>
+
+          {/* Grid of Packages in the selected category */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {displayedCategoryPackages.map((pkg) => {
+              const isCurrent = pkg.vipLevel === currentVipLevel && (pkg.planType === activeApprovedDeposit?.planType || (!activeApprovedDeposit && pkg.planType === 'daily'));
+              const isFlash = pkg.planType === 'flash_48h';
+              return (
+                <button
+                  key={pkg.id}
+                  onClick={() => onSelectPackage(pkg)}
+                  className={`p-2.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                    isCurrent
+                      ? 'bg-amber-500/20 border-amber-500 text-white font-bold ring-1 ring-amber-500'
+                      : isFlash
+                      ? 'bg-[#151128] border-rose-950/60 text-slate-300 hover:border-rose-700/60'
+                      : 'bg-[#10182c] border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between w-full">
+                    <span className={`text-[10px] font-black ${isFlash ? 'text-rose-400' : 'text-amber-400'}`}>
+                      {isFlash ? '48H FLASH' : `VIP ${pkg.vipLevel}`}
+                    </span>
+                    <span className="text-[9px] font-mono font-bold text-emerald-400">
+                      {isFlash ? `+${pkg.profitPercent}% (48h)` : pkg.profitRangeText || `+${pkg.dailyReturnPercent}%`}
+                    </span>
+                  </div>
+                  <div className="text-xs font-black font-mono mt-1 text-white">${pkg.priceUsd.toLocaleString()}</div>
+                  <div className="text-[9px] text-slate-400 truncate mt-0.5">{pkg.name}</div>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -750,65 +814,6 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                   </p>
                 </div>
               )}
-
-              {/* Package Upgrade & Selection Section */}
-              <div className="space-y-2.5 pt-2 border-t border-slate-800">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-300">Choose / Upgrade Package</span>
-                  
-                  <div className="flex items-center gap-1 bg-[#10182c] p-0.5 rounded-xl border border-slate-800">
-                    <button
-                      type="button"
-                      onClick={() => setDashCategory('daily')}
-                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
-                        dashCategory === 'daily' ? 'bg-amber-500 text-slate-950' : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      Daily 2%-3%
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDashCategory('flash_48h')}
-                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold cursor-pointer transition-all ${
-                        dashCategory === 'flash_48h' ? 'bg-rose-500 text-white' : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      48H Flash
-                    </button>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2">
-                  {displayedCategoryPackages.map((pkg) => {
-                    const isCurrent = pkg.vipLevel === currentVipLevel && (pkg.planType === activeApprovedDeposit?.planType || (!activeApprovedDeposit && pkg.planType === 'daily'));
-                    const isFlash = pkg.planType === 'flash_48h';
-                    return (
-                      <button
-                        key={pkg.id}
-                        onClick={() => onSelectPackage(pkg)}
-                        className={`p-2.5 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
-                          isCurrent
-                            ? 'bg-amber-500/20 border-amber-500 text-white font-bold ring-1 ring-amber-500'
-                            : isFlash
-                            ? 'bg-[#151128] border-rose-950/60 text-slate-300 hover:border-rose-700/60'
-                            : 'bg-[#10182c] border-slate-800 text-slate-400 hover:text-white hover:border-slate-700'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between w-full">
-                          <span className={`text-[10px] font-black ${isFlash ? 'text-rose-400' : 'text-amber-400'}`}>
-                            {isFlash ? '48H FLASH' : `VIP ${pkg.vipLevel}`}
-                          </span>
-                          <span className="text-[9px] font-mono font-bold text-emerald-400">
-                            {isFlash ? `+${pkg.profitPercent}% (48h)` : pkg.profitRangeText || `+${pkg.dailyReturnPercent}%`}
-                          </span>
-                        </div>
-                        <div className="text-xs font-black font-mono mt-1 text-white">${pkg.priceUsd.toLocaleString()}</div>
-                        <div className="text-[9px] text-slate-400 truncate mt-0.5">{pkg.name}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
 
               {/* Pair price Card */}
               <div className="rounded-2xl bg-[#0f172a] border border-slate-800/80 p-3.5 space-y-2 text-xs font-mono">

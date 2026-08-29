@@ -701,10 +701,11 @@ export default function App() {
         }}
       />
 
-      {/* Floating Live Support Widget */}
+      {/* Floating Live Support Widget (Tawk.to) */}
       <LiveSupportWidget
         isOpen={isLiveSupportOpen}
         onClose={() => setIsLiveSupportOpen(false)}
+        user={user}
       />
 
     </div>

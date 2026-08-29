@@ -16,13 +16,16 @@ import {
 } from './types';
 import { MINING_PACKAGES, INITIAL_WITHDRAWAL_RECORDS } from './data/packagesData';
 import { 
+  supabase,
   fetchSupabaseUsers, 
   saveSupabaseUser, 
   fetchSupabaseDeposits, 
   insertSupabaseDeposit, 
   updateSupabaseDepositStatus,
   fetchSupabaseWithdrawals,
-  updateSupabaseWithdrawalStatus
+  updateSupabaseWithdrawalStatus,
+  clearUserDeposits,
+  clearAllDeposits
 } from './lib/supabaseClient';
 
 // Initial Empty Registered Clients (clean zero-base)
@@ -205,12 +208,50 @@ export default function App() {
     setCurrentTab('home');
   };
 
+  const isPackagePurchasedByUser = (pkg: MiningPackage, currentUserId?: string, currentUserName?: string) => {
+    if (!currentUserId && !currentUserName) return false;
+    return deposits.some(d => 
+      (d.userId === currentUserId || d.userName === currentUserName) &&
+      (d.status === 'approved' || d.status === 'pending') &&
+      (
+        d.packageId === pkg.id || 
+        d.packageName === pkg.name || 
+        (d.vipLevel === pkg.vipLevel && (d.planType === pkg.planType || (!d.planType && pkg.planType === 'daily')))
+      )
+    );
+  };
+
   const handleSelectPackage = (pkg: MiningPackage) => {
+    if (user && isPackagePurchasedByUser(pkg, user.id, user.name)) {
+      alert(`You already have an active mining contract for ${pkg.name}. Each tier can only be purchased once per client.`);
+      return;
+    }
     setSelectedPackage(pkg);
     if (!user) {
       handleOpenAuth('signup', pkg);
     } else {
       setCurrentTab('deposit');
+    }
+  };
+
+  // Clear mining packages for specific user (resets client dashboard to zero state)
+  const handleClearUserPackages = async (userId?: string, userEmail?: string) => {
+    const targetId = userId || user?.id;
+    const targetEmail = userEmail || user?.email || user?.name;
+    if (targetId) {
+      await clearUserDeposits(targetId, targetEmail);
+      setDeposits(prev => prev.filter(d => d.userId !== targetId && d.userName !== targetEmail));
+    }
+    setSelectedPackage(null);
+    if (user && (user.id === targetId || user.email === targetEmail)) {
+      const resetUser: UserProfile = {
+        ...user,
+        vipLevel: 1,
+        plan: 'VIP 1 Starter'
+      };
+      setUser(resetUser);
+      localStorage.setItem('hashforge_user', JSON.stringify(resetUser));
+      saveSupabaseUser(resetUser);
     }
   };
 
@@ -306,6 +347,31 @@ export default function App() {
     updateSupabaseWithdrawalStatus(withdrawalId, 'Failed');
   };
 
+  // Admin purges all test data & resets to clean zero-base
+  const handleAdminPurgeAllData = () => {
+    setUser(null);
+    setDeposits([]);
+    setWithdrawalRecords([]);
+    setRegisteredUsers([]);
+    setSelectedPackage(null);
+  };
+
+  // Admin deletes single client
+  const handleAdminDeleteClient = async (userId: string, email: string) => {
+    try {
+      await supabase.from('clients').delete().eq('id', userId);
+      await supabase.from('deposits').delete().eq('user_id', userId);
+      await supabase.from('withdrawals').delete().eq('user_id', userId);
+    } catch {}
+    setRegisteredUsers(prev => prev.filter(u => u.id !== userId));
+    setDeposits(prev => prev.filter(d => d.userId !== userId));
+    setWithdrawalRecords(prev => prev.filter(w => w.userId !== userId));
+    if (user && (user.id === userId || user.email.toLowerCase() === email.toLowerCase())) {
+      setUser(null);
+      localStorage.removeItem('hashforge_user');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-slate-950">
       
@@ -328,6 +394,7 @@ export default function App() {
           <HomePage
             packages={packages}
             user={user}
+            deposits={deposits}
             onOpenAuth={handleOpenAuth}
             onSelectPackage={handleSelectPackage}
             onOpenLiveSupport={() => setIsLiveSupportOpen(true)}
@@ -350,6 +417,7 @@ export default function App() {
             onBack={() => setCurrentTab('home')}
             onSubmitDeposit={handleSubmitDeposit}
             pendingDeposits={deposits}
+            allDeposits={deposits}
             onGoToDashboard={() => setCurrentTab('dashboard')}
           />
         )}
@@ -358,6 +426,7 @@ export default function App() {
         {currentTab === 'dashboard' && (
           <div className="space-y-6">
             <ClientSmartDashboard
+              key={user?.id || 'guest'}
               user={user || {
                 id: 'guest',
                 name: 'VIP Miner',
@@ -371,6 +440,7 @@ export default function App() {
               onSelectPackage={handleSelectPackage}
               onOpenLiveSupport={() => setIsLiveSupportOpen(true)}
               pendingDeposits={deposits}
+              onClearUserPackages={handleClearUserPackages}
             />
           </div>
         )}
@@ -390,6 +460,8 @@ export default function App() {
             withdrawalRecords={withdrawalRecords}
             onApproveWithdrawal={handleAdminApproveWithdrawal}
             onRejectWithdrawal={handleAdminRejectWithdrawal}
+            onPurgeAllData={handleAdminPurgeAllData}
+            onDeleteClient={handleAdminDeleteClient}
           />
         )}
 

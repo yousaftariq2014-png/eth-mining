@@ -11,25 +11,9 @@ interface DepositPageProps {
   onBack: () => void;
   onSubmitDeposit: (deposit: DepositRequest) => Promise<boolean> | void;
   pendingDeposits: DepositRequest[];
+  allDeposits?: DepositRequest[];
   onGoToDashboard: () => void;
 }
-
-/**
- * =============================================================================
- * WHAT CHANGED
- * =============================================================================
- * REMOVED: the "Network Broadcast Verified ✓ — USDT-{network} network
- * confirmation received" step that appeared instantly on submit, before any
- * actual blockchain check happened. It falsely told the client their
- * transaction was already confirmed. There are now only two honest states:
- *   1. "Submitted — awaiting admin verification" (right after they submit)
- *   2. Whatever the real `status` in the database says once an admin has
- *      actually checked the txid on-chain (approved / rejected)
- * No confetti/celebration on submission either — submitting a form isn't an
- * achievement, and celebrating it before any money has actually been
- * verified overstates what just happened.
- * =============================================================================
- */
 
 export const DepositPage: React.FC<DepositPageProps> = ({
   selectedPackage,
@@ -37,6 +21,7 @@ export const DepositPage: React.FC<DepositPageProps> = ({
   onBack,
   onSubmitDeposit,
   pendingDeposits,
+  allDeposits = [],
   onGoToDashboard,
 }) => {
   const [network, setNetwork] = useState<'TRC20' | 'ERC20' | 'BEP20'>('TRC20');
@@ -56,8 +41,52 @@ export const DepositPage: React.FC<DepositPageProps> = ({
   const currentAddress = depositAddresses[network];
 
   const userPendingDeposit = pendingDeposits.find(
-    (d) => d.userId === user.id && d.status === 'pending'
+    (d) => (d.userId === user.id || d.userName === user.name) && d.status === 'pending'
   );
+
+  const isAlreadyApproved = allDeposits.some(
+    (d) => (d.userId === user.id || d.userName === user.name) &&
+           d.status === 'approved' &&
+           (d.packageId === selectedPackage.id || d.packageName === selectedPackage.name || (d.vipLevel === selectedPackage.vipLevel && d.planType === selectedPackage.planType))
+  );
+
+  // If user already owns this package, prevent re-purchase
+  if (isAlreadyApproved) {
+    return (
+      <div id="deposit-already-owned-page" className="max-w-2xl mx-auto p-4 sm:p-6 space-y-6">
+        <button onClick={onBack} className="inline-flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-white transition-colors cursor-pointer">
+          <ArrowLeft className="w-4 h-4" />
+          <span>Back to Packages</span>
+        </button>
+
+        <div className="rounded-3xl bg-[#0f172a] border border-emerald-500/40 p-6 sm:p-8 space-y-6 shadow-2xl text-center">
+          <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto">
+            <CheckCircle2 className="w-8 h-8" />
+          </div>
+
+          <div className="space-y-2">
+            <span className="px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              Contract Already Active
+            </span>
+            <h2 className="text-2xl font-black text-white">You Already Own This Package</h2>
+            <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
+              You already have an active mining contract for <strong>{selectedPackage.name} (${selectedPackage.priceUsd.toLocaleString()} USDT)</strong>. Each package tier can only be purchased once per client.
+            </p>
+          </div>
+
+          <div className="flex flex-col sm:flex-row justify-center gap-3 pt-2">
+            <button onClick={onBack} className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs cursor-pointer">
+              Choose Another Tier
+            </button>
+            <button onClick={onGoToDashboard} className="px-6 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs cursor-pointer flex items-center justify-center gap-2">
+              <span>Go to Mining Dashboard</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const handleCopy = () => {
     navigator.clipboard.writeText(currentAddress);

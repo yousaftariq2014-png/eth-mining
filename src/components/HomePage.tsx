@@ -19,12 +19,13 @@ import {
   Layers,
   Timer
 } from 'lucide-react';
-import { MiningPackage, UserProfile, PackageType } from '../types';
+import { MiningPackage, UserProfile, PackageType, DepositRequest } from '../types';
 import { DAILY_PACKAGES, FLASH_48H_PACKAGES } from '../data/packagesData';
 
 interface HomePageProps {
   packages: MiningPackage[];
   user: UserProfile | null;
+  deposits?: DepositRequest[];
   onOpenAuth: (mode: 'login' | 'signup', targetPkg?: MiningPackage) => void;
   onSelectPackage: (pkg: MiningPackage) => void;
   onOpenLiveSupport: () => void;
@@ -33,6 +34,7 @@ interface HomePageProps {
 export const HomePage: React.FC<HomePageProps> = ({
   packages,
   user,
+  deposits = [],
   onOpenAuth,
   onSelectPackage,
   onOpenLiveSupport,
@@ -42,7 +44,22 @@ export const HomePage: React.FC<HomePageProps> = ({
 
   const activePackageList = selectedPlanType === 'daily' ? DAILY_PACKAGES : FLASH_48H_PACKAGES;
 
+  // Check if current user has already purchased this package (1 purchase max limit per package)
+  const isPackagePurchased = (pkg: MiningPackage): boolean => {
+    if (!user || !deposits || deposits.length === 0) return false;
+    return deposits.some(d => 
+      (d.userId === user.id || d.userName === user.name) &&
+      (d.status === 'approved' || d.status === 'pending') &&
+      (
+        d.packageId === pkg.id || 
+        d.packageName === pkg.name || 
+        (d.vipLevel === pkg.vipLevel && (d.planType === pkg.planType || (!d.planType && pkg.planType === 'daily')))
+      )
+    );
+  };
+
   const handlePackageClick = (pkg: MiningPackage) => {
+    if (isPackagePurchased(pkg)) return;
     if (!user) {
       onOpenAuth('signup', pkg);
     } else {
@@ -186,18 +203,28 @@ export const HomePage: React.FC<HomePageProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           {activePackageList.map((pkg) => {
             const isFlash = pkg.planType === 'flash_48h';
+            const isPurchased = isPackagePurchased(pkg);
 
             return (
               <div
                 key={pkg.id}
                 className={`relative rounded-3xl p-5 transition-all duration-300 flex flex-col justify-between border ${
-                  isFlash
-                    ? 'bg-gradient-to-b from-[#181128] via-[#100d1e] to-[#0a0714] border-rose-900/60 hover:border-rose-500/60 shadow-lg shadow-rose-950/20'
-                    : 'bg-gradient-to-b from-[#10192e] via-[#0d1424] to-[#090e18] border-slate-800 hover:border-amber-500/50 shadow-xl'
-                } hover:scale-[1.02]`}
+                  isPurchased
+                    ? 'bg-slate-900/90 border-emerald-500/40 shadow-emerald-950/20 shadow-lg'
+                    : isFlash
+                    ? 'bg-gradient-to-b from-[#181128] via-[#100d1e] to-[#0a0714] border-rose-900/60 hover:border-rose-500/60 shadow-lg shadow-rose-950/20 hover:scale-[1.02]'
+                    : 'bg-gradient-to-b from-[#10192e] via-[#0d1424] to-[#090e18] border-slate-800 hover:border-amber-500/50 shadow-xl hover:scale-[1.02]'
+                }`}
               >
                 {/* Top Badge */}
-                {pkg.badge && (
+                {isPurchased ? (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-10 whitespace-nowrap">
+                    <span className="px-3 py-0.5 rounded-full text-[10px] font-black tracking-wider uppercase shadow-md bg-emerald-500 text-slate-950 border border-emerald-300/40 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Active Node (1/1 Limit)
+                    </span>
+                  </div>
+                ) : pkg.badge ? (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                     <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-wider uppercase shadow-md ${
                       isFlash
@@ -207,16 +234,16 @@ export const HomePage: React.FC<HomePageProps> = ({
                       {pkg.badge}
                     </span>
                   </div>
-                )}
+                ) : null}
 
                 <div className="space-y-4">
                   {/* Header */}
                   <div className="pt-2 text-center border-b border-slate-800/80 pb-3">
                     <div className="flex items-center justify-center gap-1">
                       <span className={`text-[10px] font-mono font-black uppercase px-2 py-0.5 rounded ${
-                        isFlash ? 'bg-rose-500/20 text-rose-300' : 'bg-amber-500/20 text-amber-300'
+                        isPurchased ? 'bg-emerald-500/20 text-emerald-300' : isFlash ? 'bg-rose-500/20 text-rose-300' : 'bg-amber-500/20 text-amber-300'
                       }`}>
-                        {isFlash ? '48H Flash' : `VIP Tier ${pkg.vipLevel}`}
+                        {isPurchased ? 'Node Purchased' : isFlash ? '48H Flash' : `VIP Tier ${pkg.vipLevel}`}
                       </span>
                     </div>
                     <h3 className="text-base font-black text-white mt-1.5">{pkg.name}</h3>
@@ -232,15 +259,17 @@ export const HomePage: React.FC<HomePageProps> = ({
 
                   {/* Profit Rate Banner */}
                   <div className={`p-2.5 rounded-2xl text-center border ${
-                    isFlash 
+                    isPurchased
+                      ? 'bg-emerald-500/10 border-emerald-500/30'
+                      : isFlash 
                       ? 'bg-rose-500/10 border-rose-500/30' 
                       : 'bg-amber-500/10 border-amber-500/30'
                   }`}>
-                    <div className={`text-sm font-black font-mono ${isFlash ? 'text-rose-400' : 'text-amber-400'}`}>
+                    <div className={`text-sm font-black font-mono ${isPurchased ? 'text-emerald-400' : isFlash ? 'text-rose-400' : 'text-amber-400'}`}>
                       {isFlash ? `+${pkg.profitPercent}% Fixed Profit` : pkg.profitRangeText}
                     </div>
                     <div className="text-[10px] text-slate-300 font-mono mt-0.5">
-                      {isFlash ? `After 48 Hours: +$${pkg.oneTimeProfitUsd?.toLocaleString()}` : `Est. $${pkg.dailyReturnUsd.toFixed(2)} / day`}
+                      {isPurchased ? 'Earning Active in Dashboard' : isFlash ? `After 48 Hours: +$${pkg.oneTimeProfitUsd?.toLocaleString()}` : `Est. $${pkg.dailyReturnUsd.toFixed(2)} / day`}
                     </div>
                   </div>
 
@@ -266,7 +295,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                   <div className="space-y-1.5 text-[11px] text-slate-300 pt-1">
                     {pkg.features.map((f, i) => (
                       <div key={i} className="flex items-start gap-1.5">
-                        <CheckCircle2 className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${isFlash ? 'text-rose-400' : 'text-emerald-400'}`} />
+                        <CheckCircle2 className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${isPurchased ? 'text-emerald-400' : isFlash ? 'text-rose-400' : 'text-emerald-400'}`} />
                         <span className="leading-tight text-slate-300">{f}</span>
                       </div>
                     ))}
@@ -276,15 +305,27 @@ export const HomePage: React.FC<HomePageProps> = ({
                 {/* Deposit / Start Button */}
                 <div className="pt-5">
                   <button
+                    disabled={isPurchased}
                     onClick={() => handlePackageClick(pkg)}
-                    className={`w-full py-3 rounded-2xl font-black text-xs transition-all shadow-lg flex items-center justify-center gap-1.5 cursor-pointer ${
-                      isFlash
-                        ? 'bg-gradient-to-r from-rose-600 via-orange-500 to-amber-500 hover:from-rose-500 hover:to-amber-400 text-white shadow-rose-600/25'
-                        : 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-amber-500/25'
+                    className={`w-full py-3 rounded-2xl font-black text-xs transition-all shadow-lg flex items-center justify-center gap-1.5 ${
+                      isPurchased
+                        ? 'bg-slate-800 text-slate-400 border border-slate-700 cursor-not-allowed opacity-80'
+                        : isFlash
+                        ? 'bg-gradient-to-r from-rose-600 via-orange-500 to-amber-500 hover:from-rose-500 hover:to-amber-400 text-white shadow-rose-600/25 cursor-pointer'
+                        : 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-amber-500/25 cursor-pointer'
                     }`}
                   >
-                    <span>{user ? 'Select Package' : 'Deposit & Activate'}</span>
-                    <ArrowRight className="w-3.5 h-3.5" />
+                    {isPurchased ? (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Already Purchased (1 Max)</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>{user ? 'Select Package' : 'Deposit & Activate'}</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
+                      </>
+                    )}
                   </button>
                 </div>
 

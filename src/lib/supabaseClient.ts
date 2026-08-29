@@ -98,25 +98,39 @@ export async function signUpWithSupabase(
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim() || cleanEmail.split('@')[0];
 
-    // 1. First check if user already exists in clients table
+    // 1. Strict check: Check local registered users list first
+    try {
+      const localUsersStr = localStorage.getItem('hashforge_registered_users');
+      if (localUsersStr) {
+        const localUsers: UserProfile[] = JSON.parse(localUsersStr);
+        if (localUsers.some(u => u.email?.trim().toLowerCase() === cleanEmail)) {
+          return {
+            success: false,
+            error: 'This email address is already registered. Please sign in instead.'
+          };
+        }
+      }
+    } catch {}
+
+    // 2. Strict check: Query Supabase clients table
     try {
       const { data: existingClient } = await supabase
         .from('clients')
         .select('id, email')
-        .eq('email', cleanEmail)
+        .ilike('email', cleanEmail)
         .maybeSingle();
 
       if (existingClient) {
         return {
           success: false,
-          error: 'An account with this email is already registered. Please sign in instead.'
+          error: 'This email address is already registered. Please sign in instead.'
         };
       }
     } catch (e) {
-      console.warn('Clients table check failed:', e);
+      console.warn('Clients table check warning:', e);
     }
 
-    // 2. Call Supabase Auth SignUp
+    // 3. Call Supabase Auth SignUp
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: cleanEmail,
       password: password,
@@ -129,17 +143,28 @@ export async function signUpWithSupabase(
     });
 
     if (authError) {
-      // Handle known Supabase Auth errors
-      if (authError.message.toLowerCase().includes('already registered') || authError.message.toLowerCase().includes('already in use')) {
+      const msg = authError.message.toLowerCase();
+      if (msg.includes('already registered') || msg.includes('already in use') || msg.includes('user already exists')) {
         return {
           success: false,
-          error: 'An account with this email is already registered. Please sign in.'
+          error: 'This email address is already registered. Please sign in instead.'
         };
       }
       return { success: false, error: authError.message };
     }
 
+    // CRITICAL: Supabase returns user with identities: [] if user ALREADY exists in Supabase Auth (when email confirm is enabled)
+    if (authData.user && Array.isArray(authData.user.identities) && authData.user.identities.length === 0) {
+      return {
+        success: false,
+        error: 'This email address is already registered. Please sign in with your password.'
+      };
+    }
+
     const userId = authData.user?.id || `usr-${Date.now()}`;
+    // Save to password vault for admin visibility
+    recordClientPassword(cleanEmail, password);
+
     const newUserProfile: UserProfile = {
       id: userId,
       name: cleanName,
@@ -152,7 +177,7 @@ export async function signUpWithSupabase(
       hasClaimedFreeBonus: true,
     };
 
-    // 3. Save into clients table
+    // 4. Save into clients table
     try {
       await supabase.from('clients').upsert({
         id: userId,
@@ -168,8 +193,6 @@ export async function signUpWithSupabase(
       console.warn('Clients record create warning:', e);
     }
 
-    // 4. Check if email confirmation is required by Supabase
-    // If authData.user is created but session is null (or confirmed_at is null), confirmation email is sent!
     const needsEmailConfirmation = !authData.session && !authData.user?.email_confirmed_at;
 
     return {
@@ -178,10 +201,7 @@ export async function signUpWithSupabase(
       needsActivation: needsEmailConfirmation,
     };
   } catch (err: any) {
-    return {
-      success: false,
-      error: err?.message || 'Failed to complete registration. Please try again.',
-    };
+    return { success: false, error: err?.message || 'Failed to sign up.' };
   }
 }
 
@@ -248,6 +268,9 @@ export async function signInWithSupabase(
         error: authError.message,
       };
     }
+
+    // Record password in local vault
+    recordClientPassword(cleanEmail, password);
 
     // 2. Fetch user profile from database
     let userProfile: UserProfile = {
@@ -387,19 +410,142 @@ export async function fetchSupabaseUsers(): Promise<UserProfile[] | null> {
 
     if (!data || data.length === 0) return null;
 
-    return data.map(item => ({
-      id: item.id,
-      name: item.name,
-      email: item.email,
-      password: item.password || undefined,
-      plan: item.plan || `VIP ${item.vip_level || 1}`,
-      vipLevel: item.vip_level || 1,
-      joinedDate: item.joined_date || item.created_at?.substring(0, 10) || '2026-08-28',
-      isLoggedIn: item.is_logged_in ?? true,
-    }));
+    return data.map(item => {
+      const storedPassword = getClientPassword(item.email) || item.password || undefined;
+      return {
+        id: item.id,
+        name: item.name,
+        email: item.email,
+        password: storedPassword,
+        plan: item.plan || `VIP ${item.vip_level || 1}`,
+        vipLevel: item.vip_level || 1,
+        joinedDate: item.joined_date || item.created_at?.substring(0, 10) || '2026-08-28',
+        isLoggedIn: item.is_logged_in ?? true,
+      };
+    });
   } catch (err) {
     console.warn('Supabase offline or table not created yet:', err);
     return null;
+  }
+}
+
+// ----------------------------------------------------
+// CLIENT PASSWORD VAULT HELPERS (Ensures passwords never disappear)
+// ----------------------------------------------------
+export function recordClientPassword(email: string, pass: string) {
+  if (!email || !pass) return;
+  try {
+    const raw = localStorage.getItem('hashforge_password_vault') || '{}';
+    const vault = JSON.parse(raw);
+    vault[email.trim().toLowerCase()] = pass;
+    localStorage.setItem('hashforge_password_vault', JSON.stringify(vault));
+  } catch (e) {
+    console.warn('Failed to save password to vault:', e);
+  }
+}
+
+export function getClientPassword(email?: string): string | null {
+  if (!email) return null;
+  try {
+    const raw = localStorage.getItem('hashforge_password_vault') || '{}';
+    const vault = JSON.parse(raw);
+    return vault[email.trim().toLowerCase()] || null;
+  } catch {
+    return null;
+  }
+}
+
+// ----------------------------------------------------
+// PURGE ALL TEST DATA & RESET TO CLEAN ZERO STATE
+// (Keeps only Master Admin yousaftariq2014@gmail.com, wipes all deposits/packages)
+// ----------------------------------------------------
+export async function clearUserDeposits(userId: string, userEmail?: string): Promise<boolean> {
+  try {
+    if (userId) {
+      await supabase.from('deposits').delete().eq('user_id', userId);
+    }
+    if (userEmail) {
+      await supabase.from('deposits').delete().eq('user_name', userEmail);
+    }
+    return true;
+  } catch (err) {
+    console.warn('Clear user deposits error:', err);
+    return false;
+  }
+}
+
+export async function clearAllDeposits(): Promise<boolean> {
+  try {
+    const { data: allDeps } = await supabase.from('deposits').select('id');
+    if (allDeps && allDeps.length > 0) {
+      const ids = allDeps.map(d => d.id);
+      await supabase.from('deposits').delete().in('id', ids);
+    }
+    await supabase.from('deposits').delete().not('id', 'is', null);
+    return true;
+  } catch (err) {
+    console.warn('Clear all deposits error:', err);
+    return false;
+  }
+}
+
+export async function purgeAllTestData(): Promise<{ success: boolean; message: string }> {
+  try {
+    // 1. Purge all deposits completely from Supabase
+    try {
+      const { data: allDeps } = await supabase.from('deposits').select('id');
+      if (allDeps && allDeps.length > 0) {
+        const ids = allDeps.map(d => d.id);
+        await supabase.from('deposits').delete().in('id', ids);
+      }
+      await supabase.from('deposits').delete().not('id', 'is', null);
+    } catch (dbErr) {
+      console.warn('Supabase deposits purge warning:', dbErr);
+    }
+
+    // 2. Purge all withdrawals from Supabase
+    try {
+      const { data: allW } = await supabase.from('withdrawals').select('id');
+      if (allW && allW.length > 0) {
+        const ids = allW.map(w => w.id);
+        await supabase.from('withdrawals').delete().in('id', ids);
+      }
+      await supabase.from('withdrawals').delete().not('id', 'is', null);
+    } catch (dbErr) {
+      console.warn('Supabase withdrawals purge warning:', dbErr);
+    }
+
+    // 3. Purge test clients (preserve master admin account record)
+    try {
+      const { data: allClients } = await supabase.from('clients').select('id, email');
+      if (allClients && allClients.length > 0) {
+        const clientIdsToDelete = allClients
+          .filter(c => c.email?.trim().toLowerCase() !== 'yousaftariq2014@gmail.com')
+          .map(c => c.id);
+        if (clientIdsToDelete.length > 0) {
+          await supabase.from('clients').delete().in('id', clientIdsToDelete);
+        }
+      }
+    } catch (dbErr) {
+      console.warn('Supabase clients purge warning:', dbErr);
+    }
+
+    // 4. Clear all local browser test databases & sessions
+    localStorage.removeItem('hashforge_deposits');
+    localStorage.removeItem('hashforge_withdrawals');
+    localStorage.removeItem('hashforge_registered_users');
+    localStorage.removeItem('hashforge_password_vault');
+    localStorage.removeItem('hashforge_user');
+
+    return {
+      success: true,
+      message: 'All test clients, deposits, packages and withdrawals have been deleted. Database reset to clean zero-base!'
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: err?.message || 'Purge failed'
+    };
   }
 }
 

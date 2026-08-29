@@ -2,10 +2,17 @@ import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck, Lock, Users, DollarSign, Clock, CheckCircle2, XCircle, ArrowLeft,
   Search, Filter, Zap, Database, Download, RefreshCw, LogOut, Key, Layers,
-  ChevronRight, Sparkles, Award, Wallet, Copy, Check, Globe, Eye, EyeOff
+  ChevronRight, Sparkles, Award, Wallet, Copy, Check, Globe, Eye, EyeOff, Trash2, AlertTriangle
 } from 'lucide-react';
 import { UserProfile, DepositRequest, MiningPackage, WithdrawalRecordItem } from '../types';
-import { SUPABASE_URL, supabase, fetchSupabaseUsers, fetchSupabaseDeposits } from '../lib/supabaseClient';
+import { 
+  SUPABASE_URL, 
+  supabase, 
+  fetchSupabaseUsers, 
+  fetchSupabaseDeposits,
+  getClientPassword,
+  purgeAllTestData
+} from '../lib/supabaseClient';
 
 export const MASTER_ADMIN_EMAIL = 'yousaftariq2014@gmail.com';
 
@@ -19,6 +26,8 @@ interface AdminPortalProps {
   withdrawalRecords: WithdrawalRecordItem[];
   onApproveWithdrawal?: (withdrawalId: string) => void;
   onRejectWithdrawal?: (withdrawalId: string) => void;
+  onPurgeAllData?: () => void;
+  onDeleteClient?: (userId: string, email: string) => void;
 }
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({
@@ -31,6 +40,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   withdrawalRecords,
   onApproveWithdrawal,
   onRejectWithdrawal,
+  onPurgeAllData,
+  onDeleteClient,
 }) => {
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState<boolean>(() => {
     try {
@@ -55,6 +66,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
+  // Purge Confirmation Modal
+  const [showPurgeConfirm, setShowPurgeConfirm] = useState<boolean>(false);
+  const [isPurging, setIsPurging] = useState<boolean>(false);
+  const [purgeSuccessMsg, setPurgeSuccessMsg] = useState<string>('');
+
   const togglePasswordVisibility = (userId: string) => {
     setVisiblePasswords(prev => ({ ...prev, [userId]: !prev[userId] }));
   };
@@ -63,6 +79,26 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     navigator.clipboard.writeText(text);
     setCopiedKey(id);
     setTimeout(() => setCopiedKey(null), 2000);
+  };
+
+  // Perform full system reset
+  const handleExecutePurge = async () => {
+    setIsPurging(true);
+    try {
+      await purgeAllTestData();
+      if (onPurgeAllData) {
+        onPurgeAllData();
+      }
+      setPurgeSuccessMsg('All test data, clients, deposits, and withdrawals have been deleted successfully! System reset to zero.');
+      setTimeout(() => {
+        setShowPurgeConfirm(false);
+        setPurgeSuccessMsg('');
+      }, 2000);
+    } catch (err: any) {
+      alert('Error during reset: ' + (err?.message || 'Failed'));
+    } finally {
+      setIsPurging(false);
+    }
   };
 
   // On mount: check if there's already a real Supabase session AND that user is the master admin
@@ -305,7 +341,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            onClick={() => setShowPurgeConfirm(true)}
+            className="px-3.5 py-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/20 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all shadow-lg shadow-rose-500/5"
+            title="Wipe all client test profiles, deposits, and packages"
+          >
+            <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+            <span>Reset All Test Data (Zero State)</span>
+          </button>
           <button onClick={onBackToClientApp} className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all">
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Go to Client App</span>
@@ -454,56 +498,71 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       {activeTab === 'clients' && (
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-[#0d1424] p-3.5 rounded-2xl border border-slate-800">
-            <span className="text-xs font-bold text-slate-300">
-              Registered Clients: <strong className="text-amber-400">{registeredUsers.length}</strong>
-            </span>
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input 
-                type="text" 
-                placeholder="Search name, email, password..." 
-                value={searchQuery} 
-                onChange={(e) => setSearchQuery(e.target.value)} 
-                className="bg-[#121c33] border border-slate-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-500 w-full sm:w-64" 
-              />
+            <div className="flex items-center gap-2">
+              <Users className="w-4 h-4 text-amber-400" />
+              <span className="text-xs font-bold text-slate-300">
+                Registered Clients Vault: <strong className="text-amber-400">{registeredUsers.length}</strong>
+              </span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => setShowPurgeConfirm(true)}
+                className="px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/20 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete All Clients & Packages</span>
+              </button>
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input 
+                  type="text" 
+                  placeholder="Search name, email, password..." 
+                  value={searchQuery} 
+                  onChange={(e) => setSearchQuery(e.target.value)} 
+                  className="bg-[#121c33] border border-slate-700 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-500 w-full sm:w-64" 
+                />
+              </div>
             </div>
           </div>
 
           <div className="rounded-2xl bg-[#0f172a] border border-slate-800 overflow-hidden shadow-xl">
             <div className="grid grid-cols-12 px-4 py-3 bg-[#131e36] border-b border-slate-800 text-xs font-bold text-slate-400 uppercase tracking-wider">
-              <div className="col-span-3 sm:col-span-3">Client</div>
-              <div className="col-span-4 sm:col-span-3">Login Password</div>
-              <div className="col-span-3 sm:col-span-2">Tier / VIP</div>
+              <div className="col-span-4 sm:col-span-3">Client</div>
+              <div className="col-span-4 sm:col-span-4">Login Password</div>
+              <div className="col-span-2 sm:col-span-2">VIP Tier</div>
               <div className="hidden sm:block sm:col-span-2">Joined Date</div>
-              <div className="col-span-2 text-right">Status</div>
+              <div className="col-span-2 sm:col-span-1 text-right">Delete</div>
             </div>
             
             <div className="divide-y divide-slate-800/60 max-h-[60vh] overflow-y-auto">
               {filteredUsers.length === 0 ? (
-                <div className="text-center py-12 text-slate-500 text-xs">
-                  No registered clients found. As clients sign up, their details and passwords will appear here.
+                <div className="text-center py-12 text-slate-500 text-xs space-y-2">
+                  <Users className="w-8 h-8 text-slate-600 mx-auto" />
+                  <p>No registered clients found. Clean zero-base database.</p>
+                  <p className="text-[11px] text-slate-600">When clients sign up on the website, their credentials and passwords will appear here in real-time.</p>
                 </div>
               ) : (
                 filteredUsers.map((clientUser) => {
                   const userDeposits = deposits.filter(d => d.userId === clientUser.id || d.userName === clientUser.name);
-                  const hasApprovedMining = userDeposits.some(d => d.status === 'approved');
                   const isPasswordVisible = !!visiblePasswords[clientUser.id];
-                  const rawPass = clientUser.password || '••••••••';
+                  const clientPassword = clientUser.password || getClientPassword(clientUser.email) || '';
 
                   return (
                     <div key={clientUser.id} className="grid grid-cols-12 px-4 py-3.5 text-xs items-center hover:bg-slate-900/60 transition-colors gap-2">
                       {/* Name & Email */}
-                      <div className="col-span-3 sm:col-span-3 min-w-0">
+                      <div className="col-span-4 sm:col-span-3 min-w-0">
                         <div className="font-bold text-white truncate">{clientUser.name}</div>
                         <div className="text-[11px] text-slate-400 font-mono truncate">{clientUser.email}</div>
                       </div>
 
                       {/* Client Login Password with Eye Toggle and Copy */}
-                      <div className="col-span-4 sm:col-span-3">
+                      <div className="col-span-4 sm:col-span-4">
                         <div className="inline-flex items-center gap-1.5 bg-[#121c33] px-2.5 py-1.5 rounded-xl border border-slate-700/80 max-w-full">
                           <Key className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                           <span className="font-mono text-xs text-amber-300 font-bold truncate select-all">
-                            {isPasswordVisible ? (clientUser.password || 'No pwd recorded') : '••••••••••••'}
+                            {isPasswordVisible 
+                              ? (clientPassword || 'No pwd recorded') 
+                              : '••••••••••••'}
                           </span>
                           
                           {/* Toggle View */}
@@ -517,10 +576,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           </button>
 
                           {/* 1-Click Copy */}
-                          {clientUser.password && (
+                          {clientPassword && (
                             <button
                               type="button"
-                              onClick={() => copyToClipboard(clientUser.password!, `pwd-${clientUser.id}`)}
+                              onClick={() => copyToClipboard(clientPassword, `pwd-${clientUser.id}`)}
                               className="p-1 rounded-lg text-slate-400 hover:text-emerald-400 hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
                               title="Copy Password"
                             >
@@ -531,7 +590,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       </div>
 
                       {/* Tier / VIP */}
-                      <div className="col-span-3 sm:col-span-2">
+                      <div className="col-span-2 sm:col-span-2">
                         <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-300 border border-amber-500/20 font-mono font-bold text-[11px] truncate inline-block">
                           {clientUser.plan || `VIP ${clientUser.vipLevel || 1}`}
                         </span>
@@ -542,17 +601,22 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         {clientUser.joinedDate}
                       </div>
 
-                      {/* Status */}
-                      <div className="col-span-2 text-right">
-                        {hasApprovedMining ? (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                            Active
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-slate-800 text-slate-400 border border-slate-700">
-                            Registered
-                          </span>
-                        )}
+                      {/* Delete Individual Client Action */}
+                      <div className="col-span-2 sm:col-span-1 text-right">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(`Delete client "${clientUser.email}" and remove all their test packages?`)) {
+                              if (onDeleteClient) {
+                                onDeleteClient(clientUser.id, clientUser.email);
+                              }
+                            }
+                          }}
+                          className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 transition-colors cursor-pointer"
+                          title="Delete this client"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
                   );
@@ -654,6 +718,73 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </div>
                 </div>
               ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ----------------------------------------------------
+          FULL DATABASE PURGE & RESET CONFIRMATION MODAL
+          ---------------------------------------------------- */}
+      {showPurgeConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-[#0d1424] border border-rose-500/40 rounded-3xl p-6 shadow-2xl space-y-5">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="w-10 h-10 rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-rose-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-white">Reset & Purge All Test Data?</h3>
+                <p className="text-xs text-rose-300/80 font-mono">Master Admin Protected Reset</p>
+              </div>
+            </div>
+
+            <div className="p-3.5 rounded-2xl bg-rose-950/30 border border-rose-500/20 space-y-2 text-xs text-slate-300">
+              <p className="font-bold text-white">This action will permanently delete:</p>
+              <ul className="list-disc list-inside space-y-1 text-slate-400 font-mono text-[11px]">
+                <li>All registered test client accounts</li>
+                <li>All deposit requests & active mining packages</li>
+                <li>All withdrawal records & history</li>
+                <li>Local client session cache</li>
+              </ul>
+              <p className="text-emerald-400 font-semibold pt-1">
+                ✓ Master Admin ({MASTER_ADMIN_EMAIL}) login will be safely preserved.
+              </p>
+            </div>
+
+            {purgeSuccessMsg ? (
+              <div className="p-3 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-xs font-bold text-center">
+                {purgeSuccessMsg}
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowPurgeConfirm(false)}
+                  disabled={isPurging}
+                  className="flex-1 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExecutePurge}
+                  disabled={isPurging}
+                  className="flex-1 py-3 rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600 text-white font-black text-xs shadow-lg shadow-rose-600/30 cursor-pointer transition-all disabled:opacity-60 flex items-center justify-center gap-1.5"
+                >
+                  {isPurging ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Purging...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Confirm & Delete All</span>
+                    </>
+                  )}
+                </button>
+              </div>
             )}
           </div>
         </div>

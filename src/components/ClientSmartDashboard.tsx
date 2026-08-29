@@ -36,6 +36,7 @@ interface ClientSmartDashboardProps {
   onSelectPackage: (pkg: MiningPackage) => void;
   onOpenLiveSupport?: () => void;
   pendingDeposits?: DepositRequest[];
+  onClearUserPackages?: () => void | Promise<void>;
 }
 
 interface ProcessedContract {
@@ -123,7 +124,8 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   packages,
   onSelectPackage,
   onOpenLiveSupport,
-  pendingDeposits: externalPendingDeposits
+  pendingDeposits: externalPendingDeposits,
+  onClearUserPackages,
 }) => {
   const [actionTab, setActionTab] = useState<'withdraw' | 'recharge' | 'history'>('withdraw');
   const [showWithdrawalModal, setShowWithdrawalModal] = useState<boolean>(false);
@@ -150,6 +152,30 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     }, 1000);
     return () => clearInterval(timer);
   }, []);
+
+  // Check if a package is already purchased/owned by this user (1 purchase max limit)
+  const isPackageOwned = (pkg: MiningPackage): boolean => {
+    return approvedDeposits.some(d => 
+      d.packageId === pkg.id || 
+      d.packageName === pkg.name || 
+      (d.vipLevel === pkg.vipLevel && (d.planType === pkg.planType || (!d.planType && pkg.planType === 'daily')))
+    ) || pendingDeposits.some(d => 
+      d.packageId === pkg.id || 
+      d.packageName === pkg.name || 
+      (d.vipLevel === pkg.vipLevel && (d.planType === pkg.planType || (!d.planType && pkg.planType === 'daily')))
+    );
+  };
+
+  const handleResetClientPackages = async () => {
+    if (window.confirm('Reset all mining contracts for your account to clean zero state?')) {
+      if (onClearUserPackages) {
+        await onClearUserPackages();
+      }
+      setApprovedDeposits([]);
+      setPendingDeposits([]);
+      showToast('All mining contracts cleared. Dashboard is now at clean zero state.', 'success');
+    }
+  };
 
   // Fetch this client's real deposits + withdrawals from Supabase on load
   useEffect(() => {
@@ -940,37 +966,66 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
 
         {/* Packages Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
-          {displayedCategoryPackages.map((pkg) => (
-            <div
-              key={pkg.id}
-              className="p-4 rounded-2xl bg-gradient-to-b from-[#0f172a] to-[#090d18] border border-slate-800 hover:border-amber-500/40 transition-all flex flex-col justify-between space-y-3 group shadow-md"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-black text-amber-400 font-mono">VIP {pkg.vipLevel}</span>
-                {pkg.planType === 'flash_48h' ? (
-                  <span className="text-[9px] px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 font-bold border border-rose-500/30">48H Flash</span>
-                ) : (
-                  <span className="text-[9px] px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/30">365 Days</span>
-                )}
-              </div>
+          {displayedCategoryPackages.map((pkg) => {
+            const owned = isPackageOwned(pkg);
 
-              <div>
-                <div className="text-lg font-black text-white font-mono">${pkg.priceUsd.toLocaleString()} <span className="text-xs text-slate-400 font-normal">USDT</span></div>
-                <div className="text-xs font-bold text-slate-200 truncate mt-0.5">{pkg.name}</div>
-                <div className="text-[11px] text-emerald-400 font-mono font-bold mt-1">
-                  {pkg.profitRangeText || `${pkg.dailyReturnPercent}% Daily`}
-                </div>
-              </div>
-
-              <button
-                onClick={() => onSelectPackage(pkg)}
-                className="w-full py-2 rounded-xl bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-white font-bold text-xs transition-all cursor-pointer flex items-center justify-center gap-1.5"
+            return (
+              <div
+                key={pkg.id}
+                className={`p-4 rounded-2xl border transition-all flex flex-col justify-between space-y-3 group shadow-md ${
+                  owned 
+                    ? 'bg-[#0a1220] border-emerald-500/40 opacity-90' 
+                    : 'bg-gradient-to-b from-[#0f172a] to-[#090d18] border-slate-800 hover:border-amber-500/40'
+                }`}
               >
-                <span>Deposit & Start</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ))}
+                <div className="flex items-center justify-between">
+                  <span className={`text-xs font-black font-mono ${owned ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    VIP {pkg.vipLevel}
+                  </span>
+                  {owned ? (
+                    <span className="text-[9px] px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30 flex items-center gap-1">
+                      <CheckCircle2 className="w-2.5 h-2.5" />
+                      Active Node
+                    </span>
+                  ) : pkg.planType === 'flash_48h' ? (
+                    <span className="text-[9px] px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 font-bold border border-rose-500/30">48H Flash</span>
+                  ) : (
+                    <span className="text-[9px] px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/30">365 Days</span>
+                  )}
+                </div>
+
+                <div>
+                  <div className="text-lg font-black text-white font-mono">${pkg.priceUsd.toLocaleString()} <span className="text-xs text-slate-400 font-normal">USDT</span></div>
+                  <div className="text-xs font-bold text-slate-200 truncate mt-0.5">{pkg.name}</div>
+                  <div className={`text-[11px] font-mono font-bold mt-1 ${owned ? 'text-emerald-400' : 'text-emerald-400'}`}>
+                    {owned ? 'Producing Live Returns' : (pkg.profitRangeText || `${pkg.dailyReturnPercent}% Daily`)}
+                  </div>
+                </div>
+
+                <button
+                  disabled={owned}
+                  onClick={() => !owned && onSelectPackage(pkg)}
+                  className={`w-full py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                    owned
+                      ? 'bg-slate-800 text-slate-400 border border-slate-700 cursor-not-allowed opacity-75'
+                      : 'bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-white cursor-pointer shadow-md'
+                  }`}
+                >
+                  {owned ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Owned & Active (1/1)</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Deposit & Start</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </>
+                  )}
+                </button>
+              </div>
+            );
+          })}
         </div>
       </div>
 

@@ -58,35 +58,37 @@ export const EthMiningPanel: React.FC<EthMiningPanelProps> = ({
     { id: '3', time: '15:39:48', text: 'Proof of Stake slot verified (Reward: +0.00012 ETH credited to node)', tag: 'REWARD' },
   ]);
 
-  // Micro-tick increment for active nodes
+  // Micro-tick increment for active nodes (smooth background update without UI flicker)
   useEffect(() => {
     if (activeContractsCount === 0) return;
 
     const interval = setInterval(() => {
-      // Calculate micro-eth generated per 2 seconds based on dailyEthRate
-      // dailyEthRate / (24 * 3600 / 2)
       const perTick = dailyEthRate > 0 ? dailyEthRate / 43200 : 0.00000012;
       setLiveEthTicks(prev => prev + perTick);
 
-      // Randomly increment shares
       if (Math.random() > 0.4) {
-        setSharesSolved(s => s + 1);
-        const now = new Date();
-        const timeStr = now.toTimeString().substring(0, 8);
-        setLastShareTime('Just now');
+        setSharesSolved(s => {
+          const nextShare = s + 1;
+          const now = new Date();
+          const timeStr = now.toTimeString().substring(0, 8);
+          setLastShareTime('Just now');
 
-        const newLog = {
-          id: `${Date.now()}`,
-          time: timeStr,
-          text: `Stratum share #${sharesSolved + 1} accepted (difficulty 8.4G, latency 14ms)`,
-          tag: 'SHARE'
-        };
-        setMiniLogs(prev => [newLog, ...prev.slice(0, 7)]);
+          setMiniLogs(prev => [
+            {
+              id: `${Date.now()}-${Math.random()}`,
+              time: timeStr,
+              text: `Stratum share #${nextShare} accepted (difficulty 8.4G, latency 14ms)`,
+              tag: 'SHARE'
+            },
+            ...prev.slice(0, 6)
+          ]);
+          return nextShare;
+        });
       }
     }, 2000);
 
     return () => clearInterval(interval);
-  }, [activeContractsCount, dailyEthRate, sharesSolved]);
+  }, [activeContractsCount, dailyEthRate]);
 
   const effectiveEthBalance = minedEthBalance + liveEthTicks;
   const ethValueInUsdt = effectiveEthBalance * ethPriceUsd;

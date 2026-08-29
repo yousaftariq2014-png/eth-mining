@@ -23,17 +23,13 @@ import {
   TrendingUp,
   ArrowUpRight,
   ArrowDownLeft,
-  Flame,
   AlertCircle,
   ArrowRightLeft,
   ArrowDown,
   Cpu,
   Info,
   FileText,
-  Printer,
-  Gift,
-  Users,
-  Award
+  Printer
 } from 'lucide-react';
 import { 
   UserProfile, 
@@ -49,9 +45,6 @@ import { supabase } from '../lib/supabaseClient';
 import { EthMiningPanel } from './EthMiningPanel';
 import { EthToUsdtSwapModal } from './EthToUsdtSwapModal';
 import { InvoiceReceiptModal } from './InvoiceReceiptModal';
-import { ReferralCenterModal } from './ReferralCenterModal';
-import { VipStreakBonusModal } from './VipStreakBonusModal';
-
 
 interface ClientSmartDashboardProps {
   user: UserProfile;
@@ -156,11 +149,40 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   const [withdrawalFilter, setWithdrawalFilter] = useState<'All' | 'Pending' | 'Withdrawal successfully' | 'Failed'>('All');
   const [dashCategory, setDashCategory] = useState<PackageType>('daily');
 
-  // Real data from Supabase + localStorage
-  const [loading, setLoading] = useState(true);
-  const [approvedDeposits, setApprovedDeposits] = useState<DepositRequest[]>([]);
-  const [pendingDeposits, setPendingDeposits] = useState<DepositRequest[]>([]);
-  const [withdrawalRecords, setWithdrawalRecords] = useState<WithdrawalRecordItem[]>([]);
+  // Real data initialized seamlessly from localStorage + background Supabase sync
+  const [approvedDeposits, setApprovedDeposits] = useState<DepositRequest[]>(() => {
+    try {
+      const saved = localStorage.getItem('hashforge_deposits');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return parsed.filter((d: any) => (d.userId === user.id || d.userName === user.name) && d.status === 'approved' && (d.explorer_confirmed ?? true));
+      }
+    } catch {}
+    return [];
+  });
+
+  const [pendingDeposits, setPendingDeposits] = useState<DepositRequest[]>(() => {
+    try {
+      const saved = localStorage.getItem('hashforge_deposits');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return parsed.filter((d: any) => (d.userId === user.id || d.userName === user.name) && d.status === 'pending');
+      }
+    } catch {}
+    return [];
+  });
+
+  const [withdrawalRecords, setWithdrawalRecords] = useState<WithdrawalRecordItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('hashforge_withdrawals');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return parsed.filter((w: any) => w.userId === user.id || w.userName === user.name);
+      }
+    } catch {}
+    return [];
+  });
+
   const [exchangeRecords, setExchangeRecords] = useState<ExchangeRecordItem[]>(() => {
     try {
       const saved = localStorage.getItem(`hashforge_swaps_${user.id}`);
@@ -170,7 +192,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     }
   });
 
-  // Live ETH Price Telemetry State
+  // Live ETH Price Telemetry State (smooth updates)
   const [ethPriceUsd, setEthPriceUsd] = useState<number>(3488.50);
   const [ethPriceChange24h, setEthPriceChange24h] = useState<number>(3.28);
   const [isPriceRefreshing, setIsPriceRefreshing] = useState<boolean>(false);
@@ -186,51 +208,8 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
   const [copiedTxid, setCopiedTxid] = useState<string | null>(null);
 
-  // New Enterprise Modals State
+  // Enterprise Invoices & Statement Modal State
   const [activeInvoiceReceipt, setActiveInvoiceReceipt] = useState<InvoiceReceipt | null>(null);
-  const [isReferralOpen, setIsReferralOpen] = useState<boolean>(false);
-  const [isVipStreakOpen, setIsVipStreakOpen] = useState<boolean>(false);
-
-  // Extra claimed bonus persistence
-  const [extraDailyStreakEth, setExtraDailyStreakEth] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem(`hashforge_streak_eth_${user.id}`);
-      return saved ? parseFloat(saved) : 0.00015;
-    } catch {
-      return 0.00015;
-    }
-  });
-
-  const [extraReferralUsdt, setExtraReferralUsdt] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem(`hashforge_ref_claimed_usdt_${user.id}`);
-      return saved ? parseFloat(saved) : 0;
-    } catch {
-      return 0;
-    }
-  });
-
-  const handleClaimReferralCommission = (amountUsd: number) => {
-    setExtraReferralUsdt(prev => {
-      const next = prev + amountUsd;
-      try {
-        localStorage.setItem(`hashforge_ref_claimed_usdt_${user.id}`, next.toString());
-      } catch {}
-      return next;
-    });
-    showToast(`+$${amountUsd.toFixed(2)} USDT referral commission added to withdrawable balance!`, 'success');
-  };
-
-  const handleClaimDailyReward = (ethReward: number, hashrateBonusGhs: number, dayNumber: number) => {
-    setExtraDailyStreakEth(prev => {
-      const next = prev + ethReward;
-      try {
-        localStorage.setItem(`hashforge_streak_eth_${user.id}`, next.toString());
-      } catch {}
-      return next;
-    });
-    showToast(`🎉 Day ${dayNumber} Check-in Bonus (+${ethReward} ETH) credited to your live mining balance!`, 'success');
-  };
 
   const generateReceiptForDeposit = (dep: DepositRequest) => {
     const receipt: InvoiceReceipt = {
@@ -305,10 +284,9 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  // Fetch Live ETH Price from backend API
+  // Fetch Live ETH Price from backend API completely silently in the background
   const fetchLiveEthPrice = async () => {
     try {
-      setIsPriceRefreshing(true);
       const res = await fetch('/api/crypto/market');
       if (res.ok) {
         const data = await res.json();
@@ -320,9 +298,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
         }
       }
     } catch (e) {
-      console.warn('Could not fetch market price API, using live fallback:', e);
-    } finally {
-      setIsPriceRefreshing(false);
+      console.warn('Silent price sync fallback:', e);
     }
   };
 
@@ -352,62 +328,67 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     );
   };
 
-  // Fetch this client's real deposits + withdrawals from Supabase on load
+  // Fetch this client's real deposits + withdrawals from Supabase silently without disrupting UI
+  const externalPendingDepositsHash = externalPendingDeposits ? externalPendingDeposits.map(d => `${d.id}-${d.status}`).join(',') : '';
+
   useEffect(() => {
     let isMounted = true;
 
     async function loadRealData() {
-      setLoading(true);
+      try {
+        const { data: deposits, error: depErr } = await supabase
+          .from('deposits')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
 
-      const { data: deposits, error: depErr } = await supabase
-        .from('deposits')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
+        const { data: withdrawals, error: wErr } = await supabase
+          .from('withdrawals')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('inserted_at', { ascending: false });
 
-      const { data: withdrawals, error: wErr } = await supabase
-        .from('withdrawals')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('inserted_at', { ascending: false });
+        if (!isMounted) return;
 
-      if (!isMounted) return;
+        if (depErr) console.warn('Silent Supabase deposits warning:', depErr.message);
+        if (wErr) console.warn('Silent Supabase withdrawals warning:', wErr.message);
 
-      if (depErr) console.warn('Failed to load deposits from Supabase:', depErr.message);
-      if (wErr) console.warn('Failed to load withdrawals from Supabase:', wErr.message);
+        let allDeposits = deposits || [];
 
-      let allDeposits = deposits || [];
+        // Fallback/merge with local storage deposits if available
+        if (allDeposits.length === 0) {
+          try {
+            const saved = localStorage.getItem('hashforge_deposits');
+            if (saved) {
+              const parsed = JSON.parse(saved);
+              allDeposits = parsed.filter((d: any) => d.userId === user.id || d.userName === user.name);
+            }
+          } catch {}
+        }
 
-      // Fallback/merge with local storage deposits if available
-      if (allDeposits.length === 0) {
-        try {
-          const saved = localStorage.getItem('hashforge_deposits');
-          if (saved) {
-            const parsed = JSON.parse(saved);
-            allDeposits = parsed.filter((d: any) => d.userId === user.id || d.userName === user.name);
-          }
-        } catch {}
-      }
-
-      // Merge any externally passed pendingDeposits
-      if (externalPendingDeposits && externalPendingDeposits.length > 0) {
-        const userExternal = externalPendingDeposits.filter(d => d.userId === user.id || d.userName === user.name);
-        for (const ext of userExternal) {
-          if (!allDeposits.some((d: any) => d.id === ext.id)) {
-            allDeposits.push(ext);
+        // Merge any externally passed pendingDeposits
+        if (externalPendingDeposits && externalPendingDeposits.length > 0) {
+          const userExternal = externalPendingDeposits.filter(d => d.userId === user.id || d.userName === user.name);
+          for (const ext of userExternal) {
+            if (!allDeposits.some((d: any) => d.id === ext.id)) {
+              allDeposits.push(ext);
+            }
           }
         }
-      }
 
-      setApprovedDeposits(allDeposits.filter(d => d.status === 'approved' && (d.explorer_confirmed ?? true)));
-      setPendingDeposits(allDeposits.filter(d => d.status === 'pending'));
-      setWithdrawalRecords((withdrawals || []) as WithdrawalRecordItem[]);
-      setLoading(false);
+        setApprovedDeposits(allDeposits.filter(d => d.status === 'approved' && (d.explorer_confirmed ?? true)));
+        setPendingDeposits(allDeposits.filter(d => d.status === 'pending'));
+        if (withdrawals && withdrawals.length > 0) {
+          setWithdrawalRecords(withdrawals as WithdrawalRecordItem[]);
+        }
+      } catch (err) {
+        console.warn('Silent background sync caught:', err);
+      }
     }
 
     loadRealData();
     return () => { isMounted = false; };
-  }, [user.id, user.name, externalPendingDeposits]);
+  }, [user.id, user.name, externalPendingDepositsHash]);
 
   // Process all approved deposits with real-time countdown, accrual and expiration calculations
   const processedContracts: ProcessedContract[] = approvedDeposits.map(dep => {
@@ -503,15 +484,15 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     .reduce((sum, e) => sum + e.toAmount, 0);
 
   // 7. Net Current Mined ETH Balance
-  const minedEthBalance = Math.max(0, (totalMinedEthLifetime + extraDailyStreakEth) - totalSwappedEth);
+  const minedEthBalance = Math.max(0, totalMinedEthLifetime - totalSwappedEth);
 
   // 8. Total Withdrawn by user (USDT)
   const totalWithdrawnUsdt = withdrawalRecords
     .filter(w => w.status !== 'Failed')
     .reduce((sum, w) => sum + Math.abs(Number(w.amount)), 0);
 
-  // 9. Withdrawable Available USDT Balance (Must be converted from ETH first + referral commission)
-  const availableUsdtBalance = Math.max(0, (totalConvertedUsdt + extraReferralUsdt) - totalWithdrawnUsdt);
+  // 9. Withdrawable Available USDT Balance (Must be converted from ETH first)
+  const availableUsdtBalance = Math.max(0, totalConvertedUsdt - totalWithdrawnUsdt);
 
   // 10. Total Hashrate Calculation
   const totalHashrateTh = activeContracts.reduce((sum, c) => {
@@ -640,17 +621,6 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     return r.status === withdrawalFilter;
   });
 
-  if (loading) {
-    return (
-      <div className="w-full min-h-[400px] flex items-center justify-center">
-        <span className="text-slate-400 text-sm font-mono flex items-center gap-2.5 bg-[#0e1628] px-6 py-4 rounded-2xl border border-slate-800 shadow-xl">
-          <RefreshCw className="w-5 h-5 animate-spin text-amber-400" />
-          Loading Live Mining Dashboard…
-        </span>
-      </div>
-    );
-  }
-
   const displayedCategoryPackages = dashCategory === 'daily' ? DAILY_PACKAGES : FLASH_48H_PACKAGES;
   const userPendingDeposit = pendingDeposits[0];
 
@@ -692,56 +662,8 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
         availableUsdtBalance={availableUsdtBalance}
       />
 
-      {/* Enterprise Rewards & Loyalty Action Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3.5">
-        <button
-          onClick={() => setIsReferralOpen(true)}
-          className="p-3 rounded-2xl bg-[#0e1628] border border-purple-500/30 hover:border-purple-500/60 transition-all text-left group cursor-pointer shadow-lg hover:shadow-purple-500/10 flex items-center justify-between"
-        >
-          <div className="space-y-0.5">
-            <div className="flex items-center gap-1.5 text-xs font-black text-purple-300">
-              <Users className="w-3.5 h-3.5 text-purple-400 group-hover:scale-110 transition-transform" />
-              <span>Affiliate 11%</span>
-            </div>
-            <p className="text-[10px] text-slate-400 font-mono">3-Tier Multi-Level</p>
-          </div>
-          <span className="text-[10px] font-bold text-purple-400 bg-purple-500/20 px-2 py-0.5 rounded-full border border-purple-500/30">
-            Earn USDT
-          </span>
-        </button>
-
-        <button
-          onClick={() => setIsVipStreakOpen(true)}
-          className="p-3 rounded-2xl bg-[#0e1628] border border-amber-500/30 hover:border-amber-500/60 transition-all text-left group cursor-pointer shadow-lg hover:shadow-amber-500/10 flex items-center justify-between"
-        >
-          <div className="space-y-0.5">
-            <div className="flex items-center gap-1.5 text-xs font-black text-amber-300">
-              <Flame className="w-3.5 h-3.5 text-orange-400 group-hover:scale-110 transition-transform" />
-              <span>Daily Streak</span>
-            </div>
-            <p className="text-[10px] text-slate-400 font-mono">7-Day Free Bonus</p>
-          </div>
-          <span className="text-[10px] font-bold text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/30">
-            Claim ETH
-          </span>
-        </button>
-
-        <button
-          onClick={() => setIsVipStreakOpen(true)}
-          className="p-3 rounded-2xl bg-[#0e1628] border border-cyan-500/30 hover:border-cyan-500/60 transition-all text-left group cursor-pointer shadow-lg hover:shadow-cyan-500/10 flex items-center justify-between"
-        >
-          <div className="space-y-0.5">
-            <div className="flex items-center gap-1.5 text-xs font-black text-cyan-300">
-              <Crown className="w-3.5 h-3.5 text-cyan-400 group-hover:scale-110 transition-transform" />
-              <span>VIP Privilege</span>
-            </div>
-            <p className="text-[10px] text-slate-400 font-mono">Level {user.vipLevel || 1} • 0% Fee</p>
-          </div>
-          <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/20 px-2 py-0.5 rounded-full border border-cyan-500/30">
-            Perks
-          </span>
-        </button>
-
+      {/* Enterprise Documents & Invoices Action Bar */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <button
           onClick={() => {
             if (activeContracts.length > 0) {
@@ -773,17 +695,33 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
               });
             }
           }}
-          className="p-3 rounded-2xl bg-[#0e1628] border border-emerald-500/30 hover:border-emerald-500/60 transition-all text-left group cursor-pointer shadow-lg hover:shadow-emerald-500/10 flex items-center justify-between"
+          className="p-3.5 rounded-2xl bg-[#0e1628] border border-emerald-500/30 hover:border-emerald-500/60 transition-all text-left group cursor-pointer shadow-lg hover:shadow-emerald-500/10 flex items-center justify-between"
         >
           <div className="space-y-0.5">
-            <div className="flex items-center gap-1.5 text-xs font-black text-emerald-300">
-              <Printer className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
-              <span>Tax / Invoices</span>
+            <div className="flex items-center gap-2 text-xs font-black text-emerald-300">
+              <Printer className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
+              <span>Official Tax Invoices & Account Statements</span>
             </div>
-            <p className="text-[10px] text-slate-400 font-mono">Printable PDF Docs</p>
+            <p className="text-[11px] text-slate-400 font-mono">Download & Print Verified On-Chain PDF Documentation</p>
           </div>
-          <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30">
-            Export
+          <span className="text-[11px] font-bold text-emerald-400 bg-emerald-500/20 px-3 py-1 rounded-full border border-emerald-500/30">
+            Export PDF
+          </span>
+        </button>
+
+        <button
+          onClick={() => setIsSwapModalOpen(true)}
+          className="p-3.5 rounded-2xl bg-[#0e1628] border border-cyan-500/30 hover:border-cyan-500/60 transition-all text-left group cursor-pointer shadow-lg hover:shadow-cyan-500/10 flex items-center justify-between"
+        >
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2 text-xs font-black text-cyan-300">
+              <ArrowRightLeft className="w-4 h-4 text-cyan-400 group-hover:scale-110 transition-transform" />
+              <span>Zero-Slippage Pool Conversion</span>
+            </div>
+            <p className="text-[11px] text-slate-400 font-mono">Instant Swap Mined ETH ➔ USDT Balance with 0% Fee</p>
+          </div>
+          <span className="text-[11px] font-bold text-cyan-400 bg-cyan-500/20 px-3 py-1 rounded-full border border-cyan-500/30">
+            Instant Swap
           </span>
         </button>
       </div>
@@ -1577,22 +1515,6 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       <InvoiceReceiptModal
         receipt={activeInvoiceReceipt}
         onClose={() => setActiveInvoiceReceipt(null)}
-      />
-
-      {/* Multi-Tier Affiliate & Referral Center Modal */}
-      <ReferralCenterModal
-        user={user}
-        isOpen={isReferralOpen}
-        onClose={() => setIsReferralOpen(false)}
-        onClaimCommission={handleClaimReferralCommission}
-      />
-
-      {/* VIP Club & 7-Day Daily Streak Check-in Modal */}
-      <VipStreakBonusModal
-        user={user}
-        isOpen={isVipStreakOpen}
-        onClose={() => setIsVipStreakOpen(false)}
-        onClaimDailyReward={handleClaimDailyReward}
       />
 
     </div>

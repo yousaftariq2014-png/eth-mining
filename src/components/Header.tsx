@@ -25,8 +25,6 @@ interface HeaderProps {
   onOpenAuth: (mode: 'login' | 'signup') => void;
   onLogout: () => void;
   onOpenNotifications?: () => void;
-  onOpenReferral?: () => void;
-  onOpenVipStreak?: () => void;
   unreadNotificationsCount?: number;
 }
 
@@ -37,8 +35,6 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAuth,
   onLogout,
   onOpenNotifications,
-  onOpenReferral,
-  onOpenVipStreak,
   unreadNotificationsCount = 0
 }) => {
   return (
@@ -78,7 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Simple Navigation Links & Loyalty Shortcuts */}
+          {/* Simple Navigation Links */}
           <nav className="flex items-center gap-1 sm:gap-2 shrink-0">
             
             {/* Packages Tab — Only shown if NOT logged in */}
@@ -99,40 +95,14 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* Dashboard Tab (for logged in users) */}
             {user && (
-              <>
-                <button
-                  onClick={() => setCurrentTab('dashboard')}
-                  title="Mining Dashboard"
-                  className="p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20"
-                >
-                  <Activity className="w-4 h-4 shrink-0 text-slate-950" />
-                  <span className="hidden xs:inline whitespace-nowrap">Dashboard</span>
-                </button>
-
-                {/* Affiliate Program Header Button */}
-                {onOpenReferral && (
-                  <button
-                    onClick={onOpenReferral}
-                    title="Affiliate & Referral"
-                    className="p-2 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-bold text-purple-300 bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 transition-all cursor-pointer flex items-center gap-1.5"
-                  >
-                    <Users className="w-3.5 h-3.5 text-purple-400" />
-                    <span className="hidden md:inline whitespace-nowrap">Referrals (11%)</span>
-                  </button>
-                )}
-
-                {/* Daily Streak / VIP Header Button */}
-                {onOpenVipStreak && (
-                  <button
-                    onClick={onOpenVipStreak}
-                    title="Daily Check-in & VIP"
-                    className="p-2 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-bold text-amber-300 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 transition-all cursor-pointer flex items-center gap-1.5"
-                  >
-                    <Flame className="w-3.5 h-3.5 text-orange-400" />
-                    <span className="hidden md:inline whitespace-nowrap">VIP Club</span>
-                  </button>
-                )}
-              </>
+              <button
+                onClick={() => setCurrentTab('dashboard')}
+                title="Mining Dashboard"
+                className="p-2 sm:px-3.5 sm:py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20"
+              >
+                <Activity className="w-4 h-4 shrink-0 text-slate-950" />
+                <span className="whitespace-nowrap">Mining Dashboard</span>
+              </button>
             )}
 
           </nav>

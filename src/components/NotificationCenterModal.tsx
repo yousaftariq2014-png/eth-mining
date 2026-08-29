@@ -33,7 +33,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
   onClearAll,
   onSelectNotification
 }) => {
-  const [filter, setFilter] = useState<'all' | 'deposit' | 'withdrawal' | 'mining' | 'referral' | 'vip'>('all');
+  const [filter, setFilter] = useState<'all' | 'deposit' | 'withdrawal' | 'mining' | 'system' | 'security'>('all');
 
   if (!isOpen) return null;
 
@@ -52,10 +52,8 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
         return <ArrowUpRight className="w-4 h-4 text-amber-400" />;
       case 'mining':
         return <Zap className="w-4 h-4 text-cyan-400" />;
-      case 'referral':
-        return <Users className="w-4 h-4 text-purple-400" />;
-      case 'vip':
-        return <Crown className="w-4 h-4 text-amber-300" />;
+      case 'security':
+        return <ShieldCheck className="w-4 h-4 text-emerald-400" />;
       default:
         return <ShieldCheck className="w-4 h-4 text-blue-400" />;
     }
@@ -102,7 +100,7 @@ export const NotificationCenterModal: React.FC<NotificationCenterModalProps> = (
         {/* Filter Bar & Action Strip */}
         <div className="bg-[#10182b] px-6 py-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-            {(['all', 'deposit', 'withdrawal', 'mining', 'referral', 'vip'] as const).map((cat) => (
+            {(['all', 'deposit', 'withdrawal', 'mining', 'system', 'security'] as const).map((cat) => (
               <button
                 key={cat}
                 onClick={() => setFilter(cat)}

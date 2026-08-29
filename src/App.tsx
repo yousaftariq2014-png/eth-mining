@@ -9,8 +9,6 @@ import { AuthModal } from './components/AuthModal';
 import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { LiveSupportWidget } from './components/LiveSupportWidget';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
-import { ReferralCenterModal } from './components/ReferralCenterModal';
-import { VipStreakBonusModal } from './components/VipStreakBonusModal';
 
 import { 
   UserProfile, 
@@ -279,10 +277,8 @@ export default function App() {
   const [isLiveSupportOpen, setIsLiveSupportOpen] = useState<boolean>(false);
   const [isResetPasswordOpen, setIsResetPasswordOpen] = useState<boolean>(false);
 
-  // 9. Enterprise Modals (Notifications, Referral, VIP Streak)
+  // 9. Notification Center Modal
   const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
-  const [isReferralOpen, setIsReferralOpen] = useState<boolean>(false);
-  const [isVipStreakOpen, setIsVipStreakOpen] = useState<boolean>(false);
 
   // Automated Notifications list with local persistence
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {
@@ -299,24 +295,6 @@ export default function App() {
         read: false,
         type: 'system',
         category: 'Mining'
-      },
-      {
-        id: 'notif-streak',
-        title: '7-Day Daily Streak Reward Available',
-        message: 'Your Day 1 mining check-in bonus is ready to claim! Collect free ETH daily to boost your hashrate production.',
-        timestamp: '10m ago',
-        read: false,
-        type: 'reward',
-        category: 'Rewards'
-      },
-      {
-        id: 'notif-referral',
-        title: '3-Tier Affiliate Program Active',
-        message: 'Invite colleagues and earn 7% Tier 1, 3% Tier 2, and 1% Tier 3 instant commissions directly withdrawable in USDT.',
-        timestamp: '1h ago',
-        read: false,
-        type: 'referral',
-        category: 'Affiliate'
       },
       {
         id: 'notif-security',
@@ -671,8 +649,6 @@ export default function App() {
           onOpenAuth={handleOpenAuth}
           onLogout={handleLogout}
           onOpenNotifications={() => setIsNotificationsOpen(true)}
-          onOpenReferral={() => setIsReferralOpen(true)}
-          onOpenVipStreak={() => setIsVipStreakOpen(true)}
           unreadNotificationsCount={unreadNotificationsCount}
         />
       )}
@@ -834,7 +810,7 @@ export default function App() {
         user={user}
       />
 
-      {/* Enterprise Notification Center Modal */}
+      {/* Notification Center Modal */}
       <NotificationCenterModal
         isOpen={isNotificationsOpen}
         onClose={() => setIsNotificationsOpen(false)}
@@ -842,39 +818,7 @@ export default function App() {
         onMarkAsRead={handleMarkNotificationAsRead}
         onMarkAllAsRead={handleMarkAllNotificationsAsRead}
         onClearAll={handleClearAllNotifications}
-        onOpenReferral={() => {
-          setIsNotificationsOpen(false);
-          setIsReferralOpen(true);
-        }}
-        onOpenDailyStreak={() => {
-          setIsNotificationsOpen(false);
-          setIsVipStreakOpen(true);
-        }}
       />
-
-      {/* Global Header Referral Center Modal */}
-      {user && (
-        <ReferralCenterModal
-          user={user}
-          isOpen={isReferralOpen}
-          onClose={() => setIsReferralOpen(false)}
-          onClaimCommission={(amt) => {
-            setActivationToast(`🎉 +$${amt.toFixed(2)} USDT affiliate commission transferred to your wallet!`);
-          }}
-        />
-      )}
-
-      {/* Global Header VIP Club & 7-Day Daily Streak Check-in Modal */}
-      {user && (
-        <VipStreakBonusModal
-          user={user}
-          isOpen={isVipStreakOpen}
-          onClose={() => setIsVipStreakOpen(false)}
-          onClaimDailyReward={(eth, ghs, day) => {
-            setActivationToast(`🎉 Day ${day} Daily Check-in Bonus (+${eth} ETH & +${ghs} GH/s) claimed!`);
-          }}
-        />
-      )}
 
     </div>
   );

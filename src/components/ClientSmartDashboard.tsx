@@ -30,7 +30,8 @@ import {
   Timer,
   Menu,
   CalendarDays,
-  PiggyBank
+  PiggyBank,
+  Crown
 } from 'lucide-react';
 import { UserProfile, MiningPackage, DepositRequest, WithdrawalRecordItem, PackageType } from '../types';
 import { DAILY_PACKAGES, FLASH_48H_PACKAGES } from '../data/packagesData';
@@ -69,6 +70,12 @@ interface ClientSmartDashboardProps {
  *    recommend not shipping this part live, since promising a daily % return
  *    with nothing generating it is the same fake-yield problem we just removed
  *    from the mining counter.
+ *
+ * 5. ADDED: a "Current Active Package" card, shown above Account Summary.
+ *    Previously `currentPkg` was computed (from the client's most recent
+ *    approved + explorer-confirmed deposit) but was never actually rendered
+ *    anywhere — so clients never saw which package they'd purchased. This
+ *    card shows the package name, VIP level, amount paid, and approval date.
  * =============================================================================
  */
 
@@ -133,14 +140,16 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
 
   // Real wallet balance = sum of verified approved deposits, minus completed/pending withdrawals.
   // No mining, no auto-growth — only actual money that came in and went out.
-  const totalDeposited = approvedDeposits.reduce((sum, d) => sum + Number(d.amountUsd ?? d.amount_usd ?? 0), 0);
+  const totalDeposited = approvedDeposits.reduce((sum, d) => sum + Number(d.amountUsd ?? (d as any).amount_usd ?? 0), 0);
   const totalWithdrawn = withdrawalRecords
     .filter(w => w.status !== 'Failed')
     .reduce((sum, w) => sum + Math.abs(Number(w.amount ?? 0)), 0);
   const walletBalanceUsdt = Math.max(0, totalDeposited - totalWithdrawn);
   const withdrawableUsdt = walletBalanceUsdt; // adjust here if you introduce lock-up periods etc.
 
-  const currentVipLevel = approvedDeposits[0]?.vipLevel ?? 0;
+  // Client's currently active package = their most recent verified approved deposit
+  const activeDeposit = approvedDeposits[0] ?? null;
+  const currentVipLevel = activeDeposit?.vipLevel ?? 0;
   const currentPkg = packages.find(p => p.vipLevel === currentVipLevel) ?? null;
 
   const handleWithdraw = async () => {
@@ -315,9 +324,56 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
           </div>
         )}
 
-        {!currentPkg && approvedDeposits.length === 0 && (
+        {!activeDeposit && approvedDeposits.length === 0 && (
           <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 text-center text-xs text-slate-400">
             No verified deposits yet. Once a deposit is submitted and confirmed by admin, your account details will appear here.
+          </div>
+        )}
+
+        {/* Current Active Package — shows the client's own purchased package
+            (name, VIP level, amount paid, approval date), sourced from their
+            most recent approved + explorer-confirmed deposit. */}
+        {activeDeposit && (
+          <div className="rounded-2xl bg-gradient-to-br from-amber-500/15 via-[#0f172a] to-[#0f172a] border border-amber-500/30 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
+                <Crown className="w-4 h-4" />
+                <span>Current Active Package</span>
+              </div>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                Active
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-black text-white">
+                  {activeDeposit.packageName ?? (activeDeposit as any).package_name}
+                </div>
+                <div className="text-[11px] text-amber-300 font-mono font-bold mt-0.5">
+                  VIP {activeDeposit.vipLevel}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-[10px] text-slate-400">Amount Paid</div>
+                <div className="text-sm font-black text-white font-mono">
+                  ${Number(activeDeposit.amountUsd ?? (activeDeposit as any).amount_usd ?? 0).toLocaleString()}
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-[11px] font-mono pt-1 border-t border-slate-800/80">
+              <div>
+                <span className="text-slate-500">Network</span>
+                <div className="text-slate-300">{activeDeposit.network}</div>
+              </div>
+              <div className="text-right">
+                <span className="text-slate-500">Activated</span>
+                <div className="text-slate-300">
+                  {activeDeposit.approvedAt ?? (activeDeposit as any).approved_at ?? '—'}
+                </div>
+              </div>
+            </div>
           </div>
         )}
 

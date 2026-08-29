@@ -432,6 +432,7 @@ export async function fetchSupabaseDeposits(): Promise<DepositRequest[] | null> 
       status: item.status as any,
       createdAt: item.created_at,
       approvedAt: item.approved_at || undefined,
+      explorerConfirmed: !!item.explorer_confirmed,
     }));
   } catch (err) {
     console.warn('Supabase deposits fetch error:', err);
@@ -468,15 +469,35 @@ export async function insertSupabaseDeposit(deposit: DepositRequest): Promise<bo
   }
 }
 
+/**
+ * FIX: previously this only updated `status` / `approved_at`. The client
+ * dashboard requires BOTH status === 'approved' AND explorer_confirmed === true
+ * before it will show a purchased package/balance. Approving a deposit in the
+ * admin portal must therefore also set explorer_confirmed to true (the admin
+ * is expected to have manually checked the sender_txid on the blockchain
+ * explorer before clicking Approve) — otherwise the client's package never
+ * appears even though status says "approved".
+ */
 export async function updateSupabaseDepositStatus(
   depositId: string, 
   status: 'approved' | 'rejected', 
-  approvedAt?: string
+  approvedAt?: string,
+  explorerConfirmed: boolean = false
 ): Promise<boolean> {
   try {
     const updatePayload: any = { status };
+
     if (approvedAt) {
       updatePayload.approved_at = approvedAt;
+    }
+
+    if (status === 'approved') {
+      updatePayload.explorer_confirmed = explorerConfirmed;
+      updatePayload.verified_at = explorerConfirmed ? new Date().toISOString() : null;
+    } else {
+      // rejected: make sure it can never count as usable balance
+      updatePayload.explorer_confirmed = false;
+      updatePayload.verified_at = null;
     }
 
     const { error } = await supabase

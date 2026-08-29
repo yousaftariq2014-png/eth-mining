@@ -14,7 +14,8 @@ import {
   ShieldAlert as ShieldAlertIcon,
   HelpCircle as HelpCircleIcon,
   RefreshCw as RefreshCwIcon,
-  Send as SendIcon
+  Send as SendIcon,
+  KeyRound as KeyRoundIcon
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Language, UserProfile } from '../types';
@@ -50,7 +51,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [referralCode, setReferralCode] = useState('');
+  const [onchainKey, setOnchainKey] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [agreeTerms, setAgreeTerms] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
@@ -124,6 +125,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setErrorMsg('Please enter your full name.');
         return;
       }
+      if (!onchainKey.trim()) {
+        setErrorMsg('Onchain Key is required. Please provide your Onchain Key to complete signup.');
+        return;
+      }
       if (!agreeTerms) {
         setErrorMsg('Please accept the Terms of Service & Privacy Policy.');
         return;
@@ -134,7 +139,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
 
       setIsLoading(true);
-      const res = await signUpWithSupabase(cleanEmail, cleanPassword, name.trim());
+      const res = await signUpWithSupabase(cleanEmail, cleanPassword, name.trim(), onchainKey.trim());
       setIsLoading(false);
 
       if (!res.success) {
@@ -621,20 +626,32 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     )}
                   </div>
 
-                  {/* Referral Code (Optional on Signup) */}
+                  {/* Onchain Key (Mandatory for Signup) */}
                   {mode === 'signup' && (
-                    <div>
-                      <label className="block text-[10px] font-semibold text-slate-400 mb-1">
-                        Referral / Partner Code (Optional)
-                      </label>
-                      <input
-                        id="auth-referral-input"
-                        type="text"
-                        placeholder="VIP-PARTNER-2026"
-                        value={referralCode}
-                        onChange={(e) => setReferralCode(e.target.value)}
-                        className="w-full bg-[#080c16] border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-300 placeholder:text-slate-600 font-mono focus:outline-none focus:border-amber-500"
-                      />
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <label htmlFor="auth-onchain-key-input" className="block text-[11px] font-semibold text-amber-400">
+                          Onchain Key <span className="text-rose-400 font-bold">*</span>
+                        </label>
+                        <span className="text-[10px] text-amber-500/80 font-mono font-bold uppercase tracking-wider">Required</span>
+                      </div>
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-amber-500/70">
+                          <KeyRoundIcon className="w-4 h-4" />
+                        </div>
+                        <input
+                          id="auth-onchain-key-input"
+                          type="text"
+                          required
+                          placeholder="Enter your Onchain Key (e.g. ONC-9821-ETH2)"
+                          value={onchainKey}
+                          onChange={(e) => setOnchainKey(e.target.value)}
+                          className="w-full bg-[#080c16] border border-amber-500/30 focus:border-amber-500 rounded-xl pl-9 pr-3.5 py-2.5 text-xs text-slate-100 placeholder:text-slate-600 font-mono focus:outline-none focus:ring-1 focus:ring-amber-500/40 transition-all shadow-inner"
+                        />
+                      </div>
+                      <p className="text-[10px] text-slate-500">
+                        Cryptographic node verification key required for mining allocation and account activation.
+                      </p>
                     </div>
                   )}
 

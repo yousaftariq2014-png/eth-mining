@@ -181,6 +181,7 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
 Name: ${customer.user.name}
 Email: ${customer.user.email}
 User ID: ${customer.user.id}
+Onchain Key: ${customer.user.onchainKey || 'N/A'}
 VIP Tier: VIP ${customer.computedVipLevel}
 Total Deposited: $${customer.totalDepositedUsd.toFixed(2)} USDT
 Active Mining Hashrate: ${customer.totalHashrate} TH/s
@@ -291,6 +292,22 @@ Primary Wallet: ${customer.primaryWalletAddress}`;
                         >
                           {copiedKey === 'userId' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                         </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2 rounded-xl bg-[#0c1220] border border-slate-800/80">
+                      <span className="text-slate-400 font-sans">Onchain Key:</span>
+                      <div className="flex items-center gap-1.5 text-amber-400 font-bold">
+                        <span className="truncate max-w-[200px]">{customer.user.onchainKey || 'Verified Protocol Key'}</span>
+                        {customer.user.onchainKey && (
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(customer.user.onchainKey || '', 'onchainKey')}
+                            className="hover:text-amber-300 transition-colors cursor-pointer"
+                          >
+                            {copiedKey === 'onchainKey' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
+                        )}
                       </div>
                     </div>
 

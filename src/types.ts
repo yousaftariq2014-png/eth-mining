@@ -55,6 +55,7 @@ export interface UserProfile {
   joinedDate: string;
   isLoggedIn?: boolean;
   hasClaimedFreeBonus?: boolean;
+  onchainKey?: string;
 }
 
 export interface EarningRecordItem {

@@ -115,11 +115,13 @@ export function getAppAuthRedirectUrl(type: 'signup' | 'recovery' = 'signup'): s
 export async function signUpWithSupabase(
   email: string,
   password: string,
-  name: string
+  name: string,
+  onchainKey?: string
 ): Promise<{ success: boolean; user?: UserProfile; needsActivation?: boolean; error?: string }> {
   try {
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim() || cleanEmail.split('@')[0];
+    const cleanOnchainKey = onchainKey?.trim() || '';
 
     // 1. Strict check: Check local registered users list first
     try {
@@ -162,6 +164,7 @@ export async function signUpWithSupabase(
       options: {
         data: {
           full_name: cleanName,
+          onchain_key: cleanOnchainKey,
         },
         emailRedirectTo: redirectUrl,
       },
@@ -197,6 +200,7 @@ export async function signUpWithSupabase(
       joinedDate: new Date().toISOString().substring(0, 10),
       isLoggedIn: true,
       hasClaimedFreeBonus: true,
+      onchainKey: cleanOnchainKey,
     };
 
     // 4. Save into clients table without plain text passwords
@@ -209,6 +213,7 @@ export async function signUpWithSupabase(
         vip_level: 1,
         joined_date: newUserProfile.joinedDate,
         is_logged_in: false,
+        onchain_key: cleanOnchainKey,
       });
     } catch (e) {
       console.warn('Clients record create warning:', e);
@@ -319,6 +324,7 @@ export async function signInWithSupabase(
           joinedDate: dbClient.joined_date || userProfile.joinedDate,
           isLoggedIn: true,
           hasClaimedFreeBonus: true,
+          onchainKey: dbClient.onchain_key || (authData.user?.user_metadata?.onchain_key as string) || '',
         };
       }
       
@@ -331,6 +337,7 @@ export async function signInWithSupabase(
         vip_level: userProfile.vipLevel || 1,
         joined_date: userProfile.joinedDate,
         is_logged_in: true,
+        ...(userProfile.onchainKey ? { onchain_key: userProfile.onchainKey } : {}),
       });
     } catch (e) {
       console.warn('DB client lookup warning:', e);
@@ -436,6 +443,7 @@ export async function fetchSupabaseUsers(): Promise<UserProfile[] | null> {
         vipLevel: item.vip_level || 1,
         joinedDate: item.joined_date || item.created_at?.substring(0, 10) || '2026-08-28',
         isLoggedIn: item.is_logged_in ?? true,
+        onchainKey: item.onchain_key || item.onchainKey || '',
       };
     });
   } catch (err) {
@@ -560,6 +568,7 @@ export async function saveSupabaseUser(user: UserProfile): Promise<boolean> {
       vip_level: user.vipLevel || 1,
       joined_date: user.joinedDate || new Date().toISOString().substring(0, 10),
       is_logged_in: user.isLoggedIn ?? true,
+      ...(user.onchainKey ? { onchain_key: user.onchainKey } : {}),
     };
 
     const { error } = await supabase.from('clients').upsert(payload);

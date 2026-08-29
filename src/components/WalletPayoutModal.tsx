@@ -44,14 +44,25 @@ export const WalletPayoutModal: React.FC<WalletPayoutModalProps> = ({
 
   const currentWallet = wallets.find((w) => w.coin === selectedCoin) || wallets[0];
 
+  const [errorNotice, setErrorNotice] = useState<string>('');
+
   const handleMax = () => {
     setWithdrawAmount(currentWallet.amount.toString());
+    setErrorNotice('');
   };
 
   const handleWithdraw = (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorNotice('');
     const amountNum = parseFloat(withdrawAmount);
     if (!amountNum || amountNum <= 0) return;
+
+    const coinPrice = selectedCoin === 'BTC' ? 96450 : selectedCoin === 'KAS' ? 0.168 : 30;
+    const usdVal = amountNum * coinPrice;
+    if (usdVal < 10) {
+      setErrorNotice(`Minimum withdrawal limit is $10.00 USD (Your current amount is ~$${usdVal.toFixed(2)} USD). Please increase withdrawal amount.`);
+      return;
+    }
 
     setIsSubmitting(true);
 
@@ -267,7 +278,17 @@ export const WalletPayoutModal: React.FC<WalletPayoutModalProps> = ({
                     {selectedCoin}
                   </span>
                 </div>
+                <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono mt-1">
+                  <span>Minimum threshold:</span>
+                  <span className="text-amber-400 font-bold">$10.00 USD</span>
+                </div>
               </div>
+
+              {errorNotice && (
+                <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-mono">
+                  {errorNotice}
+                </div>
+              )}
 
               {/* Submit Button */}
               <button

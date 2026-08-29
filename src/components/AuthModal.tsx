@@ -33,6 +33,7 @@ interface AuthModalProps {
   initialMode?: 'login' | 'signup';
   language?: Language;
   onLoginSuccess: (user: UserProfile) => void;
+  onUserRegistered?: (user: UserProfile) => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -41,6 +42,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   initialMode = 'signup',
   language = 'en',
   onLoginSuccess,
+  onUserRegistered,
 }) => {
   const t = TRANSLATIONS[language] || TRANSLATIONS.en;
   const [mode, setMode] = useState<'login' | 'signup'>(initialMode);
@@ -156,6 +158,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           }
         } catch (err) {
           console.warn('Local register sync error:', err);
+        }
+
+        if (onUserRegistered) {
+          onUserRegistered(res.user);
         }
       }
       return;

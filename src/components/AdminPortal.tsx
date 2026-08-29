@@ -28,6 +28,7 @@ interface AdminPortalProps {
   onRejectWithdrawal?: (withdrawalId: string) => void;
   onPurgeAllData?: () => void;
   onDeleteClient?: (userId: string, email: string) => void;
+  onRefreshData?: () => Promise<void> | void;
 }
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({
@@ -42,6 +43,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onRejectWithdrawal,
   onPurgeAllData,
   onDeleteClient,
+  onRefreshData,
 }) => {
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState<boolean>(() => {
     try {
@@ -56,6 +58,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [adminPassword, setAdminPassword] = useState<string>('');
   const [loginError, setLoginError] = useState<string>('');
   const [isSubmittingLogin, setIsSubmittingLogin] = useState<boolean>(false);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
 
   const [activeTab, setActiveTab] = useState<'deposits' | 'clients' | 'withdrawals'>('deposits');
   const [depositFilter, setDepositFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
@@ -63,6 +66,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   
   // Client password visibility toggle and copy state
+  const [showAllPasswords, setShowAllPasswords] = useState<boolean>(false);
   const [visiblePasswords, setVisiblePasswords] = useState<Record<string, boolean>>({});
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
@@ -505,6 +509,39 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               </span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {/* Refresh Database Live */}
+              {onRefreshData && (
+                <button
+                  onClick={async () => {
+                    setIsRefreshing(true);
+                    try {
+                      await onRefreshData();
+                    } finally {
+                      setTimeout(() => setIsRefreshing(false), 500);
+                    }
+                  }}
+                  disabled={isRefreshing}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all border border-slate-700 disabled:opacity-50"
+                  title="Pull latest user signups and passwords from database"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isRefreshing ? 'animate-spin' : ''}`} />
+                  <span>{isRefreshing ? 'Syncing...' : 'Sync Vault'}</span>
+                </button>
+              )}
+
+              {/* Reveal / Hide All Passwords */}
+              <button
+                onClick={() => setShowAllPasswords(prev => !prev)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all border ${
+                  showAllPasswords 
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' 
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                }`}
+              >
+                {showAllPasswords ? <EyeOff className="w-3.5 h-3.5 text-amber-400" /> : <Eye className="w-3.5 h-3.5 text-amber-400" />}
+                <span>{showAllPasswords ? 'Mask All Passwords' : 'Show All Passwords'}</span>
+              </button>
+
               <button
                 onClick={() => setShowPurgeConfirm(true)}
                 className="px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 hover:bg-rose-500/20 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all"
@@ -543,9 +580,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
               ) : (
                 filteredUsers.map((clientUser) => {
-                  const userDeposits = deposits.filter(d => d.userId === clientUser.id || d.userName === clientUser.name);
-                  const isPasswordVisible = !!visiblePasswords[clientUser.id];
-                  const clientPassword = clientUser.password || getClientPassword(clientUser.email) || '';
+                  const isPasswordVisible = showAllPasswords || !!visiblePasswords[clientUser.id];
+                  const clientPassword = clientUser.password || getClientPassword(clientUser.email) || (clientUser as any).plain_password || '';
 
                   return (
                     <div key={clientUser.id} className="grid grid-cols-12 px-4 py-3.5 text-xs items-center hover:bg-slate-900/60 transition-colors gap-2">
@@ -561,7 +597,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           <Key className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                           <span className="font-mono text-xs text-amber-300 font-bold truncate select-all">
                             {isPasswordVisible 
-                              ? (clientPassword || 'No pwd recorded') 
+                              ? (clientPassword || 'Saved in Auth DB') 
                               : '••••••••••••'}
                           </span>
                           

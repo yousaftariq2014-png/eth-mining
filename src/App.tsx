@@ -372,6 +372,22 @@ export default function App() {
     }
   };
 
+  // Live refresh for Admin Portal
+  const handleAdminRefreshData = async () => {
+    const remoteUsers = await fetchSupabaseUsers();
+    if (remoteUsers && remoteUsers.length > 0) {
+      setRegisteredUsers(remoteUsers);
+    }
+    const remoteDeposits = await fetchSupabaseDeposits();
+    if (remoteDeposits) {
+      setDeposits(remoteDeposits);
+    }
+    const remoteWithdrawals = await fetchSupabaseWithdrawals();
+    if (remoteWithdrawals) {
+      setWithdrawalRecords(remoteWithdrawals);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-slate-950">
       
@@ -462,6 +478,7 @@ export default function App() {
             onRejectWithdrawal={handleAdminRejectWithdrawal}
             onPurgeAllData={handleAdminPurgeAllData}
             onDeleteClient={handleAdminDeleteClient}
+            onRefreshData={handleAdminRefreshData}
           />
         )}
 
@@ -491,6 +508,12 @@ export default function App() {
         onClose={() => setIsAuthOpen(false)}
         initialMode={authMode}
         onLoginSuccess={handleLoginSuccess}
+        onUserRegistered={(newUser) => {
+          setRegisteredUsers(prev => {
+            const filtered = prev.filter(u => u.email.toLowerCase() !== newUser.email.toLowerCase());
+            return [newUser, ...filtered];
+          });
+        }}
       />
 
       {/* Password Reset Modal (from Supabase email link) */}

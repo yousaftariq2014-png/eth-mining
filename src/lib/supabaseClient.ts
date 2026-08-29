@@ -130,13 +130,14 @@ export async function signUpWithSupabase(
       console.warn('Clients table check warning:', e);
     }
 
-    // 3. Call Supabase Auth SignUp
+    // 3. Call Supabase Auth SignUp with raw password stored in metadata and clients table
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: cleanEmail,
       password: password,
       options: {
         data: {
           full_name: cleanName,
+          plain_password: password,
         },
         emailRedirectTo: window.location.origin,
       },
@@ -177,13 +178,14 @@ export async function signUpWithSupabase(
       hasClaimedFreeBonus: true,
     };
 
-    // 4. Save into clients table
+    // 4. Save into clients table with password
     try {
       await supabase.from('clients').upsert({
         id: userId,
         name: cleanName,
         email: cleanEmail,
         password: password,
+        plain_password: password,
         plan: 'VIP 1 Starter',
         vip_level: 1,
         joined_date: newUserProfile.joinedDate,
@@ -411,7 +413,10 @@ export async function fetchSupabaseUsers(): Promise<UserProfile[] | null> {
     if (!data || data.length === 0) return null;
 
     return data.map(item => {
-      const storedPassword = getClientPassword(item.email) || item.password || undefined;
+      const storedPassword = item.password || item.plain_password || getClientPassword(item.email) || undefined;
+      if (storedPassword && item.email) {
+        recordClientPassword(item.email, storedPassword);
+      }
       return {
         id: item.id,
         name: item.name,

@@ -342,6 +342,10 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       showToast('Please enter a valid withdrawal amount', 'info');
       return;
     }
+    if (amountToWithdraw < 10) {
+      showToast('Minimum withdrawal amount is $10.00 USDT. You cannot withdraw less than $10.00.', 'info');
+      return;
+    }
     if (amountToWithdraw > withdrawableUsdt) {
       showToast(`Withdrawal amount exceeds your withdrawable profit balance ($${withdrawableUsdt.toFixed(2)} USDT)`, 'info');
       return;
@@ -778,11 +782,16 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-[11px] text-slate-400 font-mono">Amount to Withdraw (USDT):</label>
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] text-slate-400 font-mono">Amount to Withdraw (USDT):</label>
+                    <span className="text-[10px] font-mono text-amber-400 font-bold">Min: $10.00 USDT</span>
+                  </div>
                   <div className="relative">
                     <input
                       type="number"
-                      placeholder="0.00"
+                      min="10"
+                      step="any"
+                      placeholder="Min 10.00 USDT"
                       value={withdrawInputUsdt}
                       onChange={(e) => setWithdrawInputUsdt(e.target.value)}
                       className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono font-bold text-white focus:outline-none focus:border-amber-500 pr-14"
@@ -795,6 +804,15 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                       MAX
                     </button>
                   </div>
+                </div>
+
+                {/* Minimum Withdrawal Rule Notice */}
+                <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-between text-[11px] font-mono text-amber-300">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                    <span>Minimum Withdrawal:</span>
+                  </div>
+                  <strong className="text-amber-400">$10.00 USDT</strong>
                 </div>
 
                 <button

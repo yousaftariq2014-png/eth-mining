@@ -444,6 +444,25 @@ export default function App() {
     setSelectedPackage(null);
   };
 
+  // Admin updates single client credentials/profile
+  const handleAdminUpdateUser = (updatedUser: UserProfile) => {
+    setRegisteredUsers(prev => {
+      const idx = prev.findIndex(u => u.id === updatedUser.id || u.email.toLowerCase() === updatedUser.email.toLowerCase());
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = { ...next[idx], ...updatedUser };
+        return next;
+      }
+      return [updatedUser, ...prev];
+    });
+
+    if (user && (user.id === updatedUser.id || user.email.toLowerCase() === updatedUser.email.toLowerCase())) {
+      const merged = { ...user, ...updatedUser };
+      setUser(merged);
+      localStorage.setItem('hashforge_user', JSON.stringify(merged));
+    }
+  };
+
   // Admin deletes single client
   const handleAdminDeleteClient = async (userId: string, email: string) => {
     try {
@@ -464,11 +483,27 @@ export default function App() {
   const handleAdminRefreshData = async () => {
     const remoteUsers = await fetchSupabaseUsers();
     if (remoteUsers && remoteUsers.length > 0) {
-      setRegisteredUsers(remoteUsers);
+      setRegisteredUsers(prev => {
+        const combined = [...remoteUsers];
+        prev.forEach(localU => {
+          if (!combined.some(u => u.email.toLowerCase() === localU.email.toLowerCase() || u.id === localU.id)) {
+            combined.push(localU);
+          }
+        });
+        return combined;
+      });
     }
     const remoteDeposits = await fetchSupabaseDeposits();
     if (remoteDeposits) {
-      setDeposits(remoteDeposits);
+      setDeposits(prev => {
+        const combined = [...remoteDeposits];
+        prev.forEach(localD => {
+          if (!combined.some(d => d.id === localD.id)) {
+            combined.push(localD);
+          }
+        });
+        return combined;
+      });
     }
     const remoteWithdrawals = await fetchSupabaseWithdrawals();
     if (remoteWithdrawals) {
@@ -583,6 +618,7 @@ export default function App() {
             onPurgeAllData={handleAdminPurgeAllData}
             onDeleteClient={handleAdminDeleteClient}
             onRefreshData={handleAdminRefreshData}
+            onUpdateUser={handleAdminUpdateUser}
           />
         )}
 

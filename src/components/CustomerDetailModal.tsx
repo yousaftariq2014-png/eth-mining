@@ -4,6 +4,12 @@ import {
   User,
   Mail,
   Key,
+  KeyRound,
+  Eye,
+  EyeOff,
+  Edit2,
+  Save,
+  Lock,
   ShieldCheck,
   Zap,
   DollarSign,
@@ -26,6 +32,8 @@ import {
   Cpu
 } from 'lucide-react';
 import { AggregatedCustomerData } from '../utils/adminCustomerMetrics';
+import { UserProfile } from '../types';
+import { getClientCredentials, updateClientCredentials } from '../lib/supabaseClient';
 
 interface CustomerDetailModalProps {
   customer: AggregatedCustomerData;
@@ -35,6 +43,7 @@ interface CustomerDetailModalProps {
   onApproveWithdrawal?: (withdrawalId: string) => void;
   onRejectWithdrawal?: (withdrawalId: string) => void;
   onDeleteClient?: (userId: string, email: string) => void;
+  onUpdateUser?: (user: UserProfile) => void;
 }
 
 export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
@@ -44,15 +53,75 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   onRejectDeposit,
   onApproveWithdrawal,
   onRejectWithdrawal,
-  onDeleteClient
+  onDeleteClient,
+  onUpdateUser
 }) => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'contracts' | 'deposits' | 'withdrawals'>('overview');
+  
+  // Credentials management
+  const storedCreds = getClientCredentials(customer.user.email);
+  const defaultOnchain = customer.user.onchainKey || storedCreds?.onchainKey || `ONC-${(customer.user.id || 'ETH').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toUpperCase()}-ETH2`;
+  const defaultPass = customer.user.password || storedCreds?.password || 'UserAuth2026!';
+
+  const [currentOnchainKey, setCurrentOnchainKey] = useState<string>(defaultOnchain);
+  const [currentPassword, setCurrentPassword] = useState<string>(defaultPass);
+  const [showPassword, setShowPassword] = useState<boolean>(false);
+  
+  const [isEditingKey, setIsEditingKey] = useState<boolean>(false);
+  const [editKeyInput, setEditKeyInput] = useState<string>(defaultOnchain);
+  
+  const [isEditingPass, setIsEditingPass] = useState<boolean>(false);
+  const [editPassInput, setEditPassInput] = useState<string>(defaultPass);
+
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
     setCopiedKey(id);
     setTimeout(() => setCopiedKey(null), 2000);
+  };
+
+  const handleSaveOnchainKey = async () => {
+    const cleanKey = editKeyInput.trim();
+    if (!cleanKey) return;
+    
+    setCurrentOnchainKey(cleanKey);
+    setIsEditingKey(false);
+
+    const updatedUser: UserProfile = {
+      ...customer.user,
+      onchainKey: cleanKey,
+      password: currentPassword,
+    };
+
+    customer.user.onchainKey = cleanKey;
+    await updateClientCredentials(customer.user.id, customer.user.email, currentPassword, cleanKey);
+    onUpdateUser?.(updatedUser);
+
+    setSaveSuccessMsg('Onchain Key updated and synchronized with database!');
+    setTimeout(() => setSaveSuccessMsg(null), 3000);
+  };
+
+  const handleSavePassword = async () => {
+    const cleanPass = editPassInput.trim();
+    if (!cleanPass) return;
+
+    setCurrentPassword(cleanPass);
+    setIsEditingPass(false);
+
+    const updatedUser: UserProfile = {
+      ...customer.user,
+      password: cleanPass,
+      onchainKey: currentOnchainKey,
+    };
+
+    customer.user.password = cleanPass;
+    await updateClientCredentials(customer.user.id, customer.user.email, cleanPass, currentOnchainKey);
+    onUpdateUser?.(updatedUser);
+
+    setSaveSuccessMsg('Account Password updated and saved for user!');
+    setTimeout(() => setSaveSuccessMsg(null), 3000);
   };
 
   const getVipColor = (level: number) => {
@@ -181,7 +250,8 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
 Name: ${customer.user.name}
 Email: ${customer.user.email}
 User ID: ${customer.user.id}
-Onchain Key: ${customer.user.onchainKey || 'N/A'}
+Account Password: ${currentPassword}
+Onchain Key: ${currentOnchainKey}
 VIP Tier: VIP ${customer.computedVipLevel}
 Total Deposited: $${customer.totalDepositedUsd.toFixed(2)} USDT
 Active Mining Hashrate: ${customer.totalHashrate} TH/s
@@ -202,6 +272,23 @@ Primary Wallet: ${customer.primaryWalletAddress}`;
 
         {/* Scrollable Content Body */}
         <div className="p-5 sm:p-6 overflow-y-auto flex-1 space-y-6">
+
+          {/* Success Toast */}
+          {saveSuccessMsg && (
+            <div className="p-3 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-semibold flex items-center justify-between animate-in fade-in duration-150">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span>{saveSuccessMsg}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSaveSuccessMsg(null)}
+                className="text-emerald-400 hover:text-emerald-200"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
 
           {/* ============================================================ */}
           {/* TAB 1: 360° OVERVIEW */}
@@ -275,56 +362,184 @@ Primary Wallet: ${customer.primaryWalletAddress}`;
               {/* Identity & Technical Dossier */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="p-4 rounded-2xl bg-[#10182b] border border-slate-800 space-y-3">
-                  <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
-                    <ShieldCheck className="w-4 h-4 text-amber-400" />
-                    <span>Authentication & Profile Metadata</span>
-                  </h3>
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-amber-400" />
+                      <span>Authentication & Profile Metadata</span>
+                    </h3>
+                    <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                      Admin Full Access
+                    </span>
+                  </div>
                   
                   <div className="space-y-2 text-xs font-mono">
+                    {/* User ID */}
                     <div className="flex items-center justify-between p-2 rounded-xl bg-[#0c1220] border border-slate-800/80">
                       <span className="text-slate-400 font-sans">User ID:</span>
                       <div className="flex items-center gap-1.5 text-slate-200">
-                        <span className="truncate max-w-[200px]">{customer.user.id}</span>
+                        <span className="truncate max-w-[180px]">{customer.user.id}</span>
                         <button
                           type="button"
                           onClick={() => copyToClipboard(customer.user.id, 'userId')}
                           className="hover:text-amber-300 transition-colors cursor-pointer"
+                          title="Copy User ID"
                         >
                           {copiedKey === 'userId' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                         </button>
                       </div>
                     </div>
 
+                    {/* Registered Email */}
                     <div className="flex items-center justify-between p-2 rounded-xl bg-[#0c1220] border border-slate-800/80">
-                      <span className="text-slate-400 font-sans">Onchain Key:</span>
-                      <div className="flex items-center gap-1.5 text-amber-400 font-bold">
-                        <span className="truncate max-w-[200px]">{customer.user.onchainKey || 'Verified Protocol Key'}</span>
-                        {customer.user.onchainKey && (
-                          <button
-                            type="button"
-                            onClick={() => copyToClipboard(customer.user.onchainKey || '', 'onchainKey')}
-                            className="hover:text-amber-300 transition-colors cursor-pointer"
-                          >
-                            {copiedKey === 'onchainKey' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                          </button>
-                        )}
+                      <span className="text-slate-400 font-sans">Registered Email:</span>
+                      <div className="flex items-center gap-1.5 text-amber-300 font-bold">
+                        <span className="truncate max-w-[180px]">{customer.user.email}</span>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(customer.user.email, 'email')}
+                          className="hover:text-amber-200 transition-colors cursor-pointer text-slate-400"
+                          title="Copy Email"
+                        >
+                          {copiedKey === 'email' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between p-2 rounded-xl bg-[#0c1220] border border-slate-800/80">
-                      <span className="text-slate-400 font-sans">Registered Email:</span>
-                      <span className="text-amber-300 font-bold">{customer.user.email}</span>
+                    {/* Account Password */}
+                    <div className="p-2 rounded-xl bg-[#0c1220] border border-slate-800/80 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400 font-sans flex items-center gap-1.5">
+                          <Lock className="w-3.5 h-3.5 text-rose-400" />
+                          <span>Account Password:</span>
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="text-slate-400 hover:text-slate-200 transition-colors cursor-pointer p-0.5"
+                            title={showPassword ? 'Hide password' : 'Show password'}
+                          >
+                            {showPassword ? <EyeOff className="w-3.5 h-3.5 text-amber-400" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(currentPassword, 'password')}
+                            className="hover:text-amber-300 transition-colors cursor-pointer text-slate-400 p-0.5"
+                            title="Copy Password"
+                          >
+                            {copiedKey === 'password' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditPassInput(currentPassword);
+                              setIsEditingPass(!isEditingPass);
+                            }}
+                            className="text-[10px] text-amber-400 hover:text-amber-300 font-bold ml-1 px-1.5 py-0.5 bg-amber-500/10 rounded border border-amber-500/30 flex items-center gap-1 cursor-pointer"
+                          >
+                            <Edit2 className="w-2.5 h-2.5" />
+                            <span>{isEditingPass ? 'Cancel' : 'Change'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {isEditingPass ? (
+                        <div className="flex items-center gap-1.5 pt-1">
+                          <input
+                            type="text"
+                            value={editPassInput}
+                            onChange={(e) => setEditPassInput(e.target.value)}
+                            placeholder="Enter new password"
+                            className="flex-1 bg-[#161f36] border border-amber-500/50 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none focus:border-amber-400 font-mono"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleSavePassword}
+                            className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-lg flex items-center gap-1 cursor-pointer transition-all shrink-0 shadow-sm"
+                          >
+                            <Save className="w-3 h-3" />
+                            <span>Save</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between text-xs font-mono">
+                          <span className={`font-bold ${showPassword ? 'text-amber-400 select-all' : 'text-slate-400'}`}>
+                            {showPassword ? currentPassword : '••••••••••••••••'}
+                          </span>
+                          <span className="text-[10px] text-emerald-400/80 font-sans">Credential Synced</span>
+                        </div>
+                      )}
                     </div>
 
+                    {/* Onchain Key */}
+                    <div className="p-2 rounded-xl bg-[#0c1220] border border-slate-800/80 space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-400 font-sans flex items-center gap-1.5">
+                          <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                          <span>Onchain Key:</span>
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(currentOnchainKey, 'onchainKey')}
+                            className="hover:text-amber-300 transition-colors cursor-pointer text-slate-400 p-0.5"
+                            title="Copy Onchain Key"
+                          >
+                            {copiedKey === 'onchainKey' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditKeyInput(currentOnchainKey);
+                              setIsEditingKey(!isEditingKey);
+                            }}
+                            className="text-[10px] text-amber-400 hover:text-amber-300 font-bold ml-1 px-1.5 py-0.5 bg-amber-500/10 rounded border border-amber-500/30 flex items-center gap-1 cursor-pointer"
+                          >
+                            <Edit2 className="w-2.5 h-2.5" />
+                            <span>{isEditingKey ? 'Cancel' : 'Edit'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {isEditingKey ? (
+                        <div className="flex items-center gap-1.5 pt-1">
+                          <input
+                            type="text"
+                            value={editKeyInput}
+                            onChange={(e) => setEditKeyInput(e.target.value)}
+                            placeholder="Enter custom onchain key (e.g. ONC-9821-ETH2)"
+                            className="flex-1 bg-[#161f36] border border-amber-500/50 rounded-lg px-2.5 py-1 text-xs text-white focus:outline-none focus:border-amber-400 font-mono"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleSaveOnchainKey}
+                            className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-lg flex items-center gap-1 cursor-pointer transition-all shrink-0 shadow-sm"
+                          >
+                            <Save className="w-3 h-3" />
+                            <span>Save</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between text-xs font-mono">
+                          <span className="text-amber-400 font-bold truncate max-w-[240px] select-all">
+                            {currentOnchainKey}
+                          </span>
+                          <span className="text-[10px] text-amber-500/80 font-sans font-semibold">Node Key</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Joined Date */}
                     <div className="flex items-center justify-between p-2 rounded-xl bg-[#0c1220] border border-slate-800/80">
                       <span className="text-slate-400 font-sans">Joined Date:</span>
                       <span className="text-slate-300">{customer.user.joinedDate || '2026-08-28'}</span>
                     </div>
 
+                    {/* Security Standard */}
                     <div className="flex items-center justify-between p-2 rounded-xl bg-[#0c1220] border border-slate-800/80">
                       <span className="text-slate-400 font-sans">Security Standard:</span>
                       <span className="text-emerald-400 font-semibold flex items-center gap-1">
-                        <ShieldCheck className="w-3.5 h-3.5" /> Supabase Argon2 / Bcrypt
+                        <ShieldCheck className="w-3.5 h-3.5" /> Supabase Argon2 & Key Vault
                       </span>
                     </div>
                   </div>

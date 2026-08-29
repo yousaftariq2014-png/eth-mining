@@ -60,6 +60,7 @@ interface AdminPortalProps {
   onPurgeAllData?: () => void;
   onDeleteClient?: (userId: string, email: string) => void;
   onRefreshData?: () => Promise<void> | void;
+  onUpdateUser?: (user: UserProfile) => void;
 }
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({
@@ -75,6 +76,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onPurgeAllData,
   onDeleteClient,
   onRefreshData,
+  onUpdateUser,
 }) => {
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState<boolean>(() => {
     try {
@@ -1200,6 +1202,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           onApproveWithdrawal={onApproveWithdrawal}
           onRejectWithdrawal={onRejectWithdrawal}
           onDeleteClient={onDeleteClient}
+          onUpdateUser={onUpdateUser}
         />
       )}
 

@@ -1,5 +1,6 @@
 import { UserProfile, DepositRequest, MiningPackage, WithdrawalRecordItem } from '../types';
 import { DAILY_PACKAGES, FLASH_48H_PACKAGES, MINING_PACKAGES } from '../data/packagesData';
+import { getClientCredentials } from '../lib/supabaseClient';
 
 export interface CustomerMiningContract {
   deposit: DepositRequest;
@@ -67,15 +68,19 @@ function formatCountdown(ms: number): string {
 
 export function matchUserToDeposit(user: UserProfile, dep: DepositRequest): boolean {
   if (dep.userId && user.id && dep.userId.toLowerCase() === user.id.toLowerCase()) return true;
-  if (dep.userName && user.email && dep.userName.toLowerCase() === user.email.toLowerCase()) return true;
-  if (dep.userName && user.name && dep.userName.toLowerCase() === user.name.toLowerCase()) return true;
+  if (dep.userName && user.email && dep.userName.trim().toLowerCase() === user.email.trim().toLowerCase()) return true;
+  if (dep.userName && !dep.userName.includes('@') && user.name && dep.userName.trim().toLowerCase() === user.name.trim().toLowerCase()) {
+    if (!dep.userId || dep.userId === user.id) return true;
+  }
   return false;
 }
 
 export function matchUserToWithdrawal(user: UserProfile, w: WithdrawalRecordItem): boolean {
   if (w.userId && user.id && w.userId.toLowerCase() === user.id.toLowerCase()) return true;
-  if (w.userName && user.email && w.userName.toLowerCase() === user.email.toLowerCase()) return true;
-  if (w.userName && user.name && w.userName.toLowerCase() === user.name.toLowerCase()) return true;
+  if (w.userName && user.email && w.userName.trim().toLowerCase() === user.email.trim().toLowerCase()) return true;
+  if (w.userName && !w.userName.includes('@') && user.name && w.userName.trim().toLowerCase() === user.name.trim().toLowerCase()) {
+    if (!w.userId || w.userId === user.id) return true;
+  }
   return false;
 }
 
@@ -88,46 +93,106 @@ export function calculateCustomerAggregation(
 ): AggregatedCustomerData[] {
   const unifiedUsers: UserProfile[] = [];
 
-  const findExisting = (id?: string, email?: string, name?: string): UserProfile | undefined => {
+  // Strictly match by unique email or unique non-empty ID - NEVER by name!
+  const findExisting = (id?: string, email?: string): UserProfile | undefined => {
     const cId = id?.trim().toLowerCase();
     const cEmail = email?.trim().toLowerCase();
-    const cName = name?.trim().toLowerCase();
 
     return unifiedUsers.find(u => {
-      if (cId && u.id && u.id.toLowerCase() === cId) return true;
-      if (cEmail && u.email && u.email.toLowerCase() === cEmail) return true;
-      if (cName && u.name && u.name.toLowerCase() === cName) return true;
-      if (cName && u.email && u.email.toLowerCase() === cName) return true;
+      if (cEmail && u.email && u.email.trim().toLowerCase() === cEmail) return true;
+      if (cId && u.id && u.id.trim().toLowerCase() === cId) return true;
       return false;
     });
   };
 
-  // 1. Process known registered users
-  users.forEach(u => {
-    if (!u) return;
-    const existing = findExisting(u.id, u.email, u.name);
-    if (!existing) {
-      unifiedUsers.push({ ...u });
-    } else {
-      if (!existing.email && u.email) existing.email = u.email;
-      if (!existing.name && u.name) existing.name = u.name;
-      if (!existing.id && u.id) existing.id = u.id;
-    }
-  });
+  // Helper to add or merge user into unified list
+  const registerUserCandidate = (u: Partial<UserProfile> & { email?: string; id?: string }) => {
+    if (!u || (!u.email && !u.id)) return;
+    const cleanEmail = u.email?.trim().toLowerCase();
+    const cleanId = u.id?.trim();
+    const creds = getClientCredentials(cleanEmail);
+    const resolvedPass = u.password || creds?.password;
+    const resolvedKey = u.onchainKey || creds?.onchainKey;
 
-  // 2. Synthesize missing users from deposits without duplicating existing users or IDs
+    const existing = findExisting(cleanId, cleanEmail);
+    if (!existing) {
+      unifiedUsers.push({
+        id: cleanId || `usr-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        name: u.name?.trim() || (cleanEmail ? cleanEmail.split('@')[0] : 'Client'),
+        email: cleanEmail || '',
+        password: resolvedPass,
+        onchainKey: resolvedKey,
+        plan: u.plan || `VIP ${u.vipLevel || 1}`,
+        vipLevel: u.vipLevel || 1,
+        joinedDate: u.joinedDate || new Date().toISOString().substring(0, 10),
+        isLoggedIn: u.isLoggedIn ?? true,
+      });
+    } else {
+      if (!existing.email && cleanEmail) existing.email = cleanEmail;
+      if (!existing.name && u.name) existing.name = u.name;
+      if (!existing.id && cleanId) existing.id = cleanId;
+      if (!existing.password && resolvedPass) existing.password = resolvedPass;
+      if (!existing.onchainKey && resolvedKey) existing.onchainKey = resolvedKey;
+    }
+  };
+
+  // 1. Process known registered users from props
+  users.forEach(u => registerUserCandidate(u));
+
+  // 2. Cross-reference localStorage stores for any registered user not in props
+  try {
+    const rawLocal = localStorage.getItem('hashforge_registered_users');
+    if (rawLocal) {
+      const parsed: UserProfile[] = JSON.parse(rawLocal);
+      if (Array.isArray(parsed)) {
+        parsed.forEach(u => registerUserCandidate(u));
+      }
+    }
+  } catch {}
+
+  try {
+    const rawActiveUser = localStorage.getItem('hashforge_user');
+    if (rawActiveUser) {
+      const parsed: UserProfile = JSON.parse(rawActiveUser);
+      if (parsed?.email) {
+        registerUserCandidate(parsed);
+      }
+    }
+  } catch {}
+
+  try {
+    const rawCreds = localStorage.getItem('hashforge_admin_credentials_store');
+    if (rawCreds) {
+      const credsMap: Record<string, any> = JSON.parse(rawCreds);
+      Object.entries(credsMap).forEach(([email, cred]) => {
+        if (email) {
+          registerUserCandidate({
+            email,
+            password: cred.password,
+            onchainKey: cred.onchainKey,
+          });
+        }
+      });
+    }
+  } catch {}
+
+  // 3. Synthesize missing users from deposits without duplicating
   deposits.forEach((d, idx) => {
     const isEmail = d.userName?.includes('@') || false;
     const email = isEmail ? d.userName : undefined;
-    const name = !isEmail ? d.userName : undefined;
-    const existing = findExisting(d.userId, email, name);
+    const existing = findExisting(d.userId, email);
 
     if (!existing) {
       const generatedId = d.userId || `usr-dep-${d.id || idx}-${Math.random().toString(36).substr(2, 6)}`;
+      const targetEmail = isEmail ? (d.userName || '') : `${(d.userName || 'client').replace(/\s+/g, '').toLowerCase()}@client.platform`;
+      const creds = getClientCredentials(targetEmail);
+
       unifiedUsers.push({
         id: generatedId,
         name: d.userName ? (isEmail ? d.userName.split('@')[0] : d.userName) : 'Client',
-        email: isEmail ? (d.userName || '') : `${(d.userName || 'client').replace(/\s+/g, '').toLowerCase()}@client.platform`,
+        email: targetEmail,
+        password: creds?.password,
+        onchainKey: creds?.onchainKey,
         plan: `VIP ${d.vipLevel || 1} (${d.packageName || 'Miner'})`,
         vipLevel: d.vipLevel || 1,
         joinedDate: d.createdAt?.substring(0, 10) || '2026-08-28',
@@ -136,19 +201,23 @@ export function calculateCustomerAggregation(
     }
   });
 
-  // 3. Synthesize missing users from withdrawals without duplicating
+  // 4. Synthesize missing users from withdrawals without duplicating
   withdrawals.forEach((w, idx) => {
     const isEmail = w.userName?.includes('@') || false;
     const email = isEmail ? w.userName : undefined;
-    const name = !isEmail ? w.userName : undefined;
-    const existing = findExisting(w.userId, email, name);
+    const existing = findExisting(w.userId, email);
 
     if (!existing) {
       const generatedId = w.userId || `usr-w-${w.id || idx}-${Math.random().toString(36).substr(2, 6)}`;
+      const targetEmail = isEmail ? (w.userName || '') : `${(w.userName || 'client').replace(/\s+/g, '').toLowerCase()}@client.platform`;
+      const creds = getClientCredentials(targetEmail);
+
       unifiedUsers.push({
         id: generatedId,
         name: w.userName ? (isEmail ? w.userName.split('@')[0] : w.userName) : 'Client',
-        email: isEmail ? (w.userName || '') : `${(w.userName || 'client').replace(/\s+/g, '').toLowerCase()}@client.platform`,
+        email: targetEmail,
+        password: creds?.password,
+        onchainKey: creds?.onchainKey,
         plan: 'VIP 1',
         vipLevel: 1,
         joinedDate: w.time?.substring(0, 10) || '2026-08-28',
@@ -157,7 +226,7 @@ export function calculateCustomerAggregation(
     }
   });
 
-  // 4. Ensure guaranteed unique IDs across unifiedUsers
+  // 5. Ensure guaranteed unique IDs across unifiedUsers
   const seenUserIds = new Set<string>();
   const sanitizedUsers: UserProfile[] = [];
   unifiedUsers.forEach((u, idx) => {

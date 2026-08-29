@@ -265,3 +265,98 @@ export interface MiningLogEntry {
   tag?: string;
   [key: string]: any;
 }
+
+// -------------------------------------------------------------
+// 1. Referral & Affiliate Program Types
+// -------------------------------------------------------------
+export interface ReferralRecord {
+  id: string;
+  refereeName: string;
+  refereeEmail: string;
+  joinedAt: string;
+  packageName?: string;
+  depositAmountUsd: number;
+  commissionEarnedUsd: number;
+  status: 'Active' | 'Pending' | 'Completed';
+  tierLevel: 1 | 2 | 3;
+}
+
+export interface ReferralStats {
+  referralCode: string;
+  referralLink: string;
+  totalInvites: number;
+  activeMinersCount: number;
+  totalCommissionUsd: number;
+  claimableCommissionUsd: number;
+  tier1CommissionPercent: number; // e.g. 7%
+  tier2CommissionPercent: number; // e.g. 3%
+  tier3CommissionPercent: number; // e.g. 1%
+  records: ReferralRecord[];
+}
+
+// -------------------------------------------------------------
+// 2. Invoice & Receipt Types
+// -------------------------------------------------------------
+export interface InvoiceReceipt {
+  receiptNumber: string;
+  transactionType: 'Package Purchase' | 'Withdrawal Payout' | 'ETH-USDT Swap' | 'Daily Yield' | 'Referral Reward';
+  itemName: string;
+  amountUsd: number;
+  cryptoAmount?: string;
+  cryptoSymbol?: string;
+  senderAddressOrTxid?: string;
+  receiverAddress?: string;
+  network?: string;
+  date: string;
+  status: 'Completed' | 'Pending' | 'Processing';
+  userName: string;
+  userEmail: string;
+  userId: string;
+  vipLevel?: number;
+  hashrate?: string;
+  notes?: string;
+  digitalSignature: string;
+}
+
+// -------------------------------------------------------------
+// 3. Notification Center Types
+// -------------------------------------------------------------
+export interface AppNotification {
+  id: string;
+  userId?: string;
+  title: string;
+  message: string;
+  category: 'deposit' | 'withdrawal' | 'mining' | 'referral' | 'vip' | 'security';
+  timestamp: string;
+  isRead: boolean;
+  actionUrl?: string;
+  actionLabel?: string;
+  txHash?: string;
+  amount?: string;
+}
+
+// -------------------------------------------------------------
+// 4. Daily Streak & VIP Loyalty Types
+// -------------------------------------------------------------
+export interface DailyStreakDay {
+  dayNumber: number;
+  rewardEth: number;
+  rewardText: string;
+  bonusHashrateGhs?: number;
+  isClaimed: boolean;
+  isToday: boolean;
+  isLocked: boolean;
+}
+
+export interface VipTierBenefit {
+  level: number;
+  name: string;
+  minInvestmentUsd: number;
+  hashrateBoostGhs: number;
+  withdrawalFeePercent: number;
+  referralBonusPercent: number;
+  perks: string[];
+  color: string;
+  badgeBg: string;
+}
+

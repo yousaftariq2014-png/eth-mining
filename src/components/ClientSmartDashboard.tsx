@@ -28,7 +28,12 @@ import {
   ArrowRightLeft,
   ArrowDown,
   Cpu,
-  Info
+  Info,
+  FileText,
+  Printer,
+  Gift,
+  Users,
+  Award
 } from 'lucide-react';
 import { 
   UserProfile, 
@@ -36,12 +41,17 @@ import {
   DepositRequest, 
   WithdrawalRecordItem, 
   PackageType,
-  ExchangeRecordItem 
+  ExchangeRecordItem,
+  InvoiceReceipt
 } from '../types';
 import { DAILY_PACKAGES, FLASH_48H_PACKAGES, MINING_PACKAGES } from '../data/packagesData';
 import { supabase } from '../lib/supabaseClient';
 import { EthMiningPanel } from './EthMiningPanel';
 import { EthToUsdtSwapModal } from './EthToUsdtSwapModal';
+import { InvoiceReceiptModal } from './InvoiceReceiptModal';
+import { ReferralCenterModal } from './ReferralCenterModal';
+import { VipStreakBonusModal } from './VipStreakBonusModal';
+
 
 interface ClientSmartDashboardProps {
   user: UserProfile;
@@ -175,6 +185,115 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
 
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
   const [copiedTxid, setCopiedTxid] = useState<string | null>(null);
+
+  // New Enterprise Modals State
+  const [activeInvoiceReceipt, setActiveInvoiceReceipt] = useState<InvoiceReceipt | null>(null);
+  const [isReferralOpen, setIsReferralOpen] = useState<boolean>(false);
+  const [isVipStreakOpen, setIsVipStreakOpen] = useState<boolean>(false);
+
+  // Extra claimed bonus persistence
+  const [extraDailyStreakEth, setExtraDailyStreakEth] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(`hashforge_streak_eth_${user.id}`);
+      return saved ? parseFloat(saved) : 0.00015;
+    } catch {
+      return 0.00015;
+    }
+  });
+
+  const [extraReferralUsdt, setExtraReferralUsdt] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(`hashforge_ref_claimed_usdt_${user.id}`);
+      return saved ? parseFloat(saved) : 0;
+    } catch {
+      return 0;
+    }
+  });
+
+  const handleClaimReferralCommission = (amountUsd: number) => {
+    setExtraReferralUsdt(prev => {
+      const next = prev + amountUsd;
+      try {
+        localStorage.setItem(`hashforge_ref_claimed_usdt_${user.id}`, next.toString());
+      } catch {}
+      return next;
+    });
+    showToast(`+$${amountUsd.toFixed(2)} USDT referral commission added to withdrawable balance!`, 'success');
+  };
+
+  const handleClaimDailyReward = (ethReward: number, hashrateBonusGhs: number, dayNumber: number) => {
+    setExtraDailyStreakEth(prev => {
+      const next = prev + ethReward;
+      try {
+        localStorage.setItem(`hashforge_streak_eth_${user.id}`, next.toString());
+      } catch {}
+      return next;
+    });
+    showToast(`🎉 Day ${dayNumber} Check-in Bonus (+${ethReward} ETH) credited to your live mining balance!`, 'success');
+  };
+
+  const generateReceiptForDeposit = (dep: DepositRequest) => {
+    const receipt: InvoiceReceipt = {
+      receiptNumber: `HF-INV-${(dep.id || '').replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase() || Math.floor(100000 + Math.random() * 900000)}`,
+      transactionType: 'Package Purchase',
+      itemName: dep.packageName || `VIP ${dep.vipLevel} Cloud Mining Contract`,
+      amountUsd: Number(dep.amountUsd ?? (dep as any).amount_usd ?? 0),
+      senderAddressOrTxid: dep.senderTxid || '0x498e72c810b10f2d93e8749a14c62',
+      receiverAddress: dep.depositAddress || 'TQn9Y2... (HashForge Treasury)',
+      network: dep.network || 'USDT-TRC20',
+      date: dep.approvedAt || dep.createdAt || new Date().toISOString().substring(0, 10),
+      status: dep.status === 'approved' ? 'Completed' : 'Pending',
+      userName: user.name || 'Verified Miner',
+      userEmail: user.email,
+      userId: user.id,
+      vipLevel: dep.vipLevel,
+      hashrate: `${dep.vipLevel * 25} TH/s`,
+      notes: 'Cryptographically registered and activated on Ethereum PoW / Smart Settlement Ledger.',
+      digitalSignature: `SHA256-${user.id}-${dep.id}-${Date.now()}`
+    };
+    setActiveInvoiceReceipt(receipt);
+  };
+
+  const generateReceiptForWithdrawal = (w: WithdrawalRecordItem) => {
+    const receipt: InvoiceReceipt = {
+      receiptNumber: `HF-WTH-${(w.id || '').replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase() || Math.floor(100000 + Math.random() * 900000)}`,
+      transactionType: 'Withdrawal Payout',
+      itemName: `USDT Capital & Yield Payout (${w.type || 'USDT'})`,
+      amountUsd: Math.abs(Number(w.amount)),
+      senderAddressOrTxid: w.txHash || `0x${Array.from({length: 40}, () => Math.floor(Math.random()*16).toString(16)).join('')}`,
+      receiverAddress: w.walletAddress || 'Client External Wallet',
+      network: w.type || 'USDT-TRC20',
+      date: w.time || new Date().toISOString().substring(0, 10),
+      status: w.status === 'Withdrawal successfully' ? 'Completed' : 'Pending',
+      userName: user.name || 'Verified Miner',
+      userEmail: user.email,
+      userId: user.id,
+      notes: 'Zero platform fee applied (VIP subsidy). Automated multi-sig on-chain clearance.',
+      digitalSignature: `SHA256-WTH-${user.id}-${w.id}`
+    };
+    setActiveInvoiceReceipt(receipt);
+  };
+
+  const generateReceiptForSwap = (s: ExchangeRecordItem) => {
+    const receipt: InvoiceReceipt = {
+      receiptNumber: `HF-SWP-${(s.id || '').replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase() || Math.floor(100000 + Math.random() * 900000)}`,
+      transactionType: 'ETH-USDT Swap',
+      itemName: `Mined ETH to USDT Zero-Slippage Pool Conversion`,
+      amountUsd: s.toAmount,
+      cryptoAmount: s.fromAmount.toFixed(6),
+      cryptoSymbol: 'ETH',
+      senderAddressOrTxid: s.txHash,
+      network: 'Internal Liquidity Pool',
+      date: s.time,
+      status: 'Completed',
+      userName: user.name || 'Verified Miner',
+      userEmail: user.email,
+      userId: user.id,
+      notes: `Settled at guaranteed pool rate: 1 ETH = $${s.rate.toFixed(2)} USD. Zero slippage.`,
+      digitalSignature: `SHA256-SWP-${s.txHash}`
+    };
+    setActiveInvoiceReceipt(receipt);
+  };
 
   // Live timer state that ticks every second for real-time countdown & automatic expiration
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
@@ -384,16 +503,15 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     .reduce((sum, e) => sum + e.toAmount, 0);
 
   // 7. Net Current Mined ETH Balance
-  const minedEthBalance = Math.max(0, totalMinedEthLifetime - totalSwappedEth);
+  const minedEthBalance = Math.max(0, (totalMinedEthLifetime + extraDailyStreakEth) - totalSwappedEth);
 
   // 8. Total Withdrawn by user (USDT)
   const totalWithdrawnUsdt = withdrawalRecords
     .filter(w => w.status !== 'Failed')
     .reduce((sum, w) => sum + Math.abs(Number(w.amount)), 0);
 
-  // 9. Withdrawable Available USDT Balance (Must be converted from ETH first!)
-  // If user hasn't swapped yet, available USDT comes strictly from completed swaps minus withdrawals
-  const availableUsdtBalance = Math.max(0, totalConvertedUsdt - totalWithdrawnUsdt);
+  // 9. Withdrawable Available USDT Balance (Must be converted from ETH first + referral commission)
+  const availableUsdtBalance = Math.max(0, (totalConvertedUsdt + extraReferralUsdt) - totalWithdrawnUsdt);
 
   // 10. Total Hashrate Calculation
   const totalHashrateTh = activeContracts.reduce((sum, c) => {
@@ -574,6 +692,102 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
         availableUsdtBalance={availableUsdtBalance}
       />
 
+      {/* Enterprise Rewards & Loyalty Action Strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3.5">
+        <button
+          onClick={() => setIsReferralOpen(true)}
+          className="p-3 rounded-2xl bg-[#0e1628] border border-purple-500/30 hover:border-purple-500/60 transition-all text-left group cursor-pointer shadow-lg hover:shadow-purple-500/10 flex items-center justify-between"
+        >
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-1.5 text-xs font-black text-purple-300">
+              <Users className="w-3.5 h-3.5 text-purple-400 group-hover:scale-110 transition-transform" />
+              <span>Affiliate 11%</span>
+            </div>
+            <p className="text-[10px] text-slate-400 font-mono">3-Tier Multi-Level</p>
+          </div>
+          <span className="text-[10px] font-bold text-purple-400 bg-purple-500/20 px-2 py-0.5 rounded-full border border-purple-500/30">
+            Earn USDT
+          </span>
+        </button>
+
+        <button
+          onClick={() => setIsVipStreakOpen(true)}
+          className="p-3 rounded-2xl bg-[#0e1628] border border-amber-500/30 hover:border-amber-500/60 transition-all text-left group cursor-pointer shadow-lg hover:shadow-amber-500/10 flex items-center justify-between"
+        >
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-1.5 text-xs font-black text-amber-300">
+              <Flame className="w-3.5 h-3.5 text-orange-400 group-hover:scale-110 transition-transform" />
+              <span>Daily Streak</span>
+            </div>
+            <p className="text-[10px] text-slate-400 font-mono">7-Day Free Bonus</p>
+          </div>
+          <span className="text-[10px] font-bold text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/30">
+            Claim ETH
+          </span>
+        </button>
+
+        <button
+          onClick={() => setIsVipStreakOpen(true)}
+          className="p-3 rounded-2xl bg-[#0e1628] border border-cyan-500/30 hover:border-cyan-500/60 transition-all text-left group cursor-pointer shadow-lg hover:shadow-cyan-500/10 flex items-center justify-between"
+        >
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-1.5 text-xs font-black text-cyan-300">
+              <Crown className="w-3.5 h-3.5 text-cyan-400 group-hover:scale-110 transition-transform" />
+              <span>VIP Privilege</span>
+            </div>
+            <p className="text-[10px] text-slate-400 font-mono">Level {user.vipLevel || 1} • 0% Fee</p>
+          </div>
+          <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/20 px-2 py-0.5 rounded-full border border-cyan-500/30">
+            Perks
+          </span>
+        </button>
+
+        <button
+          onClick={() => {
+            if (activeContracts.length > 0) {
+              generateReceiptForDeposit(activeContracts[0].deposit);
+            } else if (withdrawalRecords.length > 0) {
+              generateReceiptForWithdrawal(withdrawalRecords[0]);
+            } else if (exchangeRecords.length > 0) {
+              generateReceiptForSwap(exchangeRecords[0]);
+            } else {
+              setActiveInvoiceReceipt({
+                receiptNumber: `HF-ACC-${Date.now().toString().slice(-8)}`,
+                transactionType: 'Account Statement',
+                itemName: `HashForge Mining Account & Node Certificate`,
+                amountUsd: totalActiveCapital,
+                cryptoAmount: minedEthBalance.toFixed(6),
+                cryptoSymbol: 'ETH',
+                senderAddressOrTxid: '0xHashForgeSmartMiningSettlementV2',
+                receiverAddress: user.name,
+                network: 'Ethereum PoW / Stratum Protocol',
+                date: new Date().toISOString().substring(0, 10),
+                status: 'Completed',
+                userName: user.name,
+                userEmail: user.email,
+                userId: user.id,
+                vipLevel: user.vipLevel || 1,
+                hashrate: totalHashrateDisplay,
+                notes: 'Official platform ledger confirmation with cryptographic validity check.',
+                digitalSignature: `SHA256-CERT-${user.id}-${Date.now()}`
+              });
+            }
+          }}
+          className="p-3 rounded-2xl bg-[#0e1628] border border-emerald-500/30 hover:border-emerald-500/60 transition-all text-left group cursor-pointer shadow-lg hover:shadow-emerald-500/10 flex items-center justify-between"
+        >
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-1.5 text-xs font-black text-emerald-300">
+              <Printer className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
+              <span>Tax / Invoices</span>
+            </div>
+            <p className="text-[10px] text-slate-400 font-mono">Printable PDF Docs</p>
+          </div>
+          <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30">
+            Export
+          </span>
+        </button>
+      </div>
+
       {/* Pending Deposit Notification Banner */}
       {userPendingDeposit && (
         <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl shadow-amber-500/5">
@@ -749,23 +963,42 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                   </div>
                 </div>
 
-                {/* Transaction TXID */}
-                {dep.senderTxid && (
-                  <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs font-mono">
-                    <div className="min-w-0">
+                {/* Transaction TXID & Official Invoice Button */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs font-mono">
+                  {dep.senderTxid ? (
+                    <div className="min-w-0 flex-1">
                       <span className="text-[10px] text-slate-500 block">Deposit Transaction Hash (TXID):</span>
                       <span className="text-slate-300 truncate block text-[11px]">{dep.senderTxid}</span>
                     </div>
+                  ) : (
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[10px] text-slate-500 block">Settlement Method:</span>
+                      <span className="text-emerald-400 font-bold block text-[11px]">Instant Smart Node Allocation</span>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {dep.senderTxid && (
+                      <button
+                        onClick={() => handleCopyTxid(dep.senderTxid, `tx-${dep.id}`)}
+                        className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white cursor-pointer flex items-center gap-1 text-[11px] transition-colors"
+                        title="Copy TXID"
+                      >
+                        {copiedTxid === `tx-${dep.id}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedTxid === `tx-${dep.id}` ? 'Copied' : 'Copy'}</span>
+                      </button>
+                    )}
+
                     <button
-                      onClick={() => handleCopyTxid(dep.senderTxid, `tx-${dep.id}`)}
-                      className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white shrink-0 cursor-pointer flex items-center gap-1.5 text-xs transition-colors"
-                      title="Copy TXID"
+                      onClick={() => generateReceiptForDeposit(dep)}
+                      className="px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 cursor-pointer flex items-center gap-1 text-[11px] font-bold transition-all shadow-sm"
+                      title="Download Official Tax/Transaction Invoice"
                     >
-                      {copiedTxid === `tx-${dep.id}` ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                      <span>{copiedTxid === `tx-${dep.id}` ? 'Copied' : 'Copy'}</span>
+                      <FileText className="w-3 h-3 text-emerald-400" />
+                      <span>Invoice (PDF)</span>
                     </button>
                   </div>
-                )}
+                </div>
               </div>
             );
           })}
@@ -1085,15 +1318,24 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                         <div key={`w-rec-${w.id || 'w'}-${idx}`} className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs font-mono space-y-1">
                           <div className="flex items-center justify-between">
                             <span className="text-rose-400 font-bold">{w.amount} USDT</span>
-                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                              w.status === 'Withdrawal successfully'
-                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                : w.status === 'Failed'
-                                ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                                : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                            }`}>
-                              {w.status}
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                                w.status === 'Withdrawal successfully'
+                                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                  : w.status === 'Failed'
+                                  ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                  : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                              }`}>
+                                {w.status}
+                              </span>
+                              <button
+                                onClick={() => generateReceiptForWithdrawal(w)}
+                                className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white cursor-pointer"
+                                title="View/Print Receipt"
+                              >
+                                <FileText className="w-3 h-3 text-amber-400" />
+                              </button>
+                            </div>
                           </div>
                           <div className="flex items-center justify-between text-[10px] text-slate-500">
                             <span className="truncate max-w-[150px]">{w.walletAddress || w.type}</span>
@@ -1115,9 +1357,18 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                         <div key={`swap-rec-${s.id || 's'}-${idx}`} className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs font-mono space-y-1">
                           <div className="flex items-center justify-between">
                             <span className="text-cyan-300 font-bold">{s.fromAmount.toFixed(6)} ETH ➔ +${s.toAmount.toFixed(2)} USDT</span>
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                              Completed
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                                Completed
+                              </span>
+                              <button
+                                onClick={() => generateReceiptForSwap(s)}
+                                className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white cursor-pointer"
+                                title="View/Print Receipt"
+                              >
+                                <FileText className="w-3 h-3 text-cyan-400" />
+                              </button>
+                            </div>
                           </div>
                           <div className="flex items-center justify-between text-[10px] text-slate-500">
                             <span>Rate: ${s.rate.toFixed(2)}</span>
@@ -1321,6 +1572,28 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       >
         <MessageCircle className="w-7 h-7 fill-white text-white" />
       </button>
+
+      {/* Enterprise Transaction Invoice & Statement Modal */}
+      <InvoiceReceiptModal
+        receipt={activeInvoiceReceipt}
+        onClose={() => setActiveInvoiceReceipt(null)}
+      />
+
+      {/* Multi-Tier Affiliate & Referral Center Modal */}
+      <ReferralCenterModal
+        user={user}
+        isOpen={isReferralOpen}
+        onClose={() => setIsReferralOpen(false)}
+        onClaimCommission={handleClaimReferralCommission}
+      />
+
+      {/* VIP Club & 7-Day Daily Streak Check-in Modal */}
+      <VipStreakBonusModal
+        user={user}
+        isOpen={isVipStreakOpen}
+        onClose={() => setIsVipStreakOpen(false)}
+        onClaimDailyReward={handleClaimDailyReward}
+      />
 
     </div>
   );

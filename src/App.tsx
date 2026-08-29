@@ -8,12 +8,16 @@ import { AdminPortal } from './components/AdminPortal';
 import { AuthModal } from './components/AuthModal';
 import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { LiveSupportWidget } from './components/LiveSupportWidget';
+import { NotificationCenterModal } from './components/NotificationCenterModal';
+import { ReferralCenterModal } from './components/ReferralCenterModal';
+import { VipStreakBonusModal } from './components/VipStreakBonusModal';
 
 import { 
   UserProfile, 
   MiningPackage, 
   DepositRequest,
-  WithdrawalRecordItem
+  WithdrawalRecordItem,
+  AppNotification
 } from './types';
 import { MINING_PACKAGES, INITIAL_WITHDRAWAL_RECORDS } from './data/packagesData';
 import { 
@@ -274,6 +278,77 @@ export default function App() {
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('signup');
   const [isLiveSupportOpen, setIsLiveSupportOpen] = useState<boolean>(false);
   const [isResetPasswordOpen, setIsResetPasswordOpen] = useState<boolean>(false);
+
+  // 9. Enterprise Modals (Notifications, Referral, VIP Streak)
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
+  const [isReferralOpen, setIsReferralOpen] = useState<boolean>(false);
+  const [isVipStreakOpen, setIsVipStreakOpen] = useState<boolean>(false);
+
+  // Automated Notifications list with local persistence
+  const [notifications, setNotifications] = useState<AppNotification[]>(() => {
+    try {
+      const saved = localStorage.getItem('hashforge_notifications');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [
+      {
+        id: 'notif-welcome',
+        title: 'Mining Infrastructure Online',
+        message: 'Welcome to the ETH2.0 Smart Production Protocol. Stratum cloud clusters are fully synced with multi-sig proof-of-reserve settlement.',
+        timestamp: 'Just now',
+        read: false,
+        type: 'system',
+        category: 'Mining'
+      },
+      {
+        id: 'notif-streak',
+        title: '7-Day Daily Streak Reward Available',
+        message: 'Your Day 1 mining check-in bonus is ready to claim! Collect free ETH daily to boost your hashrate production.',
+        timestamp: '10m ago',
+        read: false,
+        type: 'reward',
+        category: 'Rewards'
+      },
+      {
+        id: 'notif-referral',
+        title: '3-Tier Affiliate Program Active',
+        message: 'Invite colleagues and earn 7% Tier 1, 3% Tier 2, and 1% Tier 3 instant commissions directly withdrawable in USDT.',
+        timestamp: '1h ago',
+        read: false,
+        type: 'referral',
+        category: 'Affiliate'
+      },
+      {
+        id: 'notif-security',
+        title: '2-Minute Inactivity Protection Active',
+        message: 'Your account is secured with automated inactivity lockouts and strict client cryptographic isolation.',
+        timestamp: '2h ago',
+        read: true,
+        type: 'security',
+        category: 'Security'
+      }
+    ];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('hashforge_notifications', JSON.stringify(notifications));
+    } catch {}
+  }, [notifications]);
+
+  const handleMarkNotificationAsRead = (id: string) => {
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+  };
+
+  const handleMarkAllNotificationsAsRead = () => {
+    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  };
+
+  const handleClearAllNotifications = () => {
+    setNotifications([]);
+  };
+
+  const unreadNotificationsCount = notifications.filter(n => !n.read).length;
 
   // User Actions
   const handleOpenAuth = (mode: 'login' | 'signup', targetPkg?: MiningPackage) => {
@@ -595,6 +670,10 @@ export default function App() {
           user={user}
           onOpenAuth={handleOpenAuth}
           onLogout={handleLogout}
+          onOpenNotifications={() => setIsNotificationsOpen(true)}
+          onOpenReferral={() => setIsReferralOpen(true)}
+          onOpenVipStreak={() => setIsVipStreakOpen(true)}
+          unreadNotificationsCount={unreadNotificationsCount}
         />
       )}
 
@@ -754,6 +833,48 @@ export default function App() {
         onClose={() => setIsLiveSupportOpen(false)}
         user={user}
       />
+
+      {/* Enterprise Notification Center Modal */}
+      <NotificationCenterModal
+        isOpen={isNotificationsOpen}
+        onClose={() => setIsNotificationsOpen(false)}
+        notifications={notifications}
+        onMarkAsRead={handleMarkNotificationAsRead}
+        onMarkAllAsRead={handleMarkAllNotificationsAsRead}
+        onClearAll={handleClearAllNotifications}
+        onOpenReferral={() => {
+          setIsNotificationsOpen(false);
+          setIsReferralOpen(true);
+        }}
+        onOpenDailyStreak={() => {
+          setIsNotificationsOpen(false);
+          setIsVipStreakOpen(true);
+        }}
+      />
+
+      {/* Global Header Referral Center Modal */}
+      {user && (
+        <ReferralCenterModal
+          user={user}
+          isOpen={isReferralOpen}
+          onClose={() => setIsReferralOpen(false)}
+          onClaimCommission={(amt) => {
+            setActivationToast(`🎉 +$${amt.toFixed(2)} USDT affiliate commission transferred to your wallet!`);
+          }}
+        />
+      )}
+
+      {/* Global Header VIP Club & 7-Day Daily Streak Check-in Modal */}
+      {user && (
+        <VipStreakBonusModal
+          user={user}
+          isOpen={isVipStreakOpen}
+          onClose={() => setIsVipStreakOpen(false)}
+          onClaimDailyReward={(eth, ghs, day) => {
+            setActivationToast(`🎉 Day ${day} Daily Check-in Bonus (+${eth} ETH & +${ghs} GH/s) claimed!`);
+          }}
+        />
+      )}
 
     </div>
   );

@@ -11,7 +11,10 @@ import {
   ShieldCheck,
   CreditCard,
   History,
-  Crown
+  Crown,
+  Bell,
+  Users,
+  Flame
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
@@ -21,6 +24,10 @@ interface HeaderProps {
   user: UserProfile | null;
   onOpenAuth: (mode: 'login' | 'signup') => void;
   onLogout: () => void;
+  onOpenNotifications?: () => void;
+  onOpenReferral?: () => void;
+  onOpenVipStreak?: () => void;
+  unreadNotificationsCount?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -29,6 +36,10 @@ export const Header: React.FC<HeaderProps> = ({
   user,
   onOpenAuth,
   onLogout,
+  onOpenNotifications,
+  onOpenReferral,
+  onOpenVipStreak,
+  unreadNotificationsCount = 0
 }) => {
   return (
     <header id="main-header" className="sticky top-0 z-40 bg-[#0c121e]/95 backdrop-blur-md border-b border-slate-800 shadow-lg">
@@ -67,10 +78,10 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Simple Navigation Links — icon-only on mobile, icon+label from sm breakpoint up */}
+          {/* Simple Navigation Links & Loyalty Shortcuts */}
           <nav className="flex items-center gap-1 sm:gap-2 shrink-0">
             
-            {/* Packages Tab — Only shown if NOT logged in; logged-in users only see their Mining Dashboard */}
+            {/* Packages Tab — Only shown if NOT logged in */}
             {!user && (
               <button
                 onClick={() => setCurrentTab('home')}
@@ -88,23 +99,65 @@ export const Header: React.FC<HeaderProps> = ({
 
             {/* Dashboard Tab (for logged in users) */}
             {user && (
-              <button
-                onClick={() => setCurrentTab('dashboard')}
-                title="Mining Dashboard"
-                className="p-2 sm:px-3.5 sm:py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20"
-              >
-                <Activity className="w-4 h-4 shrink-0 text-slate-950" />
-                <span className="whitespace-nowrap">Mining Dashboard</span>
-              </button>
+              <>
+                <button
+                  onClick={() => setCurrentTab('dashboard')}
+                  title="Mining Dashboard"
+                  className="p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20"
+                >
+                  <Activity className="w-4 h-4 shrink-0 text-slate-950" />
+                  <span className="hidden xs:inline whitespace-nowrap">Dashboard</span>
+                </button>
+
+                {/* Affiliate Program Header Button */}
+                {onOpenReferral && (
+                  <button
+                    onClick={onOpenReferral}
+                    title="Affiliate & Referral"
+                    className="p-2 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-bold text-purple-300 bg-purple-500/10 border border-purple-500/30 hover:bg-purple-500/20 transition-all cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Users className="w-3.5 h-3.5 text-purple-400" />
+                    <span className="hidden md:inline whitespace-nowrap">Referrals (11%)</span>
+                  </button>
+                )}
+
+                {/* Daily Streak / VIP Header Button */}
+                {onOpenVipStreak && (
+                  <button
+                    onClick={onOpenVipStreak}
+                    title="Daily Check-in & VIP"
+                    className="p-2 sm:px-2.5 sm:py-1.5 rounded-xl text-xs font-bold text-amber-300 bg-amber-500/10 border border-amber-500/30 hover:bg-amber-500/20 transition-all cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Flame className="w-3.5 h-3.5 text-orange-400" />
+                    <span className="hidden md:inline whitespace-nowrap">VIP Club</span>
+                  </button>
+                )}
+              </>
             )}
 
           </nav>
 
-          {/* Right Action: User Status / Auth */}
-          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          {/* Right Action: Notifications & User Status / Auth */}
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             {user ? (
-              <div className="flex items-center gap-1 sm:gap-2">
-                <div className="hidden md:flex flex-col text-right">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                {/* Notification Bell */}
+                {onOpenNotifications && (
+                  <button
+                    onClick={onOpenNotifications}
+                    title="System Notifications"
+                    className="relative p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-amber-400 hover:border-amber-500/40 transition-colors cursor-pointer"
+                  >
+                    <Bell className="w-4 h-4" />
+                    {unreadNotificationsCount > 0 && (
+                      <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-mono text-white font-bold animate-pulse">
+                        {unreadNotificationsCount}
+                      </span>
+                    )}
+                  </button>
+                )}
+
+                <div className="hidden lg:flex flex-col text-right">
                   <span className="text-xs font-bold text-white leading-tight">{user.name}</span>
                   <span className="text-[10px] font-mono text-emerald-400 font-bold">
                     {user.plan || `VIP ${user.vipLevel || 1}`}

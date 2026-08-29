@@ -314,6 +314,53 @@ export default function App() {
     setCurrentTab('home');
   };
 
+  // -------------------------------------------------------------------
+  // 2-MINUTE INACTIVITY AUTO-LOGOUT SECURITY MECHANISM
+  // If user is logged in (and not master admin), automatically log out after 2 minutes (120,000ms) of inactivity
+  // -------------------------------------------------------------------
+  useEffect(() => {
+    if (!user) return;
+
+    const INACTIVITY_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
+    let timeoutId: NodeJS.Timeout;
+
+    const performAutoLogout = () => {
+      localStorage.removeItem('hashforge_user');
+      setUser(null);
+      setCurrentTab('home');
+      setActivationToast('🔒 Session expired due to 2 minutes of inactivity. Please log in again.');
+    };
+
+    const resetInactivityTimer = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      timeoutId = setTimeout(performAutoLogout, INACTIVITY_TIMEOUT_MS);
+    };
+
+    // User activity events across desktop and mobile
+    const activityEvents = [
+      'mousemove',
+      'mousedown',
+      'keydown',
+      'touchstart',
+      'scroll',
+      'click'
+    ];
+
+    activityEvents.forEach(event => {
+      window.addEventListener(event, resetInactivityTimer, { passive: true });
+    });
+
+    // Start initial timer
+    resetInactivityTimer();
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      activityEvents.forEach(event => {
+        window.removeEventListener(event, resetInactivityTimer);
+      });
+    };
+  }, [user]);
+
   const isPackagePurchasedByUser = (pkg: MiningPackage, currentUserId?: string, currentUserName?: string) => {
     if (!currentUserId && !currentUserName) return false;
     return deposits.some(d => 

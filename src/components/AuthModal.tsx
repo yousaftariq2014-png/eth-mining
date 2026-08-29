@@ -25,7 +25,7 @@ import {
   sendSupabasePasswordReset, 
   resendSupabaseActivation,
   saveSupabaseUser
-} from '../lib/supabase';
+} from '../lib/supabaseClient';
 
 interface AuthModalProps {
   isOpen: boolean;

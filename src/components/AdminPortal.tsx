@@ -5,7 +5,7 @@ import {
   ChevronRight, Sparkles, Award, Wallet, Copy, Check, Globe
 } from 'lucide-react';
 import { UserProfile, DepositRequest, MiningPackage, WithdrawalRecordItem } from '../types';
-import { SUPABASE_URL, supabase, fetchSupabaseUsers, fetchSupabaseDeposits } from '../lib/supabase';
+import { SUPABASE_URL, supabase, fetchSupabaseUsers, fetchSupabaseDeposits } from '../lib/supabaseClient';
 
 interface AdminPortalProps {
   onBackToClientApp: () => void;

@@ -22,7 +22,7 @@ import {
   insertSupabaseDeposit, 
   updateSupabaseDepositStatus,
   fetchSupabaseWithdrawals
-} from './lib/supabase';
+} from './lib/supabaseClient';
 
 // Initial Demo Registered Clients
 const INITIAL_DEMO_USERS: UserProfile[] = [

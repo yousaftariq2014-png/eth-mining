@@ -270,55 +270,6 @@ export const MINING_PACKAGES: MiningPackage[] = [
   ...FLASH_48H_PACKAGES
 ];
 
-export const INITIAL_EARNINGS_RECORDS: EarningRecordItem[] = [
-  { id: 'e-1', time: '09/16/2025 17:00:00', incomeEth: '0.354311 ETH', accountBalance: '186193.1680' },
-  { id: 'e-2', time: '09/16/2025 11:00:01', incomeEth: '0.350842 ETH', accountBalance: '186193.1680' },
-  { id: 'e-3', time: '09/16/2025 05:00:00', incomeEth: '0.350093 ETH', accountBalance: '186193.1680' },
-  { id: 'e-4', time: '09/15/2025 23:00:00', incomeEth: '0.349837 ETH', accountBalance: '186193.1680' },
-  { id: 'e-5', time: '09/15/2025 17:00:00', incomeEth: '0.351692 ETH', accountBalance: '186193.1680' },
-  { id: 'e-6', time: '09/15/2025 11:00:00', incomeEth: '0.349661 ETH', accountBalance: '186193.1680' },
-  { id: 'e-7', time: '09/15/2025 05:00:00', incomeEth: '0.341394 ETH', accountBalance: '186193.1680' },
-];
+export const INITIAL_EARNINGS_RECORDS: EarningRecordItem[] = [];
 
-export const INITIAL_WITHDRAWAL_RECORDS: WithdrawalRecordItem[] = [
-  {
-    id: 'w-1',
-    currency: 'USDT-ERCWithdrawal',
-    type: 'USDT-ERC',
-    amount: -50464.5554,
-    status: 'Pending',
-    time: '09/16/2025 21:22:28',
-  },
-  {
-    id: 'w-2',
-    currency: 'USDT-ERCWithdrawal',
-    type: 'USDT-ERC',
-    amount: -80465.4219,
-    status: 'Withdrawal successfully',
-    time: '07/25/2025 21:06:51',
-  },
-  {
-    id: 'w-3',
-    currency: 'USDT-ERCWithdrawal',
-    type: 'USDT-ERC',
-    amount: -20116.5454,
-    status: 'Withdrawal successfully',
-    time: '07/23/2025 19:06:20',
-  },
-  {
-    id: 'w-4',
-    currency: 'USDT-ERCWithdrawal',
-    type: 'USDT-ERC',
-    amount: -64558,
-    status: 'Withdrawal successfully',
-    time: '07/20/2025 20:29:29',
-  },
-  {
-    id: 'w-5',
-    currency: 'USDT-ERCWithdrawal',
-    type: 'USDT-ERC',
-    amount: -50151,
-    status: 'Withdrawal successfully',
-    time: '07/18/2025 19:06:28',
-  },
-];
+export const INITIAL_WITHDRAWAL_RECORDS: WithdrawalRecordItem[] = [];

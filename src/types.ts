@@ -49,6 +49,7 @@ export interface UserProfile {
   id: string;
   name: string;
   email: string;
+  password?: string;
   plan: string;
   vipLevel?: number;
   joinedDate: string;
@@ -65,9 +66,12 @@ export interface EarningRecordItem {
 
 export interface WithdrawalRecordItem {
   id: string;
+  userId?: string;
+  userName?: string;
   currency: string;
   type: string;
   amount: number;
+  walletAddress?: string;
   status: 'Pending' | 'Withdrawal successfully' | 'Failed';
   time: string;
   txHash?: string;

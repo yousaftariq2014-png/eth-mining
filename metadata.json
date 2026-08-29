@@ -2,6 +2,7 @@
   "name": "ETH2.0 Smart Production - Cloud Mining Platform",
   "description": "Simple cloud mining platform featuring 5 tiered packages, instant deposit with pending admin approval, and a live mining dashboard with 6-hour automated profit distributions.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
-

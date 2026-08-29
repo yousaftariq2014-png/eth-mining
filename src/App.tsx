@@ -21,48 +21,12 @@ import {
   fetchSupabaseDeposits, 
   insertSupabaseDeposit, 
   updateSupabaseDepositStatus,
-  fetchSupabaseWithdrawals
+  fetchSupabaseWithdrawals,
+  updateSupabaseWithdrawalStatus
 } from './lib/supabaseClient';
 
-// Initial Demo Registered Clients
-const INITIAL_DEMO_USERS: UserProfile[] = [
-  {
-    id: 'user-demo-01',
-    name: 'Alex Turner',
-    email: 'alex.turner@gmail.com',
-    isLoggedIn: true,
-    joinedDate: '2026-08-28',
-    plan: 'VIP 5 (VIP 5 Diamond Enterprise)',
-    vipLevel: 5
-  },
-  {
-    id: 'user-demo-02',
-    name: 'Michael Chang',
-    email: 'm.chang@crypto-fund.io',
-    isLoggedIn: false,
-    joinedDate: '2026-08-27',
-    plan: 'VIP 4 (VIP 4 Megawatt Producer)',
-    vipLevel: 4
-  },
-  {
-    id: 'user-demo-03',
-    name: 'Sarah Jenkins',
-    email: 'sarah.j@blockcloud.net',
-    isLoggedIn: false,
-    joinedDate: '2026-08-26',
-    plan: 'VIP 2 (VIP 2 Advanced Node)',
-    vipLevel: 2
-  },
-  {
-    id: 'user-demo-04',
-    name: 'David Miller',
-    email: 'dmiller@web3invest.org',
-    isLoggedIn: false,
-    joinedDate: '2026-08-25',
-    plan: 'VIP 3 (VIP 3 Pro Cluster)',
-    vipLevel: 3
-  }
-];
+// Initial Empty Registered Clients (clean zero-base)
+const INITIAL_DEMO_USERS: UserProfile[] = [];
 
 export default function App() {
   // 1. Current Authenticated Client User (saved in localStorage)
@@ -124,51 +88,7 @@ export default function App() {
       const saved = localStorage.getItem('hashforge_deposits');
       if (saved) return JSON.parse(saved);
     } catch {}
-    return [
-      {
-        id: 'dep-demo-01',
-        userId: 'user-demo-01',
-        userName: 'Alex Turner',
-        packageId: 'pkg-vip-5',
-        packageName: 'VIP 5 Diamond Enterprise',
-        vipLevel: 5,
-        amountUsd: 2500,
-        network: 'TRC20',
-        depositAddress: 'TQn9Y2khEsLJW1ChV8N8N6uG2X734fjk',
-        senderTxid: 'TX892746194723049182374928172948',
-        status: 'approved',
-        createdAt: '2026-08-28 10:15:00',
-        approvedAt: '2026-08-28 10:20:00'
-      },
-      {
-        id: 'dep-demo-02',
-        userId: 'user-demo-02',
-        userName: 'Michael Chang',
-        packageId: 'pkg-vip-4',
-        packageName: 'VIP 4 Megawatt Producer',
-        vipLevel: 4,
-        amountUsd: 1000,
-        network: 'TRC20',
-        depositAddress: 'TQn9Y2khEsLJW1ChV8N8N6uG2X734fjk',
-        senderTxid: 'TX489201948201948201948201948201',
-        status: 'pending',
-        createdAt: '2026-08-28 14:10:00'
-      },
-      {
-        id: 'dep-demo-03',
-        userId: 'user-demo-03',
-        userName: 'Sarah Jenkins',
-        packageId: 'pkg-vip-2',
-        packageName: 'VIP 2 Advanced Node',
-        vipLevel: 2,
-        amountUsd: 250,
-        network: 'ERC20',
-        depositAddress: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
-        senderTxid: '0x3847a98b1c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f',
-        status: 'pending',
-        createdAt: '2026-08-28 14:32:00'
-      }
-    ];
+    return [];
   });
 
   // Save deposits to localStorage
@@ -179,7 +99,19 @@ export default function App() {
   }, [deposits]);
 
   // 7. Withdrawals Records
-  const [withdrawalRecords, setWithdrawalRecords] = useState<WithdrawalRecordItem[]>(INITIAL_WITHDRAWAL_RECORDS);
+  const [withdrawalRecords, setWithdrawalRecords] = useState<WithdrawalRecordItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('hashforge_withdrawals');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return INITIAL_WITHDRAWAL_RECORDS;
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('hashforge_withdrawals', JSON.stringify(withdrawalRecords));
+    } catch {}
+  }, [withdrawalRecords]);
 
   // -------------------------------------------------------------------
   // LIVE SUPABASE DATA SYNC ON MOUNT
@@ -356,6 +288,24 @@ export default function App() {
     updateSupabaseDepositStatus(depositId, 'rejected');
   };
 
+  // Admin approves a withdrawal
+  const handleAdminApproveWithdrawal = (withdrawalId: string) => {
+    setWithdrawalRecords(prev =>
+      prev.map(w => (w.id === withdrawalId ? { ...w, status: 'Withdrawal successfully' } : w))
+    );
+    // Sync approval to Supabase
+    updateSupabaseWithdrawalStatus(withdrawalId, 'Withdrawal successfully');
+  };
+
+  // Admin rejects / declines a withdrawal
+  const handleAdminRejectWithdrawal = (withdrawalId: string) => {
+    setWithdrawalRecords(prev =>
+      prev.map(w => (w.id === withdrawalId ? { ...w, status: 'Failed' } : w))
+    );
+    // Sync rejection to Supabase
+    updateSupabaseWithdrawalStatus(withdrawalId, 'Failed');
+  };
+
   return (
     <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-slate-950">
       
@@ -438,6 +388,8 @@ export default function App() {
             registeredUsers={registeredUsers}
             packages={packages}
             withdrawalRecords={withdrawalRecords}
+            onApproveWithdrawal={handleAdminApproveWithdrawal}
+            onRejectWithdrawal={handleAdminRejectWithdrawal}
           />
         )}
 

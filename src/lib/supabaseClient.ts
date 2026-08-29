@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS public.clients (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
+  password TEXT,
   plan TEXT DEFAULT 'VIP 1',
   vip_level INTEGER DEFAULT 1,
   joined_date TEXT,
@@ -39,6 +40,8 @@ CREATE TABLE IF NOT EXISTS public.deposits (
   deposit_address TEXT NOT NULL,
   sender_txid TEXT NOT NULL,
   status TEXT DEFAULT 'pending',
+  explorer_confirmed BOOLEAN DEFAULT false,
+  verified_at TIMESTAMPTZ,
   created_at TEXT NOT NULL,
   approved_at TEXT,
   inserted_at TIMESTAMPTZ DEFAULT now()
@@ -47,9 +50,12 @@ CREATE TABLE IF NOT EXISTS public.deposits (
 -- 3. Withdrawals Table
 CREATE TABLE IF NOT EXISTS public.withdrawals (
   id TEXT PRIMARY KEY,
+  user_id TEXT,
+  user_name TEXT,
   currency TEXT NOT NULL,
   type TEXT NOT NULL,
   amount NUMERIC NOT NULL,
+  wallet_address TEXT,
   status TEXT DEFAULT 'Pending',
   time TEXT NOT NULL,
   tx_hash TEXT,
@@ -138,6 +144,7 @@ export async function signUpWithSupabase(
       id: userId,
       name: cleanName,
       email: cleanEmail,
+      password: password,
       plan: 'VIP 1 Starter',
       vipLevel: 1,
       joinedDate: new Date().toISOString().substring(0, 10),
@@ -151,6 +158,7 @@ export async function signUpWithSupabase(
         id: userId,
         name: cleanName,
         email: cleanEmail,
+        password: password,
         plan: 'VIP 1 Starter',
         vip_level: 1,
         joined_date: newUserProfile.joinedDate,
@@ -246,6 +254,7 @@ export async function signInWithSupabase(
       id: authData.user?.id || `user-${Date.now()}`,
       name: (authData.user?.user_metadata?.full_name as string) || cleanEmail.split('@')[0],
       email: cleanEmail,
+      password: password,
       plan: 'VIP 1 Starter',
       vipLevel: 1,
       joinedDate: authData.user?.created_at?.substring(0, 10) || new Date().toISOString().substring(0, 10),
@@ -265,12 +274,27 @@ export async function signInWithSupabase(
           id: dbClient.id,
           name: dbClient.name || userProfile.name,
           email: dbClient.email,
+          password: dbClient.password || password,
           plan: dbClient.plan || `VIP ${dbClient.vip_level || 1}`,
           vipLevel: dbClient.vip_level || 1,
           joinedDate: dbClient.joined_date || userProfile.joinedDate,
           isLoggedIn: true,
           hasClaimedFreeBonus: true,
         };
+      }
+      
+      // Keep password updated in clients table
+      if (password) {
+        await supabase.from('clients').upsert({
+          id: userProfile.id,
+          name: userProfile.name,
+          email: userProfile.email,
+          password: password,
+          plan: userProfile.plan,
+          vip_level: userProfile.vipLevel || 1,
+          joined_date: userProfile.joinedDate,
+          is_logged_in: true,
+        });
       }
     } catch (e) {
       console.warn('DB client lookup warning:', e);
@@ -367,6 +391,7 @@ export async function fetchSupabaseUsers(): Promise<UserProfile[] | null> {
       id: item.id,
       name: item.name,
       email: item.email,
+      password: item.password || undefined,
       plan: item.plan || `VIP ${item.vip_level || 1}`,
       vipLevel: item.vip_level || 1,
       joinedDate: item.joined_date || item.created_at?.substring(0, 10) || '2026-08-28',
@@ -380,7 +405,7 @@ export async function fetchSupabaseUsers(): Promise<UserProfile[] | null> {
 
 export async function saveSupabaseUser(user: UserProfile): Promise<boolean> {
   try {
-    const { error } = await supabase.from('clients').upsert({
+    const payload: any = {
       id: user.id,
       name: user.name,
       email: user.email,
@@ -388,7 +413,12 @@ export async function saveSupabaseUser(user: UserProfile): Promise<boolean> {
       vip_level: user.vipLevel || 1,
       joined_date: user.joinedDate || new Date().toISOString().substring(0, 10),
       is_logged_in: user.isLoggedIn ?? true,
-    });
+    };
+    if (user.password) {
+      payload.password = user.password;
+    }
+
+    const { error } = await supabase.from('clients').upsert(payload);
 
     if (error) {
       console.warn('Supabase client save warning:', error.message);
@@ -531,9 +561,12 @@ export async function fetchSupabaseWithdrawals(): Promise<WithdrawalRecordItem[]
 
     return data.map(item => ({
       id: item.id,
+      userId: item.user_id || undefined,
+      userName: item.user_name || undefined,
       currency: item.currency,
       type: item.type,
       amount: Number(item.amount),
+      walletAddress: item.wallet_address || undefined,
       status: item.status as any,
       time: item.time,
       txHash: item.tx_hash || undefined,
@@ -547,9 +580,12 @@ export async function insertSupabaseWithdrawal(record: WithdrawalRecordItem): Pr
   try {
     const { error } = await supabase.from('withdrawals').upsert({
       id: record.id,
+      user_id: record.userId || null,
+      user_name: record.userName || null,
       currency: record.currency,
       type: record.type,
       amount: record.amount,
+      wallet_address: record.walletAddress || null,
       status: record.status,
       time: record.time,
       tx_hash: record.txHash || null,
@@ -558,6 +594,33 @@ export async function insertSupabaseWithdrawal(record: WithdrawalRecordItem): Pr
     if (error) return false;
     return true;
   } catch (err) {
+    return false;
+  }
+}
+
+export async function updateSupabaseWithdrawalStatus(
+  withdrawalId: string,
+  status: 'Pending' | 'Withdrawal successfully' | 'Failed',
+  txHash?: string
+): Promise<boolean> {
+  try {
+    const payload: any = { status };
+    if (txHash) {
+      payload.tx_hash = txHash;
+    }
+
+    const { error } = await supabase
+      .from('withdrawals')
+      .update(payload)
+      .eq('id', withdrawalId);
+
+    if (error) {
+      console.warn('Supabase update withdrawal status error:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('Supabase update withdrawal error:', err);
     return false;
   }
 }

@@ -70,33 +70,31 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Simple Navigation Links — icon-only on mobile, icon+label from sm breakpoint up */}
           <nav className="flex items-center gap-1 sm:gap-2 shrink-0">
             
-            {/* Packages Tab */}
-            <button
-              onClick={() => setCurrentTab('home')}
-              title="Investment Plans"
-              className={`p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                currentTab === 'home'
-                  ? 'bg-amber-500 text-slate-950 shadow-md font-black'
-                  : 'text-slate-300 hover:text-white hover:bg-slate-800'
-              }`}
-            >
-              <Home className="w-4 h-4 shrink-0" />
-              <span className="hidden sm:inline whitespace-nowrap">Investment Plans</span>
-            </button>
+            {/* Packages Tab — Only shown if NOT logged in; logged-in users only see their Mining Dashboard */}
+            {!user && (
+              <button
+                onClick={() => setCurrentTab('home')}
+                title="Investment Plans"
+                className={`p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  currentTab === 'home'
+                    ? 'bg-amber-500 text-slate-950 shadow-md font-black'
+                    : 'text-slate-300 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+                <Home className="w-4 h-4 shrink-0" />
+                <span className="hidden sm:inline whitespace-nowrap">Investment Plans</span>
+              </button>
+            )}
 
             {/* Dashboard Tab (for logged in users) */}
             {user && (
               <button
                 onClick={() => setCurrentTab('dashboard')}
                 title="Mining Dashboard"
-                className={`p-2 sm:px-3 sm:py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
-                  currentTab === 'dashboard'
-                    ? 'bg-amber-500 text-slate-950 shadow-md font-black'
-                    : 'text-slate-300 hover:text-white hover:bg-slate-800'
-                }`}
+                className="p-2 sm:px-3.5 sm:py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/20"
               >
-                <Activity className="w-4 h-4 shrink-0" />
-                <span className="hidden sm:inline whitespace-nowrap">Mining Dashboard</span>
+                <Activity className="w-4 h-4 shrink-0 text-slate-950" />
+                <span className="whitespace-nowrap">Mining Dashboard</span>
               </button>
             )}
 

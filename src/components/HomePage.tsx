@@ -154,7 +154,7 @@ export const HomePage: React.FC<HomePageProps> = ({
               }`}
             >
               <Zap className="w-4 h-4" />
-              <span>Continuous Daily Mining (2% – 3% Daily)</span>
+              <span>Continuous Daily Mining (1.80% – 3.00% Daily)</span>
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
                 selectedPlanType === 'daily' ? 'bg-slate-950/20 text-slate-950' : 'bg-amber-500/20 text-amber-400'
               }`}>
@@ -193,7 +193,7 @@ export const HomePage: React.FC<HomePageProps> = ({
             <div className="flex items-center gap-3">
               <Zap className="w-5 h-5 text-amber-400 shrink-0" />
               <span>
-                <strong>Daily Variable Mining:</strong> Mining outputs are calculated 24/7 and distributed every 6 hours with 2.0% to 3.0% floating daily yields. 100% exchangeable to USDT anytime.
+                <strong>Daily Variable Mining:</strong> Mining outputs are calculated 24/7 and distributed every 6 hours with <strong>1.80% to 3.00%</strong> daily yields (<strong>$100–$5,000</strong>: 1.80%–2.00%, <strong>$5,000–$10,000</strong>: 2.00%–2.40%, <strong>$10,000–$30,000</strong>: 2.60%, <strong>$30,000–$50,000</strong>: 2.80%, <strong>$50,000–$100,000</strong>: max 3.00%). 100% exchangeable to USDT anytime.
               </span>
             </div>
           ) : (
@@ -206,8 +206,12 @@ export const HomePage: React.FC<HomePageProps> = ({
           )}
         </div>
 
-        {/* 5 Packages Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {/* Packages Grid */}
+        <div className={`grid gap-4 ${
+          selectedPlanType === 'daily'
+            ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+            : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-5'
+        }`}>
           {activePackageList.map((pkg) => {
             const isFlash = pkg.planType === 'flash_48h';
             const isPurchased = isPackagePurchased(pkg);

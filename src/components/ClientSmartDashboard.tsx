@@ -1663,7 +1663,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                 dashCategory === 'daily' ? 'bg-amber-500 text-slate-950 font-black' : 'text-slate-400 hover:text-white'
               }`}
             >
-              Daily Mining (VIP 1 - 5)
+              Daily Mining (1.80% – 3.00% Daily)
             </button>
             <button
               type="button"
@@ -1678,7 +1678,11 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
         </div>
 
         {/* Packages Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+        <div className={`grid gap-3.5 ${
+          dashCategory === 'daily'
+            ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+            : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-5'
+        }`}>
           {displayedCategoryPackages.map((pkg) => {
             const owned = isPackageOwned(pkg);
             const estDailyEth = ethPriceUsd > 0 ? (pkg.dailyReturnUsd / ethPriceUsd) : 0;

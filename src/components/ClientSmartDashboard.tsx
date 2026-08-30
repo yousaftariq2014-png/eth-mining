@@ -209,7 +209,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   // Form Inputs
   const [withdrawInputUsdt, setWithdrawInputUsdt] = useState<string>('');
   const [withdrawAddress, setWithdrawAddress] = useState<string>('');
-  const [withdrawNetwork, setWithdrawNetwork] = useState<'USDT-TRC20' | 'USDT-ERC20' | 'USDT-BEP20'>('USDT-TRC20');
+  const [withdrawNetwork, setWithdrawNetwork] = useState<'USDT-TRC20' | 'USDT-ERC20' | 'USDT-POLYGON'>('USDT-TRC20');
 
   // Embedded Swap Inputs
   const [embedSwapEthInput, setEmbedSwapEthInput] = useState<string>('');
@@ -1336,7 +1336,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                 <div className="space-y-1">
                   <label className="text-[11px] text-slate-400 font-mono">Withdrawal Network:</label>
                   <div className="grid grid-cols-3 gap-2">
-                    {(['USDT-TRC20', 'USDT-ERC20', 'USDT-BEP20'] as const).map((net) => (
+                    {(['USDT-TRC20', 'USDT-ERC20', 'USDT-POLYGON'] as const).map((net) => (
                       <button
                         key={net}
                         type="button"
@@ -1347,7 +1347,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                             : 'bg-slate-950 text-slate-400 border-slate-800 hover:text-white'
                         }`}
                       >
-                        {net.replace('USDT-', '')}
+                        {net === 'USDT-POLYGON' ? 'POLYGON (POS)' : net.replace('USDT-', '')}
                       </button>
                     ))}
                   </div>
@@ -1393,7 +1393,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
 
                   <input
                     type="text"
-                    placeholder={withdrawNetwork === 'USDT-TRC20' ? 'e.g. TQn9Y2... (Tron TRC20)' : 'e.g. 0x742d...'}
+                    placeholder={withdrawNetwork === 'USDT-TRC20' ? 'e.g. TGgfnP... (Tron TRC20)' : 'e.g. 0x91D8... (0x address)'}
                     value={withdrawAddress}
                     onChange={(e) => setWithdrawAddress(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-amber-500"

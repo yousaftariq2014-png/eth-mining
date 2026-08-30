@@ -23,7 +23,7 @@ interface WalletWhitelistingModalProps {
   onSaveWhitelist: (whitelist: WhitelistedWalletAddress[]) => void;
   strictMode: boolean;
   onToggleStrictMode: (enabled: boolean) => void;
-  onSelectAddressForWithdraw?: (address: string, network: 'USDT-TRC20' | 'USDT-ERC20' | 'USDT-BEP20') => void;
+  onSelectAddressForWithdraw?: (address: string, network: 'USDT-TRC20' | 'USDT-ERC20' | 'USDT-POLYGON') => void;
 }
 
 export const WalletWhitelistingModal: React.FC<WalletWhitelistingModalProps> = ({
@@ -38,7 +38,7 @@ export const WalletWhitelistingModal: React.FC<WalletWhitelistingModalProps> = (
 }) => {
   const [label, setLabel] = useState<string>('');
   const [address, setAddress] = useState<string>('');
-  const [network, setNetwork] = useState<'USDT-TRC20' | 'USDT-ERC20' | 'USDT-BEP20'>('USDT-TRC20');
+  const [network, setNetwork] = useState<'USDT-TRC20' | 'USDT-ERC20' | 'USDT-POLYGON'>('USDT-TRC20');
   const [errorMsg, setErrorMsg] = useState<string>('');
   const [successMsg, setSuccessMsg] = useState<string>('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -54,7 +54,7 @@ export const WalletWhitelistingModal: React.FC<WalletWhitelistingModalProps> = (
     const cleanAddress = address.trim();
 
     if (!cleanLabel) {
-      setErrorMsg('Please enter a label for this address (e.g. Binance TRC20, Trust Wallet).');
+      setErrorMsg('Please enter a label for this address (e.g. Binance TRC20, Trust Wallet, Polygon).');
       return;
     }
 
@@ -68,8 +68,8 @@ export const WalletWhitelistingModal: React.FC<WalletWhitelistingModalProps> = (
       setErrorMsg('Tron (TRC-20) addresses usually start with uppercase "T".');
       return;
     }
-    if ((network === 'USDT-ERC20' || network === 'USDT-BEP20') && !cleanAddress.startsWith('0x')) {
-      setErrorMsg('ERC-20 and BEP-20 addresses must start with "0x".');
+    if ((network === 'USDT-ERC20' || network === 'USDT-POLYGON') && !cleanAddress.startsWith('0x')) {
+      setErrorMsg('Ethereum ERC-20 and Polygon POS addresses must start with "0x".');
       return;
     }
 
@@ -210,7 +210,7 @@ export const WalletWhitelistingModal: React.FC<WalletWhitelistingModalProps> = (
                 >
                   <option value="USDT-TRC20">USDT (Tron TRC-20)</option>
                   <option value="USDT-ERC20">USDT (Ethereum ERC-20)</option>
-                  <option value="USDT-BEP20">USDT (BNB Chain BEP-20)</option>
+                  <option value="USDT-POLYGON">USDT (Polygon POS)</option>
                 </select>
               </div>
             </div>
@@ -219,7 +219,7 @@ export const WalletWhitelistingModal: React.FC<WalletWhitelistingModalProps> = (
               <label className="text-[10px] text-slate-400 font-mono">Wallet Address:</label>
               <input
                 type="text"
-                placeholder={network === 'USDT-TRC20' ? 'TQn9Y2... (TRC-20 Address)' : '0x742d... (ERC-20/BEP-20)'}
+                placeholder={network === 'USDT-TRC20' ? 'TGgfnP... (TRC-20 Address)' : '0x91D8... (ERC-20 / Polygon POS)'}
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-amber-500"

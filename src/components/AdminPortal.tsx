@@ -1062,8 +1062,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             ) : (
               filteredDeposits.map((dep, idx) => {
                 const isTrc = dep.network === 'TRC20';
+                const isPolygon = dep.network === 'POLYGON';
                 const explorerUrl = isTrc
                   ? `https://tronscan.org/#/transaction/${dep.senderTxid}`
+                  : isPolygon
+                  ? `https://polygonscan.com/tx/${dep.senderTxid}`
                   : `https://etherscan.io/tx/${dep.senderTxid}`;
 
                 return (

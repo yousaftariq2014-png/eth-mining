@@ -52,7 +52,7 @@ export interface DepositRequest {
   planType?: PackageType;
   vipLevel: number;
   amountUsd: number;
-  network: 'TRC20' | 'ERC20' | 'BEP20';
+  network: 'TRC20' | 'ERC20' | 'POLYGON' | 'BEP20';
   depositAddress: string;
   senderTxid: string;
   status: 'pending' | 'approved' | 'rejected';
@@ -380,7 +380,7 @@ export interface WhitelistedWalletAddress {
   userId: string;
   label: string;
   address: string;
-  network: 'USDT-TRC20' | 'USDT-ERC20' | 'USDT-BEP20';
+  network: 'USDT-TRC20' | 'USDT-ERC20' | 'USDT-POLYGON' | 'USDT-BEP20';
   isLocked: boolean;
   addedAt: string;
 }

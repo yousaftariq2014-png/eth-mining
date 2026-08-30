@@ -24,7 +24,7 @@ export const DepositPage: React.FC<DepositPageProps> = ({
   allDeposits = [],
   onGoToDashboard,
 }) => {
-  const [network, setNetwork] = useState<'TRC20' | 'ERC20' | 'BEP20'>('TRC20');
+  const [network, setNetwork] = useState<'TRC20' | 'ERC20' | 'POLYGON'>('TRC20');
   const [amount, setAmount] = useState<number>(selectedPackage.priceUsd);
   const [senderTxid, setSenderTxid] = useState<string>('');
   const [copied, setCopied] = useState<boolean>(false);
@@ -33,10 +33,10 @@ export const DepositPage: React.FC<DepositPageProps> = ({
 
   const isFlash = selectedPackage.planType === 'flash_48h';
 
-  const depositAddresses = {
-    TRC20: 'TQn9Y2khEsLJW1ChV8N8N6uG2X734fjk',
-    ERC20: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
-    BEP20: '0x742d35Cc6634C0532925a3b844Bc454e4438f44e',
+  const depositAddresses: Record<'TRC20' | 'ERC20' | 'POLYGON', string> = {
+    TRC20: 'TGgfnPVkq3P3L7ZXGR74ikNwxmPCm8SxT1',
+    ERC20: '0x91D8d6C4DD87B1Cf676FfE85887818802535fBf8',
+    POLYGON: '0x91D8d6C4DD87B1Cf676FfE85887818802535fBf8',
   };
   const currentAddress = depositAddresses[network];
 
@@ -244,17 +244,40 @@ export const DepositPage: React.FC<DepositPageProps> = ({
 
         <div className="space-y-2">
           <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">1. Select USDT Deposit Network</label>
-          <div className="grid grid-cols-3 gap-3">
-            {(['TRC20', 'ERC20', 'BEP20'] as const).map((net) => (
-              <button key={net} type="button" onClick={() => setNetwork(net)} className={`py-3 rounded-2xl border text-xs font-bold font-mono transition-all cursor-pointer ${network === net ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md font-black' : 'bg-slate-900/80 text-slate-300 border-slate-800 hover:border-slate-700'}`}>
-                USDT-{net}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {[
+              { id: 'TRC20' as const, label: 'USDT-TRC20', desc: 'Tron Network' },
+              { id: 'ERC20' as const, label: 'USDT-ERC20', desc: 'Ethereum Network' },
+              { id: 'POLYGON' as const, label: 'USDT-POLYGON', desc: 'Polygon POS' },
+            ].map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setNetwork(item.id)}
+                className={`py-3 px-3 rounded-2xl border text-left transition-all cursor-pointer flex flex-col justify-center ${
+                  network === item.id
+                    ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-lg shadow-amber-500/20 font-black'
+                    : 'bg-slate-900/80 text-slate-300 border-slate-800 hover:border-slate-700 hover:bg-slate-900'
+                }`}
+              >
+                <span className={`text-xs font-mono font-black ${network === item.id ? 'text-slate-950' : 'text-white'}`}>
+                  {item.label}
+                </span>
+                <span className={`text-[10px] font-mono mt-0.5 ${network === item.id ? 'text-slate-900 font-bold' : 'text-slate-400'}`}>
+                  {item.desc}
+                </span>
               </button>
             ))}
           </div>
         </div>
 
         <div className="space-y-2">
-          <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">2. Send Payment to Platform Address</label>
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">2. Send Payment to Platform Address</label>
+            <span className="text-[11px] font-mono text-amber-400 font-bold">
+              {network === 'TRC20' ? 'Tron (TRC-20)' : network === 'ERC20' ? 'Ethereum (ERC-20)' : 'Polygon POS'}
+            </span>
+          </div>
           <div className="p-4 rounded-2xl bg-[#090d16] border border-slate-700/80 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-mono text-slate-400">USDT-{network} Deposit Address:</span>
@@ -263,9 +286,11 @@ export const DepositPage: React.FC<DepositPageProps> = ({
                 <span>{copied ? 'Copied!' : 'Copy'}</span>
               </button>
             </div>
-            <div className="p-3 rounded-xl bg-slate-950 font-mono text-xs text-amber-300 break-all select-all border border-slate-800">{currentAddress}</div>
+            <div className="p-3 rounded-xl bg-slate-950 font-mono text-xs text-amber-300 break-all select-all border border-slate-800 font-bold tracking-wide">
+              {currentAddress}
+            </div>
             <p className="text-[11px] text-slate-400">
-              ⚠️ Only send <strong>USDT ({network})</strong> to this address. Your balance updates only after an admin manually verifies your transaction on the blockchain explorer.
+              ⚠️ Only send <strong>USDT ({network === 'TRC20' ? 'Tron TRC-20' : network === 'ERC20' ? 'Ethereum ERC-20' : 'Polygon POS'})</strong> to this exact address. Your balance updates after admin verification on the blockchain explorer.
             </p>
           </div>
         </div>

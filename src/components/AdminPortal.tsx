@@ -50,6 +50,16 @@ import {
 } from '../utils/adminCustomerMetrics';
 import { CustomerDetailModal } from './CustomerDetailModal';
 
+export const AUTHORIZED_ADMIN_EMAILS: string[] = [
+  'yousaftariq2014@gmail.com'
+];
+
+export const isAuthorizedAdminEmail = (email?: string | null): boolean => {
+  if (!email) return false;
+  const clean = email.trim().toLowerCase();
+  return clean === 'yousaftariq2014@gmail.com';
+};
+
 export const MASTER_ADMIN_EMAIL = 'yousaftariq2014@gmail.com';
 
 interface AdminPortalProps {
@@ -93,7 +103,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     try {
       const isUnlocked = sessionStorage.getItem('hashforge_admin_unlocked') === 'true';
       const activeAdmin = sessionStorage.getItem('hashforge_admin_auth');
-      return isUnlocked && activeAdmin === MASTER_ADMIN_EMAIL.toLowerCase();
+      return isUnlocked && isAuthorizedAdminEmail(activeAdmin);
     } catch {
       return false;
     }
@@ -178,8 +188,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         }
 
         const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user?.email?.toLowerCase() === MASTER_ADMIN_EMAIL.toLowerCase()) {
+        if (session?.user?.email && isAuthorizedAdminEmail(session.user.email)) {
           setIsAdminLoggedIn(true);
+          sessionStorage.setItem('hashforge_admin_auth', session.user.email.toLowerCase());
         } else {
           // If session expired or invalid, lock admin console
           sessionStorage.removeItem('hashforge_admin_unlocked');
@@ -233,10 +244,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
     const normalizedEmail = adminEmail.trim().toLowerCase();
 
-    // STRICT MASTER ADMIN RESTRICTION:
-    // Under NO circumstances can any other email or client credential open the Admin Dashboard
-    if (normalizedEmail !== MASTER_ADMIN_EMAIL.toLowerCase()) {
-      setLoginError(`Access Denied: Only Master Admin (${MASTER_ADMIN_EMAIL}) is authorized to access this portal. Client accounts and passwords cannot open the Admin Dashboard.`);
+    // STRICT ADMIN RESTRICTION:
+    // Under NO circumstances can any unauthorized email or client credential open the Admin Dashboard
+    if (!isAuthorizedAdminEmail(normalizedEmail)) {
+      setLoginError('Access Denied: Only authorized system administrators can access this portal. Client accounts and passwords cannot open the Admin Dashboard.');
       setIsSubmittingLogin(false);
       return;
     }
@@ -248,9 +259,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         password: adminPassword,
       });
 
-      if (!error && data.user && data.user.email?.toLowerCase() === MASTER_ADMIN_EMAIL.toLowerCase()) {
+      if (!error && data.user && isAuthorizedAdminEmail(data.user.email)) {
         sessionStorage.setItem('hashforge_admin_unlocked', 'true');
-        sessionStorage.setItem('hashforge_admin_auth', MASTER_ADMIN_EMAIL.toLowerCase());
+        sessionStorage.setItem('hashforge_admin_auth', normalizedEmail);
         setIsAdminLoggedIn(true);
         setIsSubmittingLogin(false);
         return;
@@ -428,10 +439,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   }
 
   // ----------------------------------------------------
-  // STRICT SECURITY GATE: If active logged in user is a client (NOT Master Admin)
+  // STRICT SECURITY GATE: If active logged in user is a client (NOT Authorized Admin)
   // Completely prohibit and block access to the Admin Dashboard
   // ----------------------------------------------------
-  if (currentUser && currentUser.email?.toLowerCase() !== MASTER_ADMIN_EMAIL.toLowerCase()) {
+  if (currentUser && !isAuthorizedAdminEmail(currentUser.email)) {
     return (
       <div className="max-w-md mx-auto my-12 p-6 sm:p-8 rounded-3xl bg-[#0e1424] border border-rose-500/30 shadow-2xl space-y-6 text-center animate-in fade-in duration-300">
         <div className="w-16 h-16 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 mx-auto shadow-lg shadow-rose-500/10">
@@ -443,7 +454,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             Signed in as: <strong className="text-white">{currentUser.email}</strong>
           </div>
           <p className="text-xs text-slate-400 leading-relaxed pt-1">
-            Client accounts and credentials cannot open or access the Administrator Console. Administrative access is strictly restricted to master administrator <strong className="text-amber-400 font-mono">{MASTER_ADMIN_EMAIL}</strong>.
+            Client accounts cannot open or access the Administrator Console. Administrative access is strictly restricted to authorized system administrators.
           </p>
         </div>
         <button
@@ -458,7 +469,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   }
 
   // ----------------------------------------------------
-  // VIEW 1: ADMIN LOGIN SCREEN (Master Admin yousaftariq2014@gmail.com Only)
+  // VIEW 1: ADMIN LOGIN SCREEN (Authorized Administrators Only)
   // ----------------------------------------------------
   if (!isAdminLoggedIn) {
     return (
@@ -469,7 +480,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           </div>
           <h1 className="text-2xl font-black text-white">Administrator Portal</h1>
           <p className="text-xs text-slate-400">
-            High-security management console. Only authorized master administrator ({MASTER_ADMIN_EMAIL}) can sign in. Client passwords are strictly unauthorized.
+            High-security executive management console. Sign in with your administrator credentials. Client accounts are strictly unauthorized.
           </p>
         </div>
 
@@ -489,7 +500,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               onChange={(e) => setAdminEmail(e.target.value)}
               required
               autoComplete="username"
-              placeholder="yousaftariq2014@gmail.com"
+              placeholder="admin@platform.com"
               className="w-full bg-[#131d33] border border-slate-700 rounded-xl px-4 py-3 text-xs sm:text-sm font-mono text-white focus:outline-none focus:border-amber-500"
             />
           </div>
@@ -532,6 +543,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   // ----------------------------------------------------
   // VIEW 2: PROFESSIONAL ADMIN DASHBOARD
   // ----------------------------------------------------
+  const currentActiveAdminDisplay = sessionStorage.getItem('hashforge_admin_auth') || currentUser?.email || 'Executive Administrator';
+
   return (
     <div id="admin-management-portal" className="space-y-6 animate-in fade-in duration-300">
 
@@ -561,7 +574,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-0.5">
-              Authorized session: <strong className="text-amber-400 font-mono">{MASTER_ADMIN_EMAIL}</strong> &bull; Auto-syncing real-time client logins, deposits, and smart yields.
+              Authorized session: <strong className="text-amber-400 font-mono">{currentActiveAdminDisplay}</strong> &bull; Auto-syncing real-time client logins, deposits, and smart yields.
             </p>
           </div>
         </div>

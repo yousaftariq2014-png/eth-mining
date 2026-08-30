@@ -610,7 +610,7 @@ export async function purgeAllTestData(): Promise<{ success: boolean; message: s
       console.warn('Supabase withdrawals purge warning:', dbErr);
     }
 
-    // 3. Purge test clients (preserve master admin account record)
+    // 3. Purge test clients (preserve master admin account records)
     try {
       const { data: allClients } = await supabase.from('clients').select('id, email');
       if (allClients && allClients.length > 0) {

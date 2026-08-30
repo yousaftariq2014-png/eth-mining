@@ -4,7 +4,12 @@ import { Header } from './components/Header';
 import { HomePage } from './components/HomePage';
 import { DepositPage } from './components/DepositPage';
 import { ClientSmartDashboard } from './components/ClientSmartDashboard';
-import { AdminPortal } from './components/AdminPortal';
+import { 
+  AdminPortal, 
+  AUTHORIZED_ADMIN_EMAILS, 
+  isAuthorizedAdminEmail, 
+  MASTER_ADMIN_EMAIL 
+} from './components/AdminPortal';
 import { AuthModal } from './components/AuthModal';
 import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { LiveSupportWidget } from './components/LiveSupportWidget';
@@ -36,8 +41,6 @@ import {
 // Initial Empty Registered Clients (clean zero-base)
 const INITIAL_DEMO_USERS: UserProfile[] = [];
 
-export const MASTER_ADMIN_EMAIL = 'yousaftariq2014@gmail.com';
-
 export default function App() {
   // 1. Current Authenticated Client User (saved in localStorage)
   const [user, setUser] = useState<UserProfile | null>(() => {
@@ -54,7 +57,7 @@ export default function App() {
     const saved = localStorage.getItem('hashforge_user');
     const parsedUser = saved ? JSON.parse(saved) : null;
     if (typeof window !== 'undefined' && window.location.hash === '#admin') {
-      if (parsedUser && parsedUser.email?.toLowerCase() !== MASTER_ADMIN_EMAIL.toLowerCase()) {
+      if (parsedUser && !isAuthorizedAdminEmail(parsedUser.email)) {
         return 'dashboard';
       }
       return 'admin';
@@ -113,8 +116,8 @@ export default function App() {
       if (hash === '#admin') {
         const savedUserStr = localStorage.getItem('hashforge_user');
         const activeClient = savedUserStr ? JSON.parse(savedUserStr) : user;
-        if (activeClient && activeClient.email?.toLowerCase() !== MASTER_ADMIN_EMAIL.toLowerCase()) {
-          setActivationToast('⛔ Access Denied: Administrator Console is strictly restricted to master admin (yousaftariq2014@gmail.com). Client accounts cannot access Admin.');
+        if (activeClient && !isAuthorizedAdminEmail(activeClient.email)) {
+          setActivationToast('⛔ Access Denied: Administrator Console is restricted to authorized system administrators.');
           try {
             window.history.replaceState(null, '', window.location.pathname);
           } catch {}
@@ -853,11 +856,11 @@ export default function App() {
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>&copy; 2026 ETH2.0 Smart Production. All rights reserved.</span>
           <div className="flex items-center gap-4 text-[11px]">
-            {(!user || user.email?.toLowerCase() === MASTER_ADMIN_EMAIL.toLowerCase()) && (
+            {(!user || isAuthorizedAdminEmail(user.email)) && (
               <button
                 onClick={() => {
-                  if (user && user.email?.toLowerCase() !== MASTER_ADMIN_EMAIL.toLowerCase()) {
-                    setActivationToast('⛔ Access Denied: Admin portal is restricted to master administrator.');
+                  if (user && !isAuthorizedAdminEmail(user.email)) {
+                    setActivationToast('⛔ Access Denied: Admin portal is restricted to authorized administrators.');
                     return;
                   }
                   window.location.hash = 'admin';

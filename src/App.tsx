@@ -43,10 +43,20 @@ import {
 const INITIAL_DEMO_USERS: UserProfile[] = [];
 
 export default function App() {
-  // 1. Current Authenticated Client User (saved in localStorage)
+  // 1. Current Authenticated Client User (saved in localStorage with 2-min inactivity expiration check)
   const [user, setUser] = useState<UserProfile | null>(() => {
     try {
       const saved = localStorage.getItem('hashforge_user');
+      const lastActive = localStorage.getItem('hashforge_last_active');
+      if (saved && lastActive) {
+        const elapsed = Date.now() - parseInt(lastActive, 10);
+        if (elapsed >= 2 * 60 * 1000) {
+          // Expired due to inactivity while away
+          localStorage.removeItem('hashforge_user');
+          localStorage.removeItem('hashforge_last_active');
+          return null;
+        }
+      }
       return saved ? JSON.parse(saved) : null;
     } catch {
       return null;
@@ -59,7 +69,7 @@ export default function App() {
     const parsedUser = saved ? JSON.parse(saved) : null;
     if (typeof window !== 'undefined' && window.location.hash === '#admin') {
       if (parsedUser && !isAuthorizedAdminEmail(parsedUser.email)) {
-        return 'dashboard';
+        return parsedUser ? 'dashboard' : 'home';
       }
       return 'admin';
     }
@@ -68,7 +78,7 @@ export default function App() {
 
   // 3. Modals State
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
-  const [authMode, setAuthMode] = useState<'login' | 'signup'>('signup');
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
   const [isLiveSupportOpen, setIsLiveSupportOpen] = useState<boolean>(false);
   const [isResetPasswordOpen, setIsResetPasswordOpen] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -87,6 +97,13 @@ export default function App() {
 
   // Activation & System Notice Toast
   const [activationToast, setActivationToast] = useState<string | null>(null);
+
+  // Strict route protection: If user is logged out, force tab back to 'home'
+  useEffect(() => {
+    if (!user && (currentTab === 'dashboard' || currentTab === 'deposit')) {
+      setCurrentTab('home');
+    }
+  }, [user, currentTab]);
 
   // Clean up any legacy plaintext password vault immediately for security
   useEffect(() => {
@@ -517,6 +534,7 @@ export default function App() {
   const handleLoginSuccess = (loggedInUser: UserProfile) => {
     setUser(loggedInUser);
     localStorage.setItem('hashforge_user', JSON.stringify(loggedInUser));
+    localStorage.setItem('hashforge_last_active', Date.now().toString());
 
     // Also ensure user is in registeredUsers database
     setRegisteredUsers(prev => {
@@ -541,11 +559,13 @@ export default function App() {
       await supabase.auth.signOut();
     } catch {}
     localStorage.removeItem('hashforge_user');
+    localStorage.removeItem('hashforge_last_active');
     sessionStorage.removeItem('hashforge_admin_unlocked');
     sessionStorage.removeItem('hashforge_admin_auth');
     localStorage.removeItem('hashforge_admin_auth');
     sessionStorage.removeItem('hashforge_password_recovery_active');
     setUser(null);
+    setSelectedPackage(null);
     setCurrentTab('home');
     try {
       window.history.replaceState(null, '', window.location.pathname);
@@ -554,24 +574,71 @@ export default function App() {
 
   // -------------------------------------------------------------------
   // 2-MINUTE INACTIVITY AUTO-LOGOUT SECURITY MECHANISM
-  // If user is logged in (and not master admin), automatically log out after 2 minutes (120,000ms) of inactivity
+  // If user is logged in, automatically log out after 2 minutes (120,000ms) of inactivity.
+  // Requires explicit re-authentication (login) to regain access to Dashboard.
   // -------------------------------------------------------------------
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      localStorage.removeItem('hashforge_last_active');
+      return;
+    }
 
-    const INACTIVITY_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
-    let timeoutId: NodeJS.Timeout;
+    const INACTIVITY_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes (120,000 ms)
 
-    const performAutoLogout = () => {
+    const performAutoLogout = async () => {
+      try {
+        await supabase.auth.signOut();
+      } catch {}
       localStorage.removeItem('hashforge_user');
+      localStorage.removeItem('hashforge_last_active');
+      sessionStorage.removeItem('hashforge_admin_unlocked');
+      sessionStorage.removeItem('hashforge_admin_auth');
+      localStorage.removeItem('hashforge_admin_auth');
+      sessionStorage.removeItem('hashforge_password_recovery_active');
       setUser(null);
+      setSelectedPackage(null);
       setCurrentTab('home');
-      setActivationToast('🔒 Session expired due to 2 minutes of inactivity. Please log in again.');
+      setActivationToast('🔒 Session expired due to 2 minutes of inactivity. You have been safely logged out. Please log in again to access your dashboard.');
+      setIsAuthOpen(true);
+      setAuthMode('login');
+      try {
+        window.history.replaceState(null, '', window.location.pathname);
+      } catch {}
     };
 
-    const resetInactivityTimer = () => {
-      if (timeoutId) clearTimeout(timeoutId);
-      timeoutId = setTimeout(performAutoLogout, INACTIVITY_TIMEOUT_MS);
+    const recordActivity = () => {
+      localStorage.setItem('hashforge_last_active', Date.now().toString());
+    };
+
+    // Initialize activity timestamp if not present
+    if (!localStorage.getItem('hashforge_last_active')) {
+      recordActivity();
+    }
+
+    // Checking function
+    const checkInactivity = () => {
+      const lastActiveStr = localStorage.getItem('hashforge_last_active');
+      if (!lastActiveStr) {
+        recordActivity();
+        return;
+      }
+      const lastActive = parseInt(lastActiveStr, 10);
+      const now = Date.now();
+      if (now - lastActive >= INACTIVITY_TIMEOUT_MS) {
+        performAutoLogout();
+      }
+    };
+
+    const handleUserActivity = () => {
+      const lastActiveStr = localStorage.getItem('hashforge_last_active');
+      if (lastActiveStr) {
+        const lastActive = parseInt(lastActiveStr, 10);
+        if (Date.now() - lastActive >= INACTIVITY_TIMEOUT_MS) {
+          performAutoLogout();
+          return;
+        }
+      }
+      recordActivity();
     };
 
     // User activity events across desktop and mobile
@@ -581,20 +648,30 @@ export default function App() {
       'keydown',
       'touchstart',
       'scroll',
-      'click'
+      'click',
+      'wheel'
     ];
 
     activityEvents.forEach(event => {
-      window.addEventListener(event, resetInactivityTimer, { passive: true });
+      window.addEventListener(event, handleUserActivity, { passive: true });
     });
 
-    // Start initial timer
-    resetInactivityTimer();
+    // Check periodically every 1 second
+    const intervalId = setInterval(checkInactivity, 1000);
+
+    // Also check on visibility change (e.g. user minimized browser or locked phone screen and returned)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkInactivity();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
-      if (timeoutId) clearTimeout(timeoutId);
+      clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       activityEvents.forEach(event => {
-        window.removeEventListener(event, resetInactivityTimer);
+        window.removeEventListener(event, handleUserActivity);
       });
     };
   }, [user]);
@@ -912,46 +989,52 @@ export default function App() {
 
         {/* VIEW 2: DEPOSIT & RECHARGE PAGE */}
         {currentTab === 'deposit' && (
-          <DepositPage
-            selectedPackage={selectedPackage || packages[1]}
-            user={user || {
-              id: 'guest',
-              name: 'Client User',
-              email: 'client@hashforge.io',
-              isLoggedIn: true,
-              joinedDate: '2026-08-28',
-              plan: 'No Active Package',
-              vipLevel: 0
-            }}
-            onBack={() => setCurrentTab('home')}
-            onSubmitDeposit={handleSubmitDeposit}
-            pendingDeposits={deposits}
-            allDeposits={deposits}
-            onGoToDashboard={() => setCurrentTab('dashboard')}
-          />
+          user ? (
+            <DepositPage
+              selectedPackage={selectedPackage || packages[1]}
+              user={user}
+              onBack={() => setCurrentTab('home')}
+              onSubmitDeposit={handleSubmitDeposit}
+              pendingDeposits={deposits}
+              allDeposits={deposits}
+              onGoToDashboard={() => setCurrentTab('dashboard')}
+            />
+          ) : (
+            <HomePage
+              packages={packages}
+              user={null}
+              deposits={deposits}
+              onOpenAuth={handleOpenAuth}
+              onSelectPackage={handleSelectPackage}
+              onOpenLiveSupport={() => setIsLiveSupportOpen(true)}
+            />
+          )
         )}
 
         {/* VIEW 3: CLIENT DASHBOARD (LIVE MINING PROFIT & SMART PRODUCTION) */}
         {currentTab === 'dashboard' && (
-          <div className="space-y-6">
-            <ClientSmartDashboard
-              key={user?.id || 'guest'}
-              user={user || {
-                id: 'guest',
-                name: 'Client User',
-                email: 'client@hashforge.io',
-                isLoggedIn: true,
-                joinedDate: '2026-08-28',
-                plan: 'No Active Package',
-                vipLevel: 0
-              }}
+          user ? (
+            <div className="space-y-6">
+              <ClientSmartDashboard
+                key={user.id}
+                user={user}
+                packages={packages}
+                onSelectPackage={handleSelectPackage}
+                onOpenLiveSupport={() => setIsLiveSupportOpen(true)}
+                pendingDeposits={deposits}
+                onClearUserPackages={handleClearUserPackages}
+              />
+            </div>
+          ) : (
+            <HomePage
               packages={packages}
+              user={null}
+              deposits={deposits}
+              onOpenAuth={handleOpenAuth}
               onSelectPackage={handleSelectPackage}
               onOpenLiveSupport={() => setIsLiveSupportOpen(true)}
-              pendingDeposits={deposits}
-              onClearUserPackages={handleClearUserPackages}
             />
-          </div>
+          )
         )}
 
         {/* VIEW 4: DEDICATED SEPARATE ADMIN PORTAL & APPROVAL CONSOLE */}

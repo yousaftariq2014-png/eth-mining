@@ -360,3 +360,43 @@ export interface VipTierBenefit {
   badgeBg: string;
 }
 
+// -------------------------------------------------------------
+// 5. Professional Enterprise Security & Automation Types
+// -------------------------------------------------------------
+export interface GlobalAnnouncement {
+  id: string;
+  title: string;
+  message: string;
+  type: 'info' | 'warning' | 'success' | 'alert';
+  isActive: boolean;
+  createdAt: string;
+  targetAudience?: 'all' | 'miners';
+  actionUrl?: string;
+  actionLabel?: string;
+}
+
+export interface WhitelistedWalletAddress {
+  id: string;
+  userId: string;
+  label: string;
+  address: string;
+  network: 'USDT-TRC20' | 'USDT-ERC20' | 'USDT-BEP20';
+  isLocked: boolean;
+  addedAt: string;
+}
+
+export interface TwoFactorAuthSettings {
+  isEnabled: boolean;
+  secret: string;
+  backupCodes: string[];
+  activatedAt?: string;
+}
+
+export interface AutoReinvestConfig {
+  isEnabled: boolean;
+  minThresholdUsdt: number;
+  reinvestTarget: 'hashrate' | 'active_plan';
+  totalReinvestedUsdt: number;
+  lastReinvestedAt?: string;
+}
+

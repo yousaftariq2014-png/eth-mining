@@ -30,9 +30,13 @@ import {
   FileSpreadsheet,
   Activity,
   UserCheck,
-  ShieldAlert
+  ShieldAlert,
+  Megaphone,
+  Radio,
+  Send,
+  Eye
 } from 'lucide-react';
-import { UserProfile, DepositRequest, MiningPackage, WithdrawalRecordItem } from '../types';
+import { UserProfile, DepositRequest, MiningPackage, WithdrawalRecordItem, GlobalAnnouncement } from '../types';
 import { 
   supabase, 
   fetchSupabaseUsers, 
@@ -63,6 +67,8 @@ interface AdminPortalProps {
   onDeleteClient?: (userId: string, email: string) => void;
   onRefreshData?: () => Promise<void> | void;
   onUpdateUser?: (user: UserProfile) => void;
+  announcement?: GlobalAnnouncement | null;
+  onSaveAnnouncement?: (announcement: GlobalAnnouncement) => void;
 }
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({
@@ -80,6 +86,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onDeleteClient,
   onRefreshData,
   onUpdateUser,
+  announcement: initialAnnouncement,
+  onSaveAnnouncement,
 }) => {
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState<boolean>(() => {
     try {
@@ -98,12 +106,31 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [syncToast, setSyncToast] = useState<string>('');
 
-  const [activeTab, setActiveTab] = useState<'clients' | 'deposits' | 'withdrawals'>('clients');
+  const [activeTab, setActiveTab] = useState<'clients' | 'deposits' | 'withdrawals' | 'announcements'>('clients');
   const [clientFilter, setClientFilter] = useState<'all' | 'active_miners' | 'pending_deposits' | 'pending_withdrawals' | 'inactive'>('all');
   const [depositFilter, setDepositFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
   const [withdrawalFilter, setWithdrawalFilter] = useState<'all' | 'pending' | 'approved' | 'failed'>('pending');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Global Announcement Manager State
+  const [announcementState, setAnnouncementState] = useState<GlobalAnnouncement>(() => {
+    if (initialAnnouncement) return initialAnnouncement;
+    try {
+      const saved = localStorage.getItem('hashforge_global_announcement');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {
+      id: 'ann-1',
+      title: 'SYSTEM UPGRADE',
+      message: '⚡ Ethereum 2.0 Hardfork Node Upgrade Complete across all mining pools. Direct TRC-20 & ERC-20 zero-fee payouts enabled.',
+      type: 'info',
+      isActive: true,
+      createdAt: new Date().toISOString().substring(0, 10),
+      targetAudience: 'all'
+    };
+  });
+  const [announcementSavedToast, setAnnouncementSavedToast] = useState<boolean>(false);
 
   // Selected customer for 360° Inspector Modal
   const [inspectedCustomer, setInspectedCustomer] = useState<AggregatedCustomerData | null>(null);
@@ -741,6 +768,22 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               </span>
             )}
           </button>
+
+          {/* Tab 4: Global Announcement Bar */}
+          <button
+            onClick={() => setActiveTab('announcements')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-2 transition-all ${
+              activeTab === 'announcements'
+                ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/20'
+                : 'bg-[#0f172a] text-slate-300 hover:text-white border border-slate-800'
+            }`}
+          >
+            <Megaphone className="w-4 h-4" />
+            <span>Global Announcement Bar</span>
+            {announcementState.isActive && (
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            )}
+          </button>
         </div>
       </div>
 
@@ -1279,6 +1322,201 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
               ))
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* TAB 4: GLOBAL ANNOUNCEMENT BAR & SITEWIDE BROADCAST          */}
+      {/* ============================================================ */}
+      {activeTab === 'announcements' && (
+        <div className="space-y-6">
+          
+          {announcementSavedToast && (
+            <div className="p-3.5 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold text-xs flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              <span>Announcement updated and broadcasted sitewide to all active users & visitors!</span>
+            </div>
+          )}
+
+          {/* Announcement Live Preview Card */}
+          <div className="rounded-3xl bg-[#0d1424] border border-slate-800 p-5 space-y-3">
+            <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+              <div className="flex items-center gap-2">
+                <Eye className="w-4 h-4 text-cyan-400" />
+                <span>Live Client View Preview</span>
+              </div>
+              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-black uppercase ${
+                announcementState.isActive ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'
+              }`}>
+                {announcementState.isActive ? 'Status: Broadcasting LIVE' : 'Status: Inactive / Hidden'}
+              </span>
+            </div>
+
+            {/* Simulated Banner */}
+            <div className={`p-3 rounded-2xl border flex items-center justify-between gap-3 text-xs font-mono ${
+              announcementState.type === 'warning'
+                ? 'bg-amber-950/60 border-amber-500/40 text-amber-200'
+                : announcementState.type === 'success'
+                ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-200'
+                : announcementState.type === 'alert'
+                ? 'bg-rose-950/60 border-rose-500/40 text-rose-200'
+                : 'bg-[#0e1d3a] border-cyan-500/30 text-cyan-100'
+            }`}>
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-white/10 border border-white/20">
+                  {announcementState.title || 'ANNOUNCEMENT'}
+                </span>
+                <span className="truncate">{announcementState.message || 'No message configured yet.'}</span>
+              </div>
+              <span className="text-[10px] text-slate-400 shrink-0">✕</span>
+            </div>
+          </div>
+
+          {/* Announcement Edit Form */}
+          <div className="rounded-3xl bg-[#0d1424] border border-slate-800 p-6 space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <Megaphone className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white">Broadcast Announcement Configuration</h3>
+                  <p className="text-[11px] text-slate-400 font-mono">Control sitewide header notifications in real-time</p>
+                </div>
+              </div>
+
+              {/* Active Toggle */}
+              <button
+                type="button"
+                onClick={() => setAnnouncementState(prev => ({ ...prev, isActive: !prev.isActive }))}
+                className={`px-4 py-2 rounded-xl text-xs font-mono font-bold transition-all cursor-pointer border flex items-center gap-2 ${
+                  announcementState.isActive
+                    ? 'bg-emerald-500 text-slate-950 border-emerald-400 font-black shadow-lg shadow-emerald-500/20'
+                    : 'bg-slate-900 text-slate-400 border-slate-700 hover:text-white'
+                }`}
+              >
+                <Radio className={`w-3.5 h-3.5 ${announcementState.isActive ? 'animate-pulse' : ''}`} />
+                <span>{announcementState.isActive ? 'BROADCASTING: ON' : 'DISABLED: OFF'}</span>
+              </button>
+            </div>
+
+            {/* Quick 1-Click Preset Templates */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-300 font-mono">Quick Preset Templates (1-Click Fill):</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {[
+                  {
+                    title: 'ETH 2.0 HARDFORK',
+                    msg: '⚡ Ethereum 2.0 Hardfork Node Upgrade Complete across all mining pools. Direct TRC-20 & ERC-20 zero-fee payouts enabled.',
+                    type: 'info' as const
+                  },
+                  {
+                    title: 'SECURITY UPDATE',
+                    msg: '🛡️ Account Security Notice: Whitelist your TRC-20 / ERC-20 payout wallet address to prevent unauthorized withdrawals.',
+                    type: 'warning' as const
+                  },
+                  {
+                    title: 'VIP HASHRATE BOOST',
+                    msg: '🔥 Limited Time Promotion: 48-Hour Flash Mining Contracts activated with guaranteed 10% to 25% instant yields!',
+                    type: 'success' as const
+                  },
+                  {
+                    title: 'MAINTENANCE NOTICE',
+                    msg: '⚙️ Zero-Downtime Scheduled Maintenance: Smart contract settlement engine optimized for faster sub-second payouts.',
+                    type: 'alert' as const
+                  }
+                ].map((preset, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => {
+                      setAnnouncementState(prev => ({
+                        ...prev,
+                        title: preset.title,
+                        message: preset.msg,
+                        type: preset.type
+                      }));
+                    }}
+                    className="p-2.5 rounded-xl bg-[#080d1a] border border-slate-800 hover:border-amber-500/40 text-left transition-all cursor-pointer group"
+                  >
+                    <div className="flex items-center justify-between text-[11px] font-bold text-amber-300 group-hover:text-amber-400 font-mono">
+                      <span>{preset.title}</span>
+                      <span className="text-[10px] text-slate-500 uppercase">{preset.type}</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 font-mono truncate mt-0.5">{preset.msg}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Form Fields */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs text-slate-400 font-mono font-bold">Badge Title / Tag:</label>
+                <input
+                  type="text"
+                  placeholder="e.g. SYSTEM UPDATE"
+                  value={announcementState.title}
+                  onChange={(e) => setAnnouncementState(prev => ({ ...prev, title: e.target.value }))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs text-slate-400 font-mono font-bold">Visual Alert Style:</label>
+                <select
+                  value={announcementState.type}
+                  onChange={(e: any) => setAnnouncementState(prev => ({ ...prev, type: e.target.value }))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
+                >
+                  <option value="info">Cyan Info (Default Announcement)</option>
+                  <option value="warning">Amber Warning (Important Notice)</option>
+                  <option value="success">Emerald Success (Promo / Rewards)</option>
+                  <option value="alert">Rose Alert (Urgent Security / Maintenance)</option>
+                </select>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs text-slate-400 font-mono font-bold">Target Audience:</label>
+                <select
+                  value={announcementState.targetAudience || 'all'}
+                  onChange={(e: any) => setAnnouncementState(prev => ({ ...prev, targetAudience: e.target.value }))}
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
+                >
+                  <option value="all">All Visitors & Miners (Public)</option>
+                  <option value="miners">Active Cloud Miners Only</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs text-slate-400 font-mono font-bold">Announcement Message Body:</label>
+              <textarea
+                rows={3}
+                placeholder="Enter sitewide banner message here..."
+                value={announcementState.message}
+                onChange={(e) => setAnnouncementState(prev => ({ ...prev, message: e.target.value }))}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs font-mono text-white focus:outline-none focus:border-amber-500"
+              />
+            </div>
+
+            {/* Submit / Save Broadcast Button */}
+            <button
+              type="button"
+              onClick={() => {
+                localStorage.setItem('hashforge_global_announcement', JSON.stringify(announcementState));
+                if (onSaveAnnouncement) {
+                  onSaveAnnouncement(announcementState);
+                }
+                setAnnouncementSavedToast(true);
+                setTimeout(() => setAnnouncementSavedToast(false), 3500);
+              }}
+              className="w-full py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-400 hover:from-amber-400 hover:to-amber-300 text-slate-950 font-black text-xs transition-all shadow-lg shadow-amber-500/20 cursor-pointer flex items-center justify-center gap-2"
+            >
+              <Send className="w-4 h-4" />
+              <span>Save & Broadcast Announcement Sitewide</span>
+            </button>
           </div>
         </div>
       )}

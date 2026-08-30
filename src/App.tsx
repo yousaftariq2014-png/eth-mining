@@ -9,13 +9,15 @@ import { AuthModal } from './components/AuthModal';
 import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { LiveSupportWidget } from './components/LiveSupportWidget';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
+import { GlobalAnnouncementBar } from './components/GlobalAnnouncementBar';
 
 import { 
   UserProfile, 
   MiningPackage, 
   DepositRequest,
   WithdrawalRecordItem,
-  AppNotification
+  AppNotification,
+  GlobalAnnouncement
 } from './types';
 import { MINING_PACKAGES, INITIAL_WITHDRAWAL_RECORDS } from './data/packagesData';
 import { 
@@ -378,6 +380,30 @@ export default function App() {
 
   const unreadNotificationsCount = notifications.filter(n => !n.read).length;
 
+  // 10. Sitewide Global Announcement Bar State
+  const [globalAnnouncement, setGlobalAnnouncement] = useState<GlobalAnnouncement>(() => {
+    try {
+      const saved = localStorage.getItem('hashforge_global_announcement');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {
+      id: 'ann-init',
+      title: 'ETH 2.0 SMART NODE UPDATE',
+      message: '⚡ Ethereum 2.0 Hardfork Node Upgrade Complete across all mining pools. Direct TRC-20 & ERC-20 zero-fee payouts enabled.',
+      type: 'info',
+      isActive: true,
+      createdAt: new Date().toISOString().substring(0, 10),
+      targetAudience: 'all'
+    };
+  });
+
+  const handleSaveAnnouncement = (newAnnouncement: GlobalAnnouncement) => {
+    setGlobalAnnouncement(newAnnouncement);
+    try {
+      localStorage.setItem('hashforge_global_announcement', JSON.stringify(newAnnouncement));
+    } catch {}
+  };
+
   // User Actions
   const handleOpenAuth = (mode: 'login' | 'signup', targetPkg?: MiningPackage) => {
     if (targetPkg) {
@@ -700,6 +726,13 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#070b14] text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-slate-950">
       
+      {/* Sitewide Global Announcement Notification Bar */}
+      {currentTab !== 'admin' && (
+        <GlobalAnnouncementBar
+          announcement={globalAnnouncement}
+        />
+      )}
+
       {/* Top Header - Shown ONLY for client pages (Home / Deposit / Dashboard) */}
       {currentTab !== 'admin' && (
         <Header
@@ -808,6 +841,8 @@ export default function App() {
             onDeleteClient={handleAdminDeleteClient}
             onRefreshData={handleAdminRefreshData}
             onUpdateUser={handleAdminUpdateUser}
+            announcement={globalAnnouncement}
+            onSaveAnnouncement={handleSaveAnnouncement}
           />
         )}
 

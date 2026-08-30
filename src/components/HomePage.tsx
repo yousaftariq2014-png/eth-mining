@@ -26,6 +26,8 @@ import {
 } from 'lucide-react';
 import { MiningPackage, UserProfile, PackageType, DepositRequest } from '../types';
 import { DAILY_PACKAGES, FLASH_48H_PACKAGES } from '../data/packagesData';
+import { DatacenterInfrastructure } from './DatacenterInfrastructure';
+import { MiningFaqSection } from './MiningFaqSection';
 
 interface HomePageProps {
   packages: MiningPackage[];
@@ -514,6 +516,12 @@ export const HomePage: React.FC<HomePageProps> = ({
         </div>
 
       </section>
+
+      {/* Global Data Center Rigs & Proof-of-Reserves Section */}
+      <DatacenterInfrastructure />
+
+      {/* Frequently Asked Questions (FAQ) Section */}
+      <MiningFaqSection />
 
       {/* Floating 24/7 Live Support CTA */}
       <section className="p-6 rounded-3xl bg-gradient-to-r from-blue-900/40 via-indigo-950/40 to-blue-900/40 border border-blue-500/30 flex flex-col sm:flex-row items-center justify-between gap-4">

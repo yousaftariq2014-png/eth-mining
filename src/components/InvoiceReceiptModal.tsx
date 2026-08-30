@@ -23,6 +23,7 @@ interface InvoiceReceiptModalProps {
 
 export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({ receipt, onClose }) => {
   const [copied, setCopied] = React.useState(false);
+  const [downloading, setDownloading] = React.useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
   if (!receipt) return null;
@@ -37,6 +38,117 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({ receip
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleDirectDownload = () => {
+    setDownloading(true);
+    try {
+      const htmlContent = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Receipt-${receipt.receiptNumber}-HashForge</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #f8fafc; color: #0f172a; padding: 40px 20px; }
+    .container { max-width: 650px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 32px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+    .header { display: flex; justify-content: space-between; border-bottom: 2px solid #f1f5f9; padding-bottom: 20px; margin-bottom: 24px; }
+    .logo { font-size: 20px; font-weight: 900; color: #0f172a; }
+    .logo span { color: #f59e0b; }
+    .status { background: #dcfce7; color: #166534; padding: 4px 12px; border-radius: 9999px; font-weight: bold; font-size: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-bottom: 24px; background: #f8fafc; padding: 16px; border-radius: 12px; font-size: 13px; }
+    .grid div span { display: block; color: #64748b; font-size: 11px; text-transform: uppercase; margin-bottom: 2px; }
+    .table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 13px; }
+    .table th { background: #f1f5f9; text-align: left; padding: 10px; font-size: 11px; text-transform: uppercase; color: #475569; }
+    .table td { padding: 12px 10px; border-bottom: 1px solid #f1f5f9; }
+    .total { text-align: right; font-size: 18px; font-weight: bold; color: #0f172a; padding: 12px 0; border-top: 2px solid #e2e8f0; }
+    .signature { background: #f8fafc; padding: 12px; border-radius: 8px; font-family: monospace; font-size: 11px; word-break: break-all; color: #475569; margin-top: 20px; }
+    .footer { text-align: center; font-size: 11px; color: #94a3b8; margin-top: 30px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div>
+        <div class="logo">HASHFORGE <span>PRO</span></div>
+        <div style="font-size: 11px; color: #64748b; margin-top: 4px;">Institutional Cloud Mining & Settlement</div>
+      </div>
+      <div style="text-align: right;">
+        <span class="status">${receipt.status.toUpperCase()}</span>
+        <div style="font-size: 11px; color: #64748b; margin-top: 6px;">${receipt.date}</div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div>
+        <span>Invoice Number</span>
+        <strong>${receipt.receiptNumber}</strong>
+      </div>
+      <div>
+        <span>Transaction Type</span>
+        <strong>${receipt.transactionType}</strong>
+      </div>
+      <div>
+        <span>Client Name</span>
+        <strong>${receipt.userName || 'Verified Investor'}</strong>
+      </div>
+      <div>
+        <span>Client Email</span>
+        <strong>${receipt.userEmail}</strong>
+      </div>
+    </div>
+
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Description</th>
+          <th>Network</th>
+          <th style="text-align: right;">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>
+            <strong>${receipt.itemName}</strong>
+            ${receipt.hashrate ? `<div style="font-size: 11px; color: #d97706;">Hashrate: ${receipt.hashrate}</div>` : ''}
+          </td>
+          <td>${receipt.network || 'USDT TRC20'}</td>
+          <td style="text-align: right; font-weight: bold;">$${receipt.amountUsd.toFixed(2)} USD</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="total">
+      Total Settled: $${receipt.amountUsd.toFixed(2)} USD
+    </div>
+
+    <div class="signature">
+      <strong>Digital SHA-256 Certificate:</strong><br/>
+      ${receipt.digitalSignature}<br/><br/>
+      <strong>Blockchain Reference:</strong><br/>
+      ${receipt.senderAddressOrTxid || receipt.receiverAddress || 'Internal Ledger Verified'}
+    </div>
+
+    <div class="footer">
+      Issued by HashForge Enterprise Cloud Infrastructure LLC • Cryptographically Sealed Copy
+    </div>
+  </div>
+</body>
+</html>`;
+
+      const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `HashForge_Invoice_${receipt.receiptNumber}.html`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Download error', e);
+    } finally {
+      setTimeout(() => setDownloading(false), 800);
+    }
   };
 
   return (
@@ -58,12 +170,21 @@ export const InvoiceReceiptModal: React.FC<InvoiceReceiptModalProps> = ({ receip
 
           <div className="flex items-center gap-2">
             <button
+              onClick={handleDirectDownload}
+              disabled={downloading}
+              className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 text-xs font-semibold flex items-center gap-1.5 transition-all border border-amber-500/30 cursor-pointer shadow-sm disabled:opacity-50"
+              title="Download Offline HTML Certificate Receipt"
+            >
+              <Download className="w-3.5 h-3.5 text-amber-400" />
+              <span>{downloading ? 'Downloading...' : 'Download File'}</span>
+            </button>
+            <button
               onClick={handlePrint}
               className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-all border border-slate-600/50 cursor-pointer shadow-sm"
               title="Print or Save as PDF"
             >
               <Printer className="w-3.5 h-3.5 text-amber-400" />
-              <span>Print / Save PDF</span>
+              <span>Print / PDF</span>
             </button>
             <button
               onClick={onClose}

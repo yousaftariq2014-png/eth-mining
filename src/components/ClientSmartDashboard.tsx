@@ -54,6 +54,7 @@ import { EthMiningPanel } from './EthMiningPanel';
 import { EthToUsdtSwapModal } from './EthToUsdtSwapModal';
 import { InvoiceReceiptModal } from './InvoiceReceiptModal';
 import { WalletWhitelistingModal } from './WalletWhitelistingModal';
+import { LiveHashratePulseGraph } from './LiveHashratePulseGraph';
 
 interface ClientSmartDashboardProps {
   user: UserProfile;
@@ -935,6 +936,13 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
           </span>
         </div>
       )}
+
+      {/* Real-time Stratum V2 Hashrate & Hardware Pulse Stream */}
+      <LiveHashratePulseGraph
+        baseHashrateMh={totalHashrateTh > 0 ? totalHashrateTh * 10 : 650}
+        activeContractsCount={activeContracts.length}
+        vipTier={user.vipLevel || 1}
+      />
 
       {/* =========================================================================
           2. MAIN 2-COLUMN SECTION (LEFT: ACTIVE PACKAGES, RIGHT: EXCHANGE & WITHDRAWAL ENGINE)

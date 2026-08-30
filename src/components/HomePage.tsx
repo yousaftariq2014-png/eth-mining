@@ -17,7 +17,12 @@ import {
   Headphones,
   Flame,
   Layers,
-  Timer
+  Timer,
+  Cpu,
+  ArrowUpRight,
+  ShieldAlert,
+  ChevronRight,
+  Activity
 } from 'lucide-react';
 import { MiningPackage, UserProfile, PackageType, DepositRequest } from '../types';
 import { DAILY_PACKAGES, FLASH_48H_PACKAGES } from '../data/packagesData';
@@ -336,44 +341,178 @@ export const HomePage: React.FC<HomePageProps> = ({
 
       </section>
 
-      {/* How it Works Section */}
-      <section className="p-6 sm:p-8 rounded-3xl bg-[#0b101c] border border-slate-800 space-y-6">
-        <div className="text-center max-w-xl mx-auto space-y-1">
-          <span className="text-xs font-mono text-amber-400 font-bold uppercase">Simple 3-Step Process</span>
-          <h3 className="text-xl sm:text-2xl font-black text-white">How to Start Earning</h3>
+      {/* How it Works / Protocol Pipeline Section */}
+      <section id="how-to-start-earning-section" className="relative p-6 sm:p-10 rounded-3xl bg-gradient-to-b from-[#0e1629] via-[#0b101e] to-[#070b14] border border-slate-800/80 shadow-2xl overflow-hidden space-y-8">
+        
+        {/* Subtle background glow accents */}
+        <div className="absolute top-0 right-1/4 w-80 h-80 bg-amber-500/5 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 left-1/4 w-80 h-80 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
+
+        {/* Section Header */}
+        <div className="relative z-10 text-center max-w-2xl mx-auto space-y-2.5">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 font-mono text-[11px] font-bold uppercase tracking-wider">
+            <Activity className="w-3.5 h-3.5 text-amber-400" />
+            <span>Automated Yield Architecture</span>
+          </div>
+          <h3 className="text-2xl sm:text-4xl font-black text-white tracking-tight">
+            How to Start Earning in 3 Simple Steps
+          </h3>
+          <p className="text-xs sm:text-sm text-slate-400 max-w-lg mx-auto leading-relaxed">
+            Begin earning institutional-grade cloud mining yields within minutes. No complex hardware configuration required.
+          </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-2">
-            <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 font-black text-xs font-mono">
-              01
+        {/* 3 Interactive Step Progression Cards */}
+        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-3 gap-5">
+          
+          {/* STEP 1 */}
+          <div className="group relative p-6 rounded-2xl bg-[#111a30]/80 hover:bg-[#131e38] border border-slate-800 hover:border-amber-500/40 transition-all duration-300 shadow-lg flex flex-col justify-between space-y-5">
+            <div className="space-y-4">
+              
+              {/* Header with Step Number & Icon */}
+              <div className="flex items-center justify-between">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-110 transition-transform shadow-md shadow-amber-500/10">
+                  <Wallet className="w-6 h-6" />
+                </div>
+                <div className="flex items-center gap-1.5 font-mono text-xs font-black px-2.5 py-1 rounded-xl bg-slate-900/90 border border-slate-800 text-amber-400">
+                  <span className="text-slate-500 font-normal">STEP</span>
+                  <span>01</span>
+                </div>
+              </div>
+
+              {/* Title & Micro-badge */}
+              <div className="space-y-1">
+                <div className="inline-block text-[10px] font-mono font-bold uppercase text-amber-400/90">
+                  USDT TRC20 / ERC20 Supported
+                </div>
+                <h4 className="text-lg font-black text-white group-hover:text-amber-300 transition-colors">
+                  Select Strategy & Deposit
+                </h4>
+              </div>
+
+              {/* Description */}
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Choose between continuous daily mining or high-speed 48-hour flash contracts. Transfer USDT to your designated node address with zero platform fees.
+              </p>
             </div>
-            <h4 className="text-sm font-bold text-white">Choose Package & Deposit</h4>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Select your desired daily mining plan or 48-hour flash contract and send USDT (TRC20/ERC20).
-            </p>
+
+            {/* Step Features Tags */}
+            <div className="pt-3 border-t border-slate-800/80 flex flex-wrap items-center gap-1.5 text-[11px] font-mono">
+              <span className="px-2 py-0.5 rounded-lg bg-slate-900 text-slate-300 border border-slate-800 flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3 text-emerald-400" /> Instant Processing
+              </span>
+              <span className="px-2 py-0.5 rounded-lg bg-slate-900 text-slate-300 border border-slate-800 flex items-center gap-1">
+                <Lock className="w-3 h-3 text-cyan-400" /> Secure Protocol
+              </span>
+            </div>
           </div>
 
-          <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-2">
-            <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 font-black text-xs font-mono">
-              02
+          {/* STEP 2 */}
+          <div className="group relative p-6 rounded-2xl bg-[#111a30]/80 hover:bg-[#131e38] border border-slate-800 hover:border-amber-500/40 transition-all duration-300 shadow-lg flex flex-col justify-between space-y-5">
+            <div className="space-y-4">
+              
+              {/* Header with Step Number & Icon */}
+              <div className="flex items-center justify-between">
+                <div className="w-12 h-12 rounded-2xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400 group-hover:scale-110 transition-transform shadow-md shadow-cyan-500/10">
+                  <Cpu className="w-6 h-6" />
+                </div>
+                <div className="flex items-center gap-1.5 font-mono text-xs font-black px-2.5 py-1 rounded-xl bg-slate-900/90 border border-slate-800 text-cyan-400">
+                  <span className="text-slate-500 font-normal">STEP</span>
+                  <span>02</span>
+                </div>
+              </div>
+
+              {/* Title & Micro-badge */}
+              <div className="space-y-1">
+                <div className="inline-block text-[10px] font-mono font-bold uppercase text-cyan-400/90">
+                  Automated Stratum Sync
+                </div>
+                <h4 className="text-lg font-black text-white group-hover:text-cyan-300 transition-colors">
+                  Instant Mining Activation
+                </h4>
+              </div>
+
+              {/* Description */}
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Upon ledger confirmation, enterprise GPU/ASIC clusters immediately allocate hashrate to your account. Smart contracts begin computing block rewards 24/7.
+              </p>
             </div>
-            <h4 className="text-sm font-bold text-white">Instant Node Activation</h4>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Blockchain Admin approves your deposit and stratums activate automated mining hashrate immediately.
-            </p>
+
+            {/* Step Features Tags */}
+            <div className="pt-3 border-t border-slate-800/80 flex flex-wrap items-center gap-1.5 text-[11px] font-mono">
+              <span className="px-2 py-0.5 rounded-lg bg-slate-900 text-slate-300 border border-slate-800 flex items-center gap-1">
+                <Zap className="w-3 h-3 text-amber-400" /> Real-Time Stratum
+              </span>
+              <span className="px-2 py-0.5 rounded-lg bg-slate-900 text-slate-300 border border-slate-800 flex items-center gap-1">
+                <Server className="w-3 h-3 text-emerald-400" /> 99.9% Uptime
+              </span>
+            </div>
           </div>
 
-          <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-2">
-            <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 font-black text-xs font-mono">
-              03
+          {/* STEP 3 */}
+          <div className="group relative p-6 rounded-2xl bg-[#111a30]/80 hover:bg-[#131e38] border border-slate-800 hover:border-emerald-500/40 transition-all duration-300 shadow-lg flex flex-col justify-between space-y-5">
+            <div className="space-y-4">
+              
+              {/* Header with Step Number & Icon */}
+              <div className="flex items-center justify-between">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-110 transition-transform shadow-md shadow-emerald-500/10">
+                  <TrendingUp className="w-6 h-6" />
+                </div>
+                <div className="flex items-center gap-1.5 font-mono text-xs font-black px-2.5 py-1 rounded-xl bg-slate-900/90 border border-slate-800 text-emerald-400">
+                  <span className="text-slate-500 font-normal">STEP</span>
+                  <span>03</span>
+                </div>
+              </div>
+
+              {/* Title & Micro-badge */}
+              <div className="space-y-1">
+                <div className="inline-block text-[10px] font-mono font-bold uppercase text-emerald-400/90">
+                  Live Liquidity & Payouts
+                </div>
+                <h4 className="text-lg font-black text-white group-hover:text-emerald-300 transition-colors">
+                  Daily Yields & Direct Payouts
+                </h4>
+              </div>
+
+              {/* Description */}
+              <p className="text-xs text-slate-300 leading-relaxed">
+                Watch real-time hash production and claim daily profits. Flash contracts unlock principal + lump sum returns automatically after 48 hours for fast USDT withdrawal.
+              </p>
             </div>
-            <h4 className="text-sm font-bold text-white">Direct USDT Withdrawals</h4>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Exchange ETH output to USDT anytime or withdraw full 48h Flash returns instantly to your personal wallet.
-            </p>
+
+            {/* Step Features Tags */}
+            <div className="pt-3 border-t border-slate-800/80 flex flex-wrap items-center gap-1.5 text-[11px] font-mono">
+              <span className="px-2 py-0.5 rounded-lg bg-slate-900 text-slate-300 border border-slate-800 flex items-center gap-1">
+                <Coins className="w-3 h-3 text-amber-400" /> ETH to USDT Swap
+              </span>
+              <span className="px-2 py-0.5 rounded-lg bg-slate-900 text-slate-300 border border-slate-800 flex items-center gap-1">
+                <ArrowUpRight className="w-3 h-3 text-emerald-400" /> Fast Withdrawals
+              </span>
+            </div>
+          </div>
+
+        </div>
+
+        {/* Enterprise Trust & Protocol Metrics Strip */}
+        <div className="relative z-10 p-4 sm:p-5 rounded-2xl bg-slate-950/80 border border-slate-800/90 grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+          <div className="space-y-0.5">
+            <div className="text-base sm:text-lg font-mono font-black text-white">99.98%</div>
+            <div className="text-[11px] text-slate-400 font-medium">Cluster Availability</div>
+          </div>
+          <div className="space-y-0.5">
+            <div className="text-base sm:text-lg font-mono font-black text-amber-400">6 Hours</div>
+            <div className="text-[11px] text-slate-400 font-medium">Profit Settlement Epoch</div>
+          </div>
+          <div className="space-y-0.5">
+            <div className="text-base sm:text-lg font-mono font-black text-emerald-400">0% Fee</div>
+            <div className="text-[11px] text-slate-400 font-medium">Protocol Swap Rate</div>
+          </div>
+          <div className="space-y-0.5">
+            <div className="text-base sm:text-lg font-mono font-black text-cyan-400">24/7</div>
+            <div className="text-[11px] text-slate-400 font-medium">Automated Liquidity</div>
           </div>
         </div>
+
       </section>
 
       {/* Floating 24/7 Live Support CTA */}

@@ -34,7 +34,9 @@ import {
   Megaphone,
   Radio,
   Send,
-  Eye
+  Eye,
+  EyeOff,
+  KeyRound
 } from 'lucide-react';
 import { UserProfile, DepositRequest, MiningPackage, WithdrawalRecordItem, GlobalAnnouncement } from '../types';
 import { 
@@ -149,6 +151,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [showPurgeConfirm, setShowPurgeConfirm] = useState<boolean>(false);
   const [isPurging, setIsPurging] = useState<boolean>(false);
   const [purgeSuccessMsg, setPurgeSuccessMsg] = useState<string>('');
+
+  // Password visibility state per customer row
+  const [revealedPasswords, setRevealedPasswords] = useState<Record<string, boolean>>({});
+  const toggleRevealPassword = (idOrEmail: string) => {
+    setRevealedPasswords(prev => ({ ...prev, [idOrEmail]: !prev[idOrEmail] }));
+  };
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -876,13 +884,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
           {/* Customer Table */}
           <div className="rounded-2xl bg-[#0c1220] border border-slate-800 overflow-hidden shadow-xl">
-            <div className="grid grid-cols-12 px-4 py-3.5 bg-[#10182b] border-b border-slate-800 text-xs font-bold text-slate-400 uppercase tracking-wider">
+            <div className="grid grid-cols-12 px-4 py-3.5 bg-[#10182b] border-b border-slate-800 text-xs font-bold text-slate-400 uppercase tracking-wider gap-2">
               <div className="col-span-4 sm:col-span-3">Customer Identity</div>
+              <div className="col-span-3 sm:col-span-3">Password & Node Key</div>
               <div className="col-span-3 sm:col-span-2">Mining Power</div>
-              <div className="col-span-3 sm:col-span-2">Total Invested</div>
-              <div className="hidden sm:block sm:col-span-2">Accrued / Balance</div>
-              <div className="hidden sm:block sm:col-span-2">Status & Alerts</div>
-              <div className="col-span-2 sm:col-span-1 text-right">Inspect</div>
+              <div className="hidden sm:block sm:col-span-2">Total Invested / Status</div>
+              <div className="col-span-2 sm:col-span-2 text-right">360° Inspector</div>
             </div>
 
             <div className="divide-y divide-slate-800/60 max-h-[65vh] overflow-y-auto">
@@ -896,6 +903,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
               ) : (
                 filteredCustomers.map((cust, idx) => {
+                  const clientEmail = cust.user.email || '';
+                  const clientPassword = cust.user.password || '';
+                  const clientOnchain = cust.user.onchainKey || '';
+                  const isPassRevealed = revealedPasswords[clientEmail] ?? true;
+
                   return (
                     <div
                       key={`cust-${cust.user.id || cust.user.email || 'c'}-${idx}`}
@@ -906,16 +918,72 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         <div className="font-bold text-white truncate flex items-center gap-1.5">
                           <span>{cust.user.name || 'Unnamed Client'}</span>
                           {cust.computedVipLevel > 0 ? (
-                            <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold">
+                            <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold border border-amber-500/20">
                               VIP {cust.computedVipLevel}
                             </span>
                           ) : (
-                            <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-mono text-[10px] font-bold">
-                              No Plan
+                            <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-mono text-[10px] font-bold border border-slate-700">
+                              No Active Package
                             </span>
                           )}
                         </div>
                         <div className="text-[11px] text-slate-400 font-mono truncate">{cust.user.email}</div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">Joined: {cust.user.joinedDate || 'Recent'}</div>
+                      </div>
+
+                      {/* Password & Node Onchain Key */}
+                      <div className="col-span-3 sm:col-span-3 min-w-0 space-y-1">
+                        {/* Password */}
+                        <div className="flex items-center gap-1.5 bg-[#0a0f1d] px-2 py-1 rounded-lg border border-slate-800/80">
+                          <Lock className="w-3 h-3 text-amber-400 shrink-0" />
+                          <div className="font-mono text-[11px] truncate flex-1">
+                            {clientPassword ? (
+                              <span className={isPassRevealed ? 'text-amber-300 font-bold select-all' : 'text-slate-500 tracking-widest'}>
+                                {isPassRevealed ? clientPassword : '••••••••'}
+                              </span>
+                            ) : (
+                              <span className="text-slate-500 italic text-[10px]">No password</span>
+                            )}
+                          </div>
+                          {clientPassword && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => toggleRevealPassword(clientEmail)}
+                                className="text-slate-400 hover:text-slate-200 cursor-pointer p-0.5"
+                                title={isPassRevealed ? 'Hide password' : 'Show password'}
+                              >
+                                {isPassRevealed ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(clientPassword, `pwd-${clientEmail}`)}
+                                className="text-slate-400 hover:text-amber-300 cursor-pointer p-0.5"
+                                title="Copy password"
+                              >
+                                {copiedKey === `pwd-${clientEmail}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                              </button>
+                            </>
+                          )}
+                        </div>
+
+                        {/* Onchain Key */}
+                        <div className="flex items-center gap-1.5 bg-[#0a0f1d] px-2 py-1 rounded-lg border border-slate-800/80">
+                          <KeyRound className="w-3 h-3 text-cyan-400 shrink-0" />
+                          <div className="font-mono text-[10px] text-cyan-300 font-semibold truncate flex-1 select-all">
+                            {clientOnchain || <span className="text-slate-500 italic font-sans">No onchain key</span>}
+                          </div>
+                          {clientOnchain && (
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(clientOnchain, `key-${clientEmail}`)}
+                              className="text-slate-400 hover:text-cyan-300 cursor-pointer p-0.5"
+                              title="Copy onchain key"
+                            >
+                              {copiedKey === `key-${clientEmail}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       {/* Hashrate & Nodes */}
@@ -927,67 +995,48 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                               <span>{cust.totalHashrate} TH/s</span>
                             </div>
                             <div className="text-[10px] text-emerald-400 font-medium">
-                              {cust.activeContracts.length} running {cust.activeContracts.length === 1 ? 'node' : 'nodes'}
+                              {cust.activeContracts.length} active {cust.activeContracts.length === 1 ? 'node' : 'nodes'}
                             </div>
                           </div>
                         ) : (
-                          <div className="text-slate-500 font-mono text-[11px]">0 TH/s (Idle)</div>
+                          <div>
+                            <div className="text-slate-500 font-mono text-[11px] font-bold">0 TH/s</div>
+                            <div className="text-[10px] text-slate-500">No Active Miner</div>
+                          </div>
                         )}
                       </div>
 
-                      {/* Total Invested */}
-                      <div className="col-span-3 sm:col-span-2 font-mono">
-                        <div className="font-bold text-emerald-400">
+                      {/* Total Invested & Status */}
+                      <div className="hidden sm:block sm:col-span-2 font-mono space-y-1">
+                        <div className="font-bold text-emerald-400 text-xs">
                           ${cust.totalDepositedUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                         </div>
-                        <div className="text-[10px] text-slate-400">
-                          {cust.approvedDeposits.length} approved dep.
-                        </div>
-                      </div>
-
-                      {/* Accrued Profit & Net Balance */}
-                      <div className="hidden sm:block sm:col-span-2 font-mono">
-                        <div className="text-cyan-300 font-bold text-[11px]">
-                          +${cust.totalAccruedProfitsUsd.toFixed(2)} mined
-                        </div>
-                        <div className="text-[10px] text-purple-400">
-                          ${cust.estimatedAvailableBalanceUsd.toFixed(2)} withdrawable
-                        </div>
-                      </div>
-
-                      {/* Status Badges & Action Flags */}
-                      <div className="hidden sm:block sm:col-span-2">
-                        <div className="flex flex-wrap items-center gap-1">
-                          {cust.pendingDeposits.length > 0 && (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
-                              <Clock className="w-2.5 h-2.5" /> {cust.pendingDeposits.length} Dep. Pending
+                        <div>
+                          {cust.pendingDeposits.length > 0 ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                              {cust.pendingDeposits.length} Dep. Pending
                             </span>
-                          )}
-                          {cust.pendingWithdrawals.length > 0 && (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-1">
-                              <Wallet className="w-2.5 h-2.5" /> Payout Pending
+                          ) : cust.activeContracts.length > 0 ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              Active Miner
                             </span>
-                          )}
-                          {cust.pendingDeposits.length === 0 && cust.pendingWithdrawals.length === 0 && (
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              cust.accountStatus === 'Active Miner'
-                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                                : 'bg-slate-800 text-slate-400 border border-slate-700'
-                            }`}>
-                              {cust.accountStatus}
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400">
+                              No Active Plan
                             </span>
                           )}
                         </div>
                       </div>
 
                       {/* Inspect / 360 View Button */}
-                      <div className="col-span-2 sm:col-span-1 text-right flex items-center justify-end gap-1">
+                      <div className="col-span-2 sm:col-span-2 text-right flex items-center justify-end gap-1">
                         <button
                           type="button"
                           onClick={() => setInspectedCustomer(cust)}
-                          className="px-2.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold text-xs flex items-center gap-1 cursor-pointer transition-all shadow-sm"
+                          className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-all shadow-sm"
                           title="Open 360° Customer Ledger & Controls"
                         >
+                          <Users className="w-3.5 h-3.5" />
                           <span>Inspect</span>
                           <ChevronRight className="w-3 h-3" />
                         </button>

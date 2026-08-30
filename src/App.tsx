@@ -35,7 +35,8 @@ import {
   fetchSupabaseWithdrawals,
   updateSupabaseWithdrawalStatus,
   clearUserDeposits,
-  clearAllDeposits
+  clearAllDeposits,
+  getClientCredentials
 } from './lib/supabaseClient';
 
 // Initial Empty Registered Clients (clean zero-base)
@@ -169,30 +170,49 @@ export default function App() {
         }
 
         const u = session.user;
+        const storedCreds = getClientCredentials(u.email);
+        const resolvedPass = (u.user_metadata?.raw_password as string) || storedCreds?.password || '';
+        const resolvedKey = (u.user_metadata?.onchain_key as string) || storedCreds?.onchainKey || '';
+
         const freshUser: UserProfile = {
           id: u.id,
           name: (u.user_metadata?.full_name as string) || u.email?.split('@')[0] || 'Client',
           email: u.email || '',
+          password: resolvedPass,
+          onchainKey: resolvedKey,
           plan: 'No Active Package',
           vipLevel: 0,
           joinedDate: new Date().toISOString().substring(0, 10),
           isLoggedIn: true,
-          onchainKey: (u.user_metadata?.onchain_key as string) || '',
         };
 
         setUser(prev => {
-          if (!prev || prev.id !== freshUser.id) {
-            localStorage.setItem('hashforge_user', JSON.stringify(freshUser));
-            return freshUser;
+          if (!prev || prev.id !== freshUser.id || !prev.password || !prev.onchainKey) {
+            const merged = {
+              ...freshUser,
+              password: freshUser.password || prev?.password,
+              onchainKey: freshUser.onchainKey || prev?.onchainKey,
+            };
+            localStorage.setItem('hashforge_user', JSON.stringify(merged));
+            return merged;
           }
           return prev;
         });
 
         setRegisteredUsers(prev => {
-          if (!prev.some(x => x.email.toLowerCase() === freshUser.email.toLowerCase())) {
+          const existingIdx = prev.findIndex(x => x.email.toLowerCase() === freshUser.email.toLowerCase());
+          if (existingIdx === -1) {
             return [freshUser, ...prev];
+          } else {
+            const updated = [...prev];
+            updated[existingIdx] = {
+              ...updated[existingIdx],
+              ...freshUser,
+              password: freshUser.password || updated[existingIdx].password,
+              onchainKey: freshUser.onchainKey || updated[existingIdx].onchainKey,
+            };
+            return updated;
           }
-          return prev;
         });
 
         saveSupabaseUser(freshUser);

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   User,
@@ -66,7 +66,7 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
 
   const [currentOnchainKey, setCurrentOnchainKey] = useState<string>(realOnchain);
   const [currentPassword, setCurrentPassword] = useState<string>(realPass);
-  const [showPassword, setShowPassword] = useState<boolean>(false);
+  const [showPassword, setShowPassword] = useState<boolean>(true);
   
   const [isEditingKey, setIsEditingKey] = useState<boolean>(false);
   const [editKeyInput, setEditKeyInput] = useState<string>(realOnchain);
@@ -75,6 +75,17 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   const [editPassInput, setEditPassInput] = useState<string>(realPass);
 
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+
+  // Synchronize when customer changes
+  useEffect(() => {
+    const creds = getClientCredentials(customer.user.email);
+    const pass = customer.user.password || creds?.password || '';
+    const onchain = customer.user.onchainKey || creds?.onchainKey || '';
+    setCurrentPassword(pass);
+    setCurrentOnchainKey(onchain);
+    setEditPassInput(pass);
+    setEditKeyInput(onchain);
+  }, [customer.user.email, customer.user.password, customer.user.onchainKey]);
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -463,10 +474,14 @@ Primary Wallet: ${customer.primaryWalletAddress}`;
                         </div>
                       ) : (
                         <div className="flex items-center justify-between text-xs font-mono">
-                          <span className={`font-bold ${showPassword ? 'text-amber-400 select-all' : 'text-slate-400'}`}>
-                            {showPassword ? currentPassword : '••••••••••••••••'}
-                          </span>
-                          <span className="text-[10px] text-emerald-400/80 font-sans">Credential Synced</span>
+                          {currentPassword ? (
+                            <span className={`font-bold ${showPassword ? 'text-amber-300 font-mono select-all text-sm' : 'text-slate-400'}`}>
+                              {showPassword ? currentPassword : '••••••••••••••••'}
+                            </span>
+                          ) : (
+                            <span className="text-slate-500 italic text-[11px]">No password set in record</span>
+                          )}
+                          <span className="text-[10px] text-emerald-400/80 font-sans font-semibold">Live Vault Synced</span>
                         </div>
                       )}
                     </div>
@@ -479,14 +494,16 @@ Primary Wallet: ${customer.primaryWalletAddress}`;
                           <span>Onchain Key:</span>
                         </span>
                         <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => copyToClipboard(currentOnchainKey, 'onchainKey')}
-                            className="hover:text-amber-300 transition-colors cursor-pointer text-slate-400 p-0.5"
-                            title="Copy Onchain Key"
-                          >
-                            {copiedKey === 'onchainKey' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                          </button>
+                          {currentOnchainKey && (
+                            <button
+                              type="button"
+                              onClick={() => copyToClipboard(currentOnchainKey, 'onchainKey')}
+                              className="hover:text-amber-300 transition-colors cursor-pointer text-slate-400 p-0.5"
+                              title="Copy Onchain Key"
+                            >
+                              {copiedKey === 'onchainKey' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => {
@@ -496,7 +513,7 @@ Primary Wallet: ${customer.primaryWalletAddress}`;
                             className="text-[10px] text-amber-400 hover:text-amber-300 font-bold ml-1 px-1.5 py-0.5 bg-amber-500/10 rounded border border-amber-500/30 flex items-center gap-1 cursor-pointer"
                           >
                             <Edit2 className="w-2.5 h-2.5" />
-                            <span>{isEditingKey ? 'Cancel' : 'Edit'}</span>
+                            <span>{isEditingKey ? 'Cancel' : (currentOnchainKey ? 'Edit' : 'Set Key')}</span>
                           </button>
                         </div>
                       </div>
@@ -521,9 +538,13 @@ Primary Wallet: ${customer.primaryWalletAddress}`;
                         </div>
                       ) : (
                         <div className="flex items-center justify-between text-xs font-mono">
-                          <span className="text-amber-400 font-bold truncate max-w-[240px] select-all">
-                            {currentOnchainKey}
-                          </span>
+                          {currentOnchainKey ? (
+                            <span className="text-amber-400 font-bold truncate max-w-[240px] select-all">
+                              {currentOnchainKey}
+                            </span>
+                          ) : (
+                            <span className="text-slate-500 italic text-[11px]">No onchain key set</span>
+                          )}
                           <span className="text-[10px] text-amber-500/80 font-sans font-semibold">Node Key</span>
                         </div>
                       )}

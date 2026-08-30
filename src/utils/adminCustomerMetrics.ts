@@ -357,7 +357,7 @@ export function calculateCustomerAggregation(
       'Recent';
 
     const maxVipFromApproved = approvedDeposits.reduce((max, d) => Math.max(max, d.vipLevel || 0), 0);
-    const computedVipLevel = approvedDeposits.length > 0 ? maxVipFromApproved : (user.vipLevel || 0);
+    const computedVipLevel = approvedDeposits.length > 0 ? maxVipFromApproved : 0;
 
     let accountStatus: AggregatedCustomerData['accountStatus'] = 'Inactive / Free';
     if (pendingDeposits.length > 0) {
@@ -368,9 +368,15 @@ export function calculateCustomerAggregation(
       accountStatus = 'Active Miner';
     }
 
+    const creds = getClientCredentials(user.email);
+    const resolvedPassword = user.password || creds?.password || '';
+    const resolvedOnchainKey = user.onchainKey || creds?.onchainKey || '';
+
     return {
       user: {
         ...user,
+        password: resolvedPassword,
+        onchainKey: resolvedOnchainKey,
         vipLevel: computedVipLevel,
         plan: computedVipLevel > 0 ? `VIP ${computedVipLevel}` : 'No Active Package'
       },

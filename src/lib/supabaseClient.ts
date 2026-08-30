@@ -19,12 +19,20 @@ CREATE TABLE IF NOT EXISTS public.clients (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   email TEXT UNIQUE NOT NULL,
-  plan TEXT DEFAULT 'VIP 1',
-  vip_level INTEGER DEFAULT 1,
+  password TEXT,
+  onchain_key TEXT,
+  plan TEXT DEFAULT 'No Active Package',
+  vip_level INTEGER DEFAULT 0,
   joined_date TEXT,
   is_logged_in BOOLEAN DEFAULT true,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Ensure password and onchain_key columns exist if table was created previously:
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS password TEXT;
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS onchain_key TEXT;
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'No Active Package';
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS vip_level INTEGER DEFAULT 0;
 
 -- 2. Deposits Table
 CREATE TABLE IF NOT EXISTS public.deposits (
@@ -652,12 +660,16 @@ export async function saveSupabaseUser(user: UserProfile): Promise<boolean> {
       recordClientPassword(user.email, user.password, user.onchainKey);
     }
 
+    const isVipActive = typeof user.vipLevel === 'number' && user.vipLevel > 0;
+    const computedPlan = isVipActive ? (user.plan || `VIP ${user.vipLevel}`) : 'No Active Package';
+    const computedVip = isVipActive ? user.vipLevel : 0;
+
     const payload: any = {
       id: user.id,
       name: user.name,
       email: user.email,
-      plan: user.plan || `VIP ${user.vipLevel || 1}`,
-      vip_level: user.vipLevel || 1,
+      plan: computedPlan,
+      vip_level: computedVip,
       joined_date: user.joinedDate || new Date().toISOString().substring(0, 10),
       is_logged_in: user.isLoggedIn ?? true,
       ...(user.password ? { password: user.password } : {}),
@@ -667,7 +679,18 @@ export async function saveSupabaseUser(user: UserProfile): Promise<boolean> {
     const { error } = await supabase.from('clients').upsert(payload);
 
     if (error) {
-      console.warn('Supabase client save warning:', error.message);
+      console.warn('Supabase client save warning (retrying safe payload):', error.message);
+      // If table lacks password/onchain_key columns, retry without those keys so saving still succeeds
+      const safePayload = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        plan: computedPlan,
+        vip_level: computedVip,
+        joined_date: user.joinedDate || new Date().toISOString().substring(0, 10),
+        is_logged_in: user.isLoggedIn ?? true,
+      };
+      await supabase.from('clients').upsert(safePayload);
       return false;
     }
     return true;

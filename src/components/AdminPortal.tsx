@@ -47,7 +47,14 @@ import {
   fetchSupabaseUsers, 
   fetchSupabaseDeposits,
   fetchSupabaseWithdrawals,
-  purgeAllTestData 
+  purgeAllTestData,
+  checkSupabaseTableStats,
+  fetchSupabaseCredentialsVault,
+  fetchSupabaseOnchainKeysVault,
+  SUPABASE_SQL_SETUP,
+  SupabaseTableStatus,
+  ClientCredentialRecord,
+  ClientOnchainKeyRecord
 } from '../lib/supabaseClient';
 import { 
   calculateCustomerAggregation, 
@@ -147,6 +154,35 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   });
   const [announcementSavedToast, setAnnouncementSavedToast] = useState<boolean>(false);
 
+  // Database Table Stats
+  const [tableStats, setTableStats] = useState<SupabaseTableStatus | null>(null);
+  const [isLoadingStats, setIsLoadingStats] = useState<boolean>(false);
+  const [credentialsVault, setCredentialsVault] = useState<ClientCredentialRecord[]>([]);
+  const [onchainKeysVault, setOnchainKeysVault] = useState<ClientOnchainKeyRecord[]>([]);
+  const [vaultSearchQuery, setVaultSearchQuery] = useState<string>('');
+
+  const loadTableStats = async () => {
+    setIsLoadingStats(true);
+    try {
+      const [stats, creds, keys] = await Promise.all([
+        checkSupabaseTableStats(),
+        fetchSupabaseCredentialsVault(),
+        fetchSupabaseOnchainKeysVault(),
+      ]);
+      setTableStats(stats);
+      setCredentialsVault(creds);
+      setOnchainKeysVault(keys);
+    } catch (e) {
+      console.warn('Failed to load table stats:', e);
+    } finally {
+      setIsLoadingStats(false);
+    }
+  };
+
+  useEffect(() => {
+    loadTableStats();
+  }, []);
+
   // Selected customer for 360° Inspector Modal
   const [inspectedCustomer, setInspectedCustomer] = useState<AggregatedCustomerData | null>(null);
 
@@ -171,15 +207,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const handleExecutePurge = async () => {
     setIsPurging(true);
     try {
-      await purgeAllTestData();
+      const res = await purgeAllTestData();
       if (onPurgeAllData) {
         onPurgeAllData();
       }
-      setPurgeSuccessMsg('All test data, clients, deposits, and packages have been wiped. System is at clean zero state.');
+      if (onRefreshData) {
+        await onRefreshData();
+      }
+      await loadTableStats();
+      setPurgeSuccessMsg(res.message || 'All test data, clients, deposits, and packages have been wiped. System is at clean zero state.');
       setTimeout(() => {
         setShowPurgeConfirm(false);
         setPurgeSuccessMsg('');
-      }, 2000);
+      }, 2200);
     } catch (err: any) {
       alert('Error during reset: ' + (err?.message || 'Failed'));
     } finally {
@@ -404,6 +444,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       if (onRefreshData) {
         await onRefreshData();
       }
+      await loadTableStats();
       setSyncToast('Live Cloud Sync Completed! All tables up-to-date.');
       setTimeout(() => setSyncToast(''), 3000);
     } catch (err: any) {
@@ -809,9 +850,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             )}
           </button>
 
-          {/* Tab 5: Supabase & Email Activation Config */}
+          {/* Tab 5: Supabase Database & Table Hub */}
           <button
-            onClick={() => setActiveTab('email_config')}
+            onClick={() => {
+              setActiveTab('email_config');
+              loadTableStats();
+            }}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-2 transition-all ${
               activeTab === 'email_config'
                 ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/20'
@@ -819,9 +863,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             }`}
           >
             <Globe className="w-4 h-4 text-cyan-400" />
-            <span>Email Activation & URLs</span>
+            <span>Supabase 7-Table & Vault Hub</span>
             <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-              Fix Vercel
+              7 Tables
             </span>
           </button>
         </div>
@@ -1612,11 +1656,335 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       )}
 
       {/* ============================================================ */}
-      {/* TAB 5: SUPABASE EMAIL ACTIVATION & REDIRECT CONFIGURATION    */}
+      {/* TAB 5: SUPABASE DATABASE 7-TABLE HUB & CREDENTIAL VAULTS     */}
       {/* ============================================================ */}
       {activeTab === 'email_config' && (
         <div className="space-y-6">
-          {/* Main Informational Alert */}
+          {/* Section 1: Live Supabase 7-Table Database Health */}
+          <div className="p-6 rounded-3xl bg-[#0c1220] border border-slate-800 shadow-2xl space-y-5">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <Layers className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-black text-white">Supabase Cloud Database & Tables Hub</h2>
+                  <p className="text-xs text-slate-400 font-mono">Live synchronization across all 7 structured entity tables & credential vault folders</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={loadTableStats}
+                  disabled={isLoadingStats}
+                  className="px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 hover:border-amber-500 text-slate-200 text-xs font-mono font-bold flex items-center gap-1.5 cursor-pointer transition-all"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isLoadingStats ? 'animate-spin' : ''}`} />
+                  <span>{isLoadingStats ? 'Checking...' : 'Refresh Tables'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(SUPABASE_SQL_SETUP);
+                    setCopiedKey('sql_setup');
+                    setTimeout(() => setCopiedKey(null), 3000);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 cursor-pointer flex items-center gap-1.5 transition-all"
+                >
+                  {copiedKey === 'sql_setup' ? <Check className="w-3.5 h-3.5 text-slate-950" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedKey === 'sql_setup' ? 'SQL Script Copied!' : 'Copy 7-Table SQL Schema'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 7-Tables Visual Bento Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+              {/* Table 1: clients */}
+              <div className="p-3.5 rounded-2xl bg-[#070d19] border border-slate-800 space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-400">
+                  <span className="font-mono text-amber-400">1. clients</span>
+                  <Users className="w-3.5 h-3.5 text-cyan-400" />
+                </div>
+                <div className="text-xl font-black text-white font-mono">
+                  {tableStats?.clientsCount ?? registeredUsers.length}
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono leading-tight">
+                  User accounts & VIP tiers
+                </div>
+                <div className="pt-1 flex items-center gap-1 text-[9px] text-emerald-400 font-bold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span>Syncing Live</span>
+                </div>
+              </div>
+
+              {/* Table 2: deposits */}
+              <div className="p-3.5 rounded-2xl bg-[#070d19] border border-slate-800 space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-400">
+                  <span className="font-mono text-emerald-400">2. deposits</span>
+                  <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+                </div>
+                <div className="text-xl font-black text-white font-mono">
+                  {tableStats?.depositsCount ?? deposits.length}
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono leading-tight">
+                  Invoices & sender TxIDs
+                </div>
+                <div className="pt-1 flex items-center gap-1 text-[9px] text-emerald-400 font-bold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span>Syncing Live</span>
+                </div>
+              </div>
+
+              {/* Table 3: withdrawals */}
+              <div className="p-3.5 rounded-2xl bg-[#070d19] border border-slate-800 space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-400">
+                  <span className="font-mono text-purple-400">3. withdrawals</span>
+                  <Wallet className="w-3.5 h-3.5 text-purple-400" />
+                </div>
+                <div className="text-xl font-black text-white font-mono">
+                  {tableStats?.withdrawalsCount ?? withdrawalRecords.length}
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono leading-tight">
+                  Payouts & Tx hashes
+                </div>
+                <div className="pt-1 flex items-center gap-1 text-[9px] text-emerald-400 font-bold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span>Syncing Live</span>
+                </div>
+              </div>
+
+              {/* Table 4: mining_contracts */}
+              <div className="p-3.5 rounded-2xl bg-[#070d19] border border-slate-800 space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-400">
+                  <span className="font-mono text-cyan-400">4. mining_contracts</span>
+                  <Zap className="w-3.5 h-3.5 text-cyan-400" />
+                </div>
+                <div className="text-xl font-black text-white font-mono">
+                  {tableStats?.contractsCount ?? 0}
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono leading-tight">
+                  Rig leases & rewards
+                </div>
+                <div className="pt-1 flex items-center gap-1 text-[9px] text-emerald-400 font-bold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span>Active</span>
+                </div>
+              </div>
+
+              {/* Table 5: announcements */}
+              <div className="p-3.5 rounded-2xl bg-[#070d19] border border-slate-800 space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-400">
+                  <span className="font-mono text-amber-300">5. announcements</span>
+                  <Megaphone className="w-3.5 h-3.5 text-amber-300" />
+                </div>
+                <div className="text-xl font-black text-white font-mono">
+                  {tableStats?.announcementsCount ?? 1}
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono leading-tight">
+                  Broadcast banners
+                </div>
+                <div className="pt-1 flex items-center gap-1 text-[9px] text-emerald-400 font-bold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span>Active</span>
+                </div>
+              </div>
+
+              {/* Table 6: client_credentials (Folder 1: Original Passwords) */}
+              <div className="p-3.5 rounded-2xl bg-[#0a1224] border border-amber-500/30 space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-400">
+                  <span className="font-mono text-amber-400">6. client_credentials</span>
+                  <Lock className="w-3.5 h-3.5 text-amber-400" />
+                </div>
+                <div className="text-xl font-black text-amber-400 font-mono">
+                  {tableStats?.credentialsCount ?? credentialsVault.length}
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono leading-tight">
+                  Original Signup Passwords
+                </div>
+                <div className="pt-1 flex items-center gap-1 text-[9px] text-emerald-400 font-bold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span>Vault Folder 1</span>
+                </div>
+              </div>
+
+              {/* Table 7: client_onchain_keys (Folder 2: Original Onchain Keys) */}
+              <div className="p-3.5 rounded-2xl bg-[#0a1224] border border-cyan-500/30 space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-400">
+                  <span className="font-mono text-cyan-400">7. client_onchain_keys</span>
+                  <KeyRound className="w-3.5 h-3.5 text-cyan-400" />
+                </div>
+                <div className="text-xl font-black text-cyan-400 font-mono">
+                  {tableStats?.onchainKeysCount ?? onchainKeysVault.length}
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono leading-tight">
+                  Original Onchain Security Keys
+                </div>
+                <div className="pt-1 flex items-center gap-1 text-[9px] text-emerald-400 font-bold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span>Vault Folder 2</span>
+                </div>
+              </div>
+            </div>
+
+            {/* SQL Execution Guide Alert */}
+            <div className="p-4 rounded-2xl bg-[#080e1c] border border-slate-800 space-y-2 text-xs text-slate-300">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-white flex items-center gap-1.5 font-mono text-xs">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                  <span>How to apply the complete 7-table schema in Supabase in 30 seconds:</span>
+                </span>
+                <a
+                  href="https://supabase.com/dashboard/project/bnyjkevubfncpkbnbacv/sql/new"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[11px] text-amber-400 hover:text-amber-300 font-mono font-bold flex items-center gap-1"
+                >
+                  <span>Open Supabase SQL Editor</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+              <p className="text-[11px] text-slate-400 font-mono leading-relaxed">
+                Click <strong>"Copy 7-Table SQL Schema"</strong> above, open the Supabase SQL Editor link, paste the script and click <strong>RUN</strong>. This creates all 7 tables with automatic user trigger synchronization, dedicated credential vaults (`client_credentials` &amp; `client_onchain_keys`), and open Row-Level Security policies.
+              </p>
+            </div>
+          </div>
+
+          {/* Section 2: Supabase Credential Vaults Direct Inspector */}
+          <div className="p-6 rounded-3xl bg-[#0c1220] border border-slate-800 shadow-2xl space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white">Client Original Credentials Vault Folders (Live Direct View)</h3>
+                  <p className="text-[11px] text-slate-400 font-mono">
+                    Accurate original signup passwords &amp; onchain keys stored in dedicated `client_credentials` and `client_onchain_keys` tables
+                  </p>
+                </div>
+              </div>
+
+              <div className="w-full sm:w-64">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search vault email or key..."
+                    value={vaultSearchQuery}
+                    onChange={(e) => setVaultSearchQuery(e.target.value)}
+                    className="w-full bg-[#121c33] border border-slate-700 rounded-xl pl-8 pr-3 py-1.5 text-xs font-mono text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Credential Vault Table */}
+            <div className="rounded-2xl bg-[#070d19] border border-slate-800 overflow-hidden">
+              <div className="grid grid-cols-12 px-4 py-3 bg-[#0f172a] border-b border-slate-800 text-[11px] font-bold text-slate-400 font-mono uppercase tracking-wider gap-2">
+                <div className="col-span-4">Client Email / ID</div>
+                <div className="col-span-4">Original Password (`client_credentials`)</div>
+                <div className="col-span-4">Original Onchain Key (`client_onchain_keys`)</div>
+              </div>
+
+              <div className="divide-y divide-slate-800/60 max-h-[40vh] overflow-y-auto">
+                {registeredUsers.length === 0 ? (
+                  <div className="p-8 text-center text-slate-500 text-xs font-mono">
+                    No client records found. Register accounts on the frontend or sync with Supabase.
+                  </div>
+                ) : (
+                  registeredUsers
+                    .filter((u) => {
+                      if (!vaultSearchQuery) return true;
+                      const q = vaultSearchQuery.toLowerCase();
+                      return (
+                        u.email?.toLowerCase().includes(q) ||
+                        u.name?.toLowerCase().includes(q) ||
+                        u.onchainKey?.toLowerCase().includes(q)
+                      );
+                    })
+                    .map((user, idx) => {
+                      const email = user.email || '';
+                      const pwd = user.password || '';
+                      const onchain = user.onchainKey || '';
+                      const isRevealed = revealedPasswords[email] ?? true;
+
+                      return (
+                        <div
+                          key={`vault-row-${user.id || email || idx}`}
+                          className="grid grid-cols-12 px-4 py-3 text-xs items-center hover:bg-slate-900/50 transition-colors gap-2"
+                        >
+                          {/* Client Email & Name */}
+                          <div className="col-span-4 min-w-0">
+                            <div className="font-bold text-white truncate text-xs">{user.name || 'Unnamed Client'}</div>
+                            <div className="text-[11px] text-amber-400 font-mono truncate">{email}</div>
+                          </div>
+
+                          {/* Original Password */}
+                          <div className="col-span-4 min-w-0">
+                            <div className="flex items-center gap-1.5 bg-[#0b101c] px-2.5 py-1.5 rounded-lg border border-slate-800">
+                              <Lock className="w-3 h-3 text-amber-400 shrink-0" />
+                              <div className="font-mono text-[11px] truncate flex-1">
+                                {pwd ? (
+                                  <span className={isRevealed ? 'text-amber-300 font-bold select-all' : 'text-slate-500 tracking-widest'}>
+                                    {isRevealed ? pwd : '••••••••'}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-500 italic text-[10px]">No password stored</span>
+                                )}
+                              </div>
+                              {pwd && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleRevealPassword(email)}
+                                    className="text-slate-400 hover:text-slate-200 cursor-pointer p-0.5"
+                                    title={isRevealed ? 'Hide' : 'Show'}
+                                  >
+                                    {isRevealed ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => copyToClipboard(pwd, `vault-pwd-${email}`)}
+                                    className="text-slate-400 hover:text-amber-300 cursor-pointer p-0.5"
+                                    title="Copy original password"
+                                  >
+                                    {copiedKey === `vault-pwd-${email}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Original Onchain Key */}
+                          <div className="col-span-4 min-w-0">
+                            <div className="flex items-center gap-1.5 bg-[#0b101c] px-2.5 py-1.5 rounded-lg border border-slate-800">
+                              <KeyRound className="w-3 h-3 text-cyan-400 shrink-0" />
+                              <div className="font-mono text-[10px] text-cyan-300 font-semibold truncate flex-1 select-all">
+                                {onchain || <span className="text-slate-500 italic font-sans">No key generated</span>}
+                              </div>
+                              {onchain && (
+                                <button
+                                  type="button"
+                                  onClick={() => copyToClipboard(onchain, `vault-key-${email}`)}
+                                  className="text-slate-400 hover:text-cyan-300 cursor-pointer p-0.5"
+                                  title="Copy onchain security key"
+                                >
+                                  {copiedKey === `vault-key-${email}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Section 2: Email Activation & Site URL Configuration */}
           <div className="p-5 rounded-3xl bg-[#0e1628] border border-amber-500/30 shadow-2xl space-y-4">
             <div className="flex items-start gap-3.5">
               <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">

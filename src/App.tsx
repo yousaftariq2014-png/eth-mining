@@ -296,35 +296,19 @@ export default function App() {
       try {
         // Sync Users
         const remoteUsers = await fetchSupabaseUsers();
-        if (remoteUsers && remoteUsers.length > 0) {
-          setRegisteredUsers(prev => {
-            const combined = [...remoteUsers];
-            prev.forEach(localU => {
-              if (!combined.some(u => u.email.toLowerCase() === localU.email.toLowerCase())) {
-                combined.push(localU);
-              }
-            });
-            return combined;
-          });
+        if (remoteUsers !== null) {
+          setRegisteredUsers(remoteUsers);
         }
 
         // Sync Deposits
         const remoteDeposits = await fetchSupabaseDeposits();
-        if (remoteDeposits && remoteDeposits.length > 0) {
-          setDeposits(prev => {
-            const combined = [...remoteDeposits];
-            prev.forEach(localD => {
-              if (!combined.some(d => d.id === localD.id)) {
-                combined.push(localD);
-              }
-            });
-            return combined;
-          });
+        if (remoteDeposits !== null) {
+          setDeposits(remoteDeposits);
         }
 
         // Sync Withdrawals
         const remoteWithdrawals = await fetchSupabaseWithdrawals();
-        if (remoteWithdrawals && remoteWithdrawals.length > 0) {
+        if (remoteWithdrawals !== null) {
           setWithdrawalRecords(remoteWithdrawals);
         }
       } catch (err) {
@@ -729,15 +713,29 @@ export default function App() {
 
   // Admin deletes single client
   const handleAdminDeleteClient = async (userId: string, email: string) => {
+    const cleanEmail = email.trim().toLowerCase();
     try {
-      await supabase.from('clients').delete().eq('id', userId);
-      await supabase.from('deposits').delete().eq('user_id', userId);
-      await supabase.from('withdrawals').delete().eq('user_id', userId);
-    } catch {}
-    setRegisteredUsers(prev => prev.filter(u => u.id !== userId));
-    setDeposits(prev => prev.filter(d => d.userId !== userId));
-    setWithdrawalRecords(prev => prev.filter(w => w.userId !== userId));
-    if (user && (user.id === userId || user.email.toLowerCase() === email.toLowerCase())) {
+      if (userId) {
+        await supabase.from('clients').delete().eq('id', userId);
+        await supabase.from('deposits').delete().eq('user_id', userId);
+        await supabase.from('withdrawals').delete().eq('user_id', userId);
+        await supabase.from('mining_contracts').delete().eq('user_id', userId);
+      }
+      if (cleanEmail) {
+        await supabase.from('clients').delete().eq('email', cleanEmail);
+        await supabase.from('deposits').delete().eq('user_name', cleanEmail);
+        await supabase.from('withdrawals').delete().eq('user_name', cleanEmail);
+        await supabase.from('mining_contracts').delete().eq('user_name', cleanEmail);
+      }
+    } catch (err) {
+      console.warn('Delete client from Supabase warning:', err);
+    }
+
+    setRegisteredUsers(prev => prev.filter(u => u.id !== userId && u.email.toLowerCase() !== cleanEmail));
+    setDeposits(prev => prev.filter(d => d.userId !== userId && d.userName.toLowerCase() !== cleanEmail));
+    setWithdrawalRecords(prev => prev.filter(w => w.userId !== userId && w.userName?.toLowerCase() !== cleanEmail));
+
+    if (user && (user.id === userId || user.email.toLowerCase() === cleanEmail)) {
       setUser(null);
       localStorage.removeItem('hashforge_user');
     }
@@ -746,31 +744,15 @@ export default function App() {
   // Live refresh for Admin Portal
   const handleAdminRefreshData = async () => {
     const remoteUsers = await fetchSupabaseUsers();
-    if (remoteUsers && remoteUsers.length > 0) {
-      setRegisteredUsers(prev => {
-        const combined = [...remoteUsers];
-        prev.forEach(localU => {
-          if (!combined.some(u => u.email.toLowerCase() === localU.email.toLowerCase() || u.id === localU.id)) {
-            combined.push(localU);
-          }
-        });
-        return combined;
-      });
+    if (remoteUsers !== null) {
+      setRegisteredUsers(remoteUsers);
     }
     const remoteDeposits = await fetchSupabaseDeposits();
-    if (remoteDeposits) {
-      setDeposits(prev => {
-        const combined = [...remoteDeposits];
-        prev.forEach(localD => {
-          if (!combined.some(d => d.id === localD.id)) {
-            combined.push(localD);
-          }
-        });
-        return combined;
-      });
+    if (remoteDeposits !== null) {
+      setDeposits(remoteDeposits);
     }
     const remoteWithdrawals = await fetchSupabaseWithdrawals();
-    if (remoteWithdrawals) {
+    if (remoteWithdrawals !== null) {
       setWithdrawalRecords(remoteWithdrawals);
     }
   };

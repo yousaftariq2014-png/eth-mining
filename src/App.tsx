@@ -559,6 +559,14 @@ export default function App() {
 
   // Admin approves a deposit from Admin Portal
   const handleAdminApproveDeposit = (depositId: string) => {
+    // STRICT SECURITY GATE: Only Master Admin can approve deposits
+    const activeAdminAuth = sessionStorage.getItem('hashforge_admin_auth');
+    const isUnlocked = sessionStorage.getItem('hashforge_admin_unlocked') === 'true';
+    if (!isUnlocked || !isAuthorizedAdminEmail(activeAdminAuth)) {
+      console.error('⛔ Security Alert: Unauthorized client attempted to approve a deposit.');
+      return;
+    }
+
     const approvedTimestamp = new Date().toISOString().replace('T', ' ').substring(0, 19);
 
     setDeposits(prev =>
@@ -617,6 +625,13 @@ export default function App() {
 
   // Admin rejects a deposit
   const handleAdminRejectDeposit = (depositId: string) => {
+    const activeAdminAuth = sessionStorage.getItem('hashforge_admin_auth');
+    const isUnlocked = sessionStorage.getItem('hashforge_admin_unlocked') === 'true';
+    if (!isUnlocked || !isAuthorizedAdminEmail(activeAdminAuth)) {
+      console.error('⛔ Security Alert: Unauthorized client attempted to reject a deposit.');
+      return;
+    }
+
     setDeposits(prev =>
       prev.map(d => (d.id === depositId ? { ...d, status: 'rejected' } : d))
     );
@@ -626,6 +641,13 @@ export default function App() {
 
   // Admin approves a withdrawal
   const handleAdminApproveWithdrawal = (withdrawalId: string) => {
+    const activeAdminAuth = sessionStorage.getItem('hashforge_admin_auth');
+    const isUnlocked = sessionStorage.getItem('hashforge_admin_unlocked') === 'true';
+    if (!isUnlocked || !isAuthorizedAdminEmail(activeAdminAuth)) {
+      console.error('⛔ Security Alert: Unauthorized client attempted to approve a withdrawal.');
+      return;
+    }
+
     setWithdrawalRecords(prev =>
       prev.map(w => (w.id === withdrawalId ? { ...w, status: 'Withdrawal successfully' } : w))
     );
@@ -635,6 +657,13 @@ export default function App() {
 
   // Admin rejects / declines a withdrawal
   const handleAdminRejectWithdrawal = (withdrawalId: string) => {
+    const activeAdminAuth = sessionStorage.getItem('hashforge_admin_auth');
+    const isUnlocked = sessionStorage.getItem('hashforge_admin_unlocked') === 'true';
+    if (!isUnlocked || !isAuthorizedAdminEmail(activeAdminAuth)) {
+      console.error('⛔ Security Alert: Unauthorized client attempted to reject a withdrawal.');
+      return;
+    }
+
     setWithdrawalRecords(prev =>
       prev.map(w => (w.id === withdrawalId ? { ...w, status: 'Failed' } : w))
     );
@@ -644,6 +673,13 @@ export default function App() {
 
   // Admin purges all test data & resets to clean zero-base
   const handleAdminPurgeAllData = () => {
+    const activeAdminAuth = sessionStorage.getItem('hashforge_admin_auth');
+    const isUnlocked = sessionStorage.getItem('hashforge_admin_unlocked') === 'true';
+    if (!isUnlocked || !isAuthorizedAdminEmail(activeAdminAuth)) {
+      console.error('⛔ Security Alert: Unauthorized client attempted to purge database.');
+      return;
+    }
+
     setUser(null);
     setDeposits([]);
     setWithdrawalRecords([]);

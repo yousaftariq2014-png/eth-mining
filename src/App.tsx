@@ -15,6 +15,7 @@ import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { LiveSupportWidget } from './components/LiveSupportWidget';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { GlobalAnnouncementBar } from './components/GlobalAnnouncementBar';
+import { LiveGlobalPayoutTicker } from './components/LiveGlobalPayoutTicker';
 
 import { 
   UserProfile, 
@@ -945,15 +946,19 @@ export default function App() {
 
       {/* Top Header - Shown ONLY for client pages (Home / Deposit / Dashboard) */}
       {currentTab !== 'admin' && (
-        <Header
-          currentTab={currentTab}
-          setCurrentTab={setCurrentTab}
-          user={user}
-          onOpenAuth={handleOpenAuth}
-          onLogout={handleLogout}
-          onOpenNotifications={() => setIsNotificationsOpen(true)}
-          unreadNotificationsCount={unreadNotificationsCount}
-        />
+        <>
+          <Header
+            currentTab={currentTab}
+            setCurrentTab={setCurrentTab}
+            user={user}
+            onOpenAuth={handleOpenAuth}
+            onLogout={handleLogout}
+            onOpenNotifications={() => setIsNotificationsOpen(true)}
+            unreadNotificationsCount={unreadNotificationsCount}
+          />
+          {/* Live On-Chain Payout & Hash Settlement Ticker */}
+          <LiveGlobalPayoutTicker />
+        </>
       )}
 
       {/* Main Content Area */}

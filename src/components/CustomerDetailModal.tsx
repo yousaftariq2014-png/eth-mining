@@ -59,20 +59,20 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'contracts' | 'deposits' | 'withdrawals'>('overview');
   
-  // Credentials management
+  // Credentials management - strictly load actual stored credentials without fake placeholders
   const storedCreds = getClientCredentials(customer.user.email);
-  const defaultOnchain = customer.user.onchainKey || storedCreds?.onchainKey || `ONC-${(customer.user.id || 'ETH').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8).toUpperCase()}-ETH2`;
-  const defaultPass = customer.user.password || storedCreds?.password || 'UserAuth2026!';
+  const realOnchain = customer.user.onchainKey || storedCreds?.onchainKey || '';
+  const realPass = customer.user.password || storedCreds?.password || '';
 
-  const [currentOnchainKey, setCurrentOnchainKey] = useState<string>(defaultOnchain);
-  const [currentPassword, setCurrentPassword] = useState<string>(defaultPass);
+  const [currentOnchainKey, setCurrentOnchainKey] = useState<string>(realOnchain);
+  const [currentPassword, setCurrentPassword] = useState<string>(realPass);
   const [showPassword, setShowPassword] = useState<boolean>(false);
   
   const [isEditingKey, setIsEditingKey] = useState<boolean>(false);
-  const [editKeyInput, setEditKeyInput] = useState<string>(defaultOnchain);
+  const [editKeyInput, setEditKeyInput] = useState<string>(realOnchain);
   
   const [isEditingPass, setIsEditingPass] = useState<boolean>(false);
-  const [editPassInput, setEditPassInput] = useState<string>(defaultPass);
+  const [editPassInput, setEditPassInput] = useState<string>(realPass);
 
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
 
@@ -148,7 +148,7 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-lg font-black text-white truncate">{customer.user.name || 'Unnamed Client'}</h2>
                 <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider border ${getVipColor(customer.computedVipLevel)}`}>
-                  VIP {customer.computedVipLevel}
+                  {customer.computedVipLevel > 0 ? `VIP ${customer.computedVipLevel}` : 'No Active Plan'}
                 </span>
                 <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
                   customer.accountStatus === 'Active Miner'

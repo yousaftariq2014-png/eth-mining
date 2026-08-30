@@ -173,10 +173,11 @@ export default function App() {
           id: u.id,
           name: (u.user_metadata?.full_name as string) || u.email?.split('@')[0] || 'Client',
           email: u.email || '',
-          plan: 'VIP 1 Starter',
-          vipLevel: 1,
+          plan: 'No Active Package',
+          vipLevel: 0,
           joinedDate: new Date().toISOString().substring(0, 10),
           isLoggedIn: true,
+          onchainKey: (u.user_metadata?.onchain_key as string) || '',
         };
 
         setUser(prev => {
@@ -541,8 +542,8 @@ export default function App() {
     if (user && (user.id === targetId || user.email === targetEmail)) {
       const resetUser: UserProfile = {
         ...user,
-        vipLevel: 1,
-        plan: 'VIP 1 Starter'
+        vipLevel: 0,
+        plan: 'No Active Package'
       };
       setUser(resetUser);
       localStorage.setItem('hashforge_user', JSON.stringify(resetUser));
@@ -826,8 +827,8 @@ export default function App() {
               email: 'client@hashforge.io',
               isLoggedIn: true,
               joinedDate: '2026-08-28',
-              plan: 'VIP 1',
-              vipLevel: 1
+              plan: 'No Active Package',
+              vipLevel: 0
             }}
             onBack={() => setCurrentTab('home')}
             onSubmitDeposit={handleSubmitDeposit}
@@ -844,12 +845,12 @@ export default function App() {
               key={user?.id || 'guest'}
               user={user || {
                 id: 'guest',
-                name: 'VIP Miner',
-                email: 'miner@hashforge.io',
+                name: 'Client User',
+                email: 'client@hashforge.io',
                 isLoggedIn: true,
                 joinedDate: '2026-08-28',
-                plan: 'VIP 5 Diamond',
-                vipLevel: 5
+                plan: 'No Active Package',
+                vipLevel: 0
               }}
               packages={packages}
               onSelectPackage={handleSelectPackage}

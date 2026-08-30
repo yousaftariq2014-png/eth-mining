@@ -122,8 +122,8 @@ export function calculateCustomerAggregation(
         email: cleanEmail || '',
         password: resolvedPass,
         onchainKey: resolvedKey,
-        plan: u.plan || `VIP ${u.vipLevel || 1}`,
-        vipLevel: u.vipLevel || 1,
+        plan: u.plan || (u.vipLevel ? `VIP ${u.vipLevel}` : 'No Active Package'),
+        vipLevel: u.vipLevel ?? 0,
         joinedDate: u.joinedDate || new Date().toISOString().substring(0, 10),
         isLoggedIn: u.isLoggedIn ?? true,
       });
@@ -187,14 +187,15 @@ export function calculateCustomerAggregation(
       const targetEmail = isEmail ? (d.userName || '') : `${(d.userName || 'client').replace(/\s+/g, '').toLowerCase()}@client.platform`;
       const creds = getClientCredentials(targetEmail);
 
+      const isApproved = d.status === 'approved';
       unifiedUsers.push({
         id: generatedId,
         name: d.userName ? (isEmail ? d.userName.split('@')[0] : d.userName) : 'Client',
         email: targetEmail,
         password: creds?.password,
         onchainKey: creds?.onchainKey,
-        plan: `VIP ${d.vipLevel || 1} (${d.packageName || 'Miner'})`,
-        vipLevel: d.vipLevel || 1,
+        plan: isApproved ? `VIP ${d.vipLevel || 1} (${d.packageName || 'Miner'})` : 'No Active Package',
+        vipLevel: isApproved ? (d.vipLevel || 1) : 0,
         joinedDate: d.createdAt?.substring(0, 10) || '2026-08-28',
         isLoggedIn: true
       });
@@ -218,8 +219,8 @@ export function calculateCustomerAggregation(
         email: targetEmail,
         password: creds?.password,
         onchainKey: creds?.onchainKey,
-        plan: 'VIP 1',
-        vipLevel: 1,
+        plan: 'No Active Package',
+        vipLevel: 0,
         joinedDate: w.time?.substring(0, 10) || '2026-08-28',
         isLoggedIn: true
       });
@@ -355,8 +356,8 @@ export function calculateCustomerAggregation(
       user.joinedDate ||
       'Recent';
 
-    const maxVipFromDeposit = userDeposits.reduce((max, d) => Math.max(max, d.vipLevel || 1), 1);
-    const computedVipLevel = Math.max(user.vipLevel || 1, maxVipFromDeposit);
+    const maxVipFromApproved = approvedDeposits.reduce((max, d) => Math.max(max, d.vipLevel || 0), 0);
+    const computedVipLevel = approvedDeposits.length > 0 ? maxVipFromApproved : (user.vipLevel || 0);
 
     let accountStatus: AggregatedCustomerData['accountStatus'] = 'Inactive / Free';
     if (pendingDeposits.length > 0) {
@@ -371,7 +372,7 @@ export function calculateCustomerAggregation(
       user: {
         ...user,
         vipLevel: computedVipLevel,
-        plan: `VIP ${computedVipLevel}`
+        plan: computedVipLevel > 0 ? `VIP ${computedVipLevel}` : 'No Active Package'
       },
       deposits: userDeposits,
       approvedDeposits,

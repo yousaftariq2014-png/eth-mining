@@ -114,9 +114,13 @@ export const EthMiningPanel: React.FC<EthMiningPanelProps> = ({
                 <h2 className="text-lg sm:text-xl font-black text-white tracking-tight flex items-center gap-2">
                   <span>ETH2.0 Cloud Mining Console</span>
                 </h2>
-                <span className="flex items-center gap-1 text-[10px] font-mono font-bold bg-emerald-500/15 text-emerald-300 px-2.5 py-0.5 rounded-full border border-emerald-500/30">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                  {activeContractsCount > 0 ? 'STRATUM ACTIVE' : 'STANDBY READY'}
+                <span className={`flex items-center gap-1 text-[10px] font-mono font-bold px-2.5 py-0.5 rounded-full border ${
+                  activeContractsCount > 0
+                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                    : 'bg-slate-800 text-slate-400 border-slate-700'
+                }`}>
+                  {activeContractsCount > 0 && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />}
+                  {activeContractsCount > 0 ? 'STRATUM ACTIVE' : 'IDLE (PACKAGE REQUIRED)'}
                 </span>
               </div>
               <p className="text-xs text-slate-400 font-mono flex items-center gap-2 mt-0.5">
@@ -255,7 +259,9 @@ export const EthMiningPanel: React.FC<EthMiningPanelProps> = ({
               <div className="text-xs sm:text-sm font-black text-white mt-0.5 truncate">
                 {totalHashrateDisplay}
               </div>
-              <span className="text-[9px] text-emerald-400">Online & Hashing</span>
+              <span className={`text-[9px] ${activeContractsCount > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                {activeContractsCount > 0 ? 'Online & Hashing' : 'Node Inactive'}
+              </span>
             </div>
 
             <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
@@ -269,17 +275,25 @@ export const EthMiningPanel: React.FC<EthMiningPanelProps> = ({
             <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
               <span className="text-[10px] text-slate-500 block">Valid Shares</span>
               <div className="text-xs sm:text-sm font-black text-emerald-400 mt-0.5">
-                {sharesSolved.toLocaleString()} <span className="text-[10px] font-normal text-slate-500">/ 0 rej</span>
+                {activeContractsCount > 0 ? sharesSolved.toLocaleString() : '0'}{' '}
+                <span className="text-[10px] font-normal text-slate-500">/ 0 rej</span>
               </div>
-              <span className="text-[9px] text-slate-400">Last: {lastShareTime}</span>
+              <span className="text-[9px] text-slate-400">
+                {activeContractsCount > 0 ? `Last: ${lastShareTime}` : 'Standby'}
+              </span>
             </div>
 
             <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800">
               <span className="text-[10px] text-slate-500 block">Cluster Temp / Fan</span>
               <div className="text-xs sm:text-sm font-black text-cyan-300 mt-0.5">
-                52°C <span className="text-[10px] font-normal text-slate-400">| 64%</span>
+                {activeContractsCount > 0 ? '52°C' : '32°C'}{' '}
+                <span className="text-[10px] font-normal text-slate-400">
+                  | {activeContractsCount > 0 ? '64%' : '0%'}
+                </span>
               </div>
-              <span className="text-[9px] text-cyan-400">Optimal Cool</span>
+              <span className="text-[9px] text-cyan-400">
+                {activeContractsCount > 0 ? 'Optimal Cool' : 'Standby'}
+              </span>
             </div>
 
           </div>

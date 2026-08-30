@@ -905,9 +905,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       <div className="col-span-4 sm:col-span-3 min-w-0">
                         <div className="font-bold text-white truncate flex items-center gap-1.5">
                           <span>{cust.user.name || 'Unnamed Client'}</span>
-                          <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold">
-                            VIP {cust.computedVipLevel}
-                          </span>
+                          {cust.computedVipLevel > 0 ? (
+                            <span className="px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold">
+                              VIP {cust.computedVipLevel}
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.2 rounded bg-slate-800 text-slate-400 font-mono text-[10px] font-bold">
+                              No Plan
+                            </span>
+                          )}
                         </div>
                         <div className="text-[11px] text-slate-400 font-mono truncate">{cust.user.email}</div>
                       </div>

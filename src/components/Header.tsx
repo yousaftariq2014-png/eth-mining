@@ -130,7 +130,9 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="hidden lg:flex flex-col text-right">
                   <span className="text-xs font-bold text-white leading-tight">{user.name}</span>
                   <span className="text-[10px] font-mono text-emerald-400 font-bold">
-                    {user.plan || `VIP ${user.vipLevel || 1}`}
+                    {user.vipLevel && user.vipLevel > 0
+                      ? user.plan || `VIP ${user.vipLevel}`
+                      : 'Free Account'}
                   </span>
                 </div>
 

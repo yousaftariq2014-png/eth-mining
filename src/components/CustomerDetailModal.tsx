@@ -29,11 +29,19 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   RefreshCw,
-  Cpu
+  Cpu,
+  PlusCircle,
+  Sparkles
 } from 'lucide-react';
 import { AggregatedCustomerData } from '../utils/adminCustomerMetrics';
-import { UserProfile } from '../types';
-import { getClientCredentials, updateClientCredentials } from '../lib/supabaseClient';
+import { UserProfile, DepositRequest } from '../types';
+import { 
+  getClientCredentials, 
+  updateClientCredentials, 
+  ensureCustomerCredentials, 
+  insertSupabaseDeposit 
+} from '../lib/supabaseClient';
+import { MINING_PACKAGES } from '../data/packagesData';
 
 interface CustomerDetailModalProps {
   customer: AggregatedCustomerData;
@@ -59,33 +67,44 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'contracts' | 'deposits' | 'withdrawals'>('overview');
   
-  // Credentials management - strictly load actual stored credentials without fake placeholders
-  const storedCreds = getClientCredentials(customer.user.email);
-  const realOnchain = customer.user.onchainKey || storedCreds?.onchainKey || '';
-  const realPass = customer.user.password || storedCreds?.password || '';
+  // Credentials management - guaranteed active credentials
+  const initialCreds = ensureCustomerCredentials(
+    customer.user.email,
+    customer.user.id,
+    customer.user.password,
+    customer.user.onchainKey
+  );
 
-  const [currentOnchainKey, setCurrentOnchainKey] = useState<string>(realOnchain);
-  const [currentPassword, setCurrentPassword] = useState<string>(realPass);
+  const [currentOnchainKey, setCurrentOnchainKey] = useState<string>(initialCreds.onchainKey);
+  const [currentPassword, setCurrentPassword] = useState<string>(initialCreds.password);
   const [showPassword, setShowPassword] = useState<boolean>(true);
   
   const [isEditingKey, setIsEditingKey] = useState<boolean>(false);
-  const [editKeyInput, setEditKeyInput] = useState<string>(realOnchain);
+  const [editKeyInput, setEditKeyInput] = useState<string>(initialCreds.onchainKey);
   
   const [isEditingPass, setIsEditingPass] = useState<boolean>(false);
-  const [editPassInput, setEditPassInput] = useState<string>(realPass);
+  const [editPassInput, setEditPassInput] = useState<string>(initialCreds.password);
 
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
 
+  // Direct package activation state
+  const [showAssignModal, setShowAssignModal] = useState<boolean>(false);
+  const [assigningPackageId, setAssigningPackageId] = useState<string>('vip1');
+  const [isAssigning, setIsAssigning] = useState<boolean>(false);
+
   // Synchronize when customer changes
   useEffect(() => {
-    const creds = getClientCredentials(customer.user.email);
-    const pass = customer.user.password || creds?.password || '';
-    const onchain = customer.user.onchainKey || creds?.onchainKey || '';
-    setCurrentPassword(pass);
-    setCurrentOnchainKey(onchain);
-    setEditPassInput(pass);
-    setEditKeyInput(onchain);
-  }, [customer.user.email, customer.user.password, customer.user.onchainKey]);
+    const creds = ensureCustomerCredentials(
+      customer.user.email,
+      customer.user.id,
+      customer.user.password,
+      customer.user.onchainKey
+    );
+    setCurrentPassword(creds.password);
+    setCurrentOnchainKey(creds.onchainKey);
+    setEditPassInput(creds.password);
+    setEditKeyInput(creds.onchainKey);
+  }, [customer.user.email, customer.user.password, customer.user.onchainKey, customer.user.id]);
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -133,6 +152,50 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
 
     setSaveSuccessMsg('Account Password updated and saved for user!');
     setTimeout(() => setSaveSuccessMsg(null), 3000);
+  };
+
+  const handleAssignPackage = async () => {
+    const targetPkg = MINING_PACKAGES.find(p => p.id === assigningPackageId) || MINING_PACKAGES[0];
+    setIsAssigning(true);
+
+    try {
+      const nowIso = new Date().toISOString();
+      const depositId = `dep-admin-${Date.now()}`;
+      const newDeposit: DepositRequest = {
+        id: depositId,
+        userId: customer.user.id,
+        userName: customer.user.name || customer.user.email,
+        packageId: targetPkg.id,
+        packageName: targetPkg.name,
+        vipLevel: targetPkg.vipLevel,
+        amountUsd: targetPkg.priceUsd,
+        network: 'TRC20',
+        depositAddress: 'Admin Direct Assigned Node',
+        senderTxid: `ADMIN-GRANT-${Date.now().toString(36).toUpperCase()}`,
+        status: 'approved',
+        createdAt: nowIso,
+        approvedAt: nowIso,
+      };
+
+      await insertSupabaseDeposit(newDeposit);
+      
+      const updatedUser: UserProfile = {
+        ...customer.user,
+        plan: `VIP ${targetPkg.vipLevel} (${targetPkg.name})`,
+        vipLevel: targetPkg.vipLevel,
+      };
+
+      onUpdateUser?.(updatedUser);
+      onApproveDeposit?.(depositId);
+
+      setSaveSuccessMsg(`VIP ${targetPkg.vipLevel} (${targetPkg.name}) successfully activated for ${customer.user.name || customer.user.email}!`);
+      setShowAssignModal(false);
+      setTimeout(() => setSaveSuccessMsg(null), 4000);
+    } catch (e: any) {
+      alert('Failed to assign package: ' + (e?.message || 'Error'));
+    } finally {
+      setIsAssigning(false);
+    }
   };
 
   const getVipColor = (level: number) => {
@@ -254,6 +317,16 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAssignModal(true)}
+              className="px-3 py-1 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black flex items-center gap-1.5 shadow-md shadow-amber-500/20 transition-all cursor-pointer"
+              title="Manually assign or upgrade VIP Mining Package for this client"
+            >
+              <Zap className="w-3.5 h-3.5 fill-slate-950" />
+              <span>Activate Package</span>
+            </button>
+
             <button
               type="button"
               onClick={() => {
@@ -901,6 +974,15 @@ Primary Wallet: ${customer.primaryWalletAddress}`;
         {/* Footer Actions */}
         <div className="px-5 sm:px-6 py-3.5 bg-[#10182b] border-t border-slate-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowAssignModal(true)}
+              className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border border-amber-500/30 text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+            >
+              <Zap className="w-3.5 h-3.5" />
+              <span>Assign Mining Package</span>
+            </button>
+
             {onDeleteClient && (
               <button
                 type="button"
@@ -926,6 +1008,89 @@ Primary Wallet: ${customer.primaryWalletAddress}`;
           </button>
         </div>
       </div>
+
+      {/* Package Assignment Modal */}
+      {showAssignModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="w-full max-w-md bg-[#0d1424] border border-amber-500/40 rounded-3xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-amber-400">
+                <Zap className="w-5 h-5" />
+                <h3 className="text-base font-black text-white">Assign Mining Package</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAssignModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Select a VIP Package to instantly activate mining hashrate and contract for <strong className="text-white">{customer.user.name || customer.user.email}</strong>.
+            </p>
+
+            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+              {MINING_PACKAGES.map((pkg) => (
+                <div
+                  key={pkg.id}
+                  onClick={() => setAssigningPackageId(pkg.id)}
+                  className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
+                    assigningPackageId === pkg.id
+                      ? 'bg-amber-500/15 border-amber-500 text-white'
+                      : 'bg-[#121b2f] border-slate-800 text-slate-300 hover:border-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-black ${
+                      assigningPackageId === pkg.id ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-slate-300'
+                    }`}>
+                      V{pkg.vipLevel}
+                    </div>
+                    <div>
+                      <div className="font-bold text-xs text-white">{pkg.name}</div>
+                      <div className="text-[11px] text-amber-400 font-mono font-bold">${pkg.priceUsd} USDT • {pkg.hashrate} {pkg.hashrateUnit}</div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[11px] font-mono text-emerald-400 font-bold">+${pkg.dailyReturnUsd}/day</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowAssignModal(false)}
+                disabled={isAssigning}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleAssignPackage}
+                disabled={isAssigning}
+                className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/30 cursor-pointer disabled:opacity-60 flex items-center justify-center gap-1.5"
+              >
+                {isAssigning ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Activating...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Confirm & Activate</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

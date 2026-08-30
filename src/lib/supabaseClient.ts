@@ -456,9 +456,12 @@ export async function fetchSupabaseUsers(): Promise<UserProfile[] | null> {
     if (!data || data.length === 0) return null;
 
     return data.map(item => {
-      const storedCreds = getClientCredentials(item.email);
-      const pass = item.password || storedCreds?.password || '';
-      const onchain = item.onchain_key || item.onchainKey || storedCreds?.onchainKey || '';
+      const { password: pass, onchainKey: onchain } = ensureCustomerCredentials(
+        item.email,
+        item.id,
+        item.password,
+        item.onchain_key || item.onchainKey
+      );
 
       return {
         id: item.id,
@@ -489,13 +492,61 @@ export interface StoredClientCredentials {
   updatedAt?: string;
 }
 
+export function ensureCustomerCredentials(
+  email?: string,
+  userId?: string,
+  existingPass?: string,
+  existingKey?: string
+): { password: string; onchainKey: string } {
+  if (!email) {
+    return { password: existingPass || '', onchainKey: existingKey || '' };
+  }
+  const cleanEmail = email.trim().toLowerCase();
+  const creds = getClientCredentials(cleanEmail);
+
+  let pass = (existingPass && existingPass.trim() !== '') ? existingPass : (creds?.password || '');
+  let key = (existingKey && existingKey.trim() !== '') ? existingKey : (creds?.onchainKey || '');
+
+  // Filter out any previous auto-generated synthetic passwords
+  if (pass && pass.includes('#') && pass.endsWith('2026!') && pass.toLowerCase().includes(cleanEmail.split('@')[0].toLowerCase().slice(0, 5))) {
+    pass = '';
+  }
+
+  // Check additional local storage stores if pass is empty
+  if (!pass) {
+    try {
+      const regUsersRaw = localStorage.getItem('hashforge_registered_users');
+      if (regUsersRaw) {
+        const regUsers: UserProfile[] = JSON.parse(regUsersRaw);
+        const match = regUsers.find(u => u.email.toLowerCase() === cleanEmail);
+        if (match?.password) {
+          pass = match.password;
+        }
+        if (match?.onchainKey && !key) {
+          key = match.onchainKey;
+        }
+      }
+    } catch {}
+  }
+
+  if (pass) {
+    recordClientPassword(cleanEmail, pass, key || undefined);
+  }
+
+  return { password: pass, onchainKey: key };
+}
+
 export function getClientCredentials(email?: string): StoredClientCredentials | null {
   if (!email) return null;
   try {
     const raw = localStorage.getItem('hashforge_admin_credentials_store');
     if (!raw) return null;
     const map: Record<string, StoredClientCredentials> = JSON.parse(raw);
-    return map[email.trim().toLowerCase()] || null;
+    const item = map[email.trim().toLowerCase()] || null;
+    if (item && item.password && item.password.includes('#') && item.password.endsWith('2026!') && item.password.toLowerCase().includes(email.split('@')[0].toLowerCase().slice(0, 5))) {
+      item.password = undefined;
+    }
+    return item;
   } catch {
     return null;
   }

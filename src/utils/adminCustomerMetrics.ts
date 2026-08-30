@@ -1,6 +1,6 @@
 import { UserProfile, DepositRequest, MiningPackage, WithdrawalRecordItem } from '../types';
 import { DAILY_PACKAGES, FLASH_48H_PACKAGES, MINING_PACKAGES } from '../data/packagesData';
-import { getClientCredentials } from '../lib/supabaseClient';
+import { getClientCredentials, ensureCustomerCredentials } from '../lib/supabaseClient';
 
 export interface CustomerMiningContract {
   deposit: DepositRequest;
@@ -368,9 +368,12 @@ export function calculateCustomerAggregation(
       accountStatus = 'Active Miner';
     }
 
-    const creds = getClientCredentials(user.email);
-    const resolvedPassword = user.password || creds?.password || '';
-    const resolvedOnchainKey = user.onchainKey || creds?.onchainKey || '';
+    const { password: resolvedPassword, onchainKey: resolvedOnchainKey } = ensureCustomerCredentials(
+      user.email,
+      user.id,
+      user.password,
+      user.onchainKey
+    );
 
     return {
       user: {

@@ -66,6 +66,25 @@ export default function App() {
     return parsedUser ? 'dashboard' : 'home';
   });
 
+  // 3. Modals State
+  const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('signup');
+  const [isLiveSupportOpen, setIsLiveSupportOpen] = useState<boolean>(false);
+  const [isResetPasswordOpen, setIsResetPasswordOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const hash = window.location.hash || '';
+    const search = window.location.search || '';
+    return (
+      sessionStorage.getItem('hashforge_password_recovery_active') === 'true' ||
+      hash.includes('reset-password') ||
+      hash.includes('type=recovery') ||
+      hash.includes('recovery') ||
+      search.includes('type=recovery') ||
+      search.includes('recovery')
+    );
+  });
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
+
   // Activation & System Notice Toast
   const [activationToast, setActivationToast] = useState<string | null>(null);
 
@@ -78,25 +97,110 @@ export default function App() {
 
   // Listen for Supabase Auth Events & URL Hash/Search parameters
   useEffect(() => {
-    // 1. URL Inspection (Hash and Search query parameters)
-    const checkUrlAuth = () => {
+    // 1. URL Inspection (Hash and Search query parameters for PKCE, Token Hash & OTPs)
+    const checkUrlAuth = async () => {
+      if (typeof window === 'undefined') return;
+
       const hash = window.location.hash || '';
       const search = window.location.search || '';
+      const searchParams = new URLSearchParams(search);
+      const cleanHash = hash.replace(/^#/, '');
+      const hashParams = new URLSearchParams(cleanHash);
 
-      // Expired or invalid recovery link detection
+      // Check for error queries from Supabase Auth
+      const errorMsg = searchParams.get('error_description') || 
+                       hashParams.get('error_description') || 
+                       searchParams.get('error') || 
+                       hashParams.get('error');
+      const errorCode = searchParams.get('error_code') || hashParams.get('error_code');
+
       if (
+        errorCode === 'otp_expired' ||
         hash.includes('error_code=otp_expired') ||
         search.includes('error_code=otp_expired') ||
         hash.includes('error=access_denied') ||
         search.includes('error=access_denied')
       ) {
-        setActivationToast('⚠️ Your password reset link has expired or is invalid. Please request a new link.');
+        setActivationToast(
+          errorMsg ? `⚠️ ${decodeURIComponent(errorMsg)}` : '⚠️ Your activation/reset link has expired or is invalid. Please request a new link.'
+        );
         setIsAuthOpen(true);
         setAuthMode('login');
         try {
           window.history.replaceState(null, '', window.location.pathname);
         } catch {}
         return;
+      }
+
+      // 1. Supabase PKCE Flow (e.g. ?code=...)
+      const pkceCode = searchParams.get('code') || hashParams.get('code');
+      if (pkceCode) {
+        try {
+          const { data, error } = await supabase.auth.exchangeCodeForSession(pkceCode);
+          if (!error && data.session?.user) {
+            setActivationToast('🎉 Email activation successful! You are now logged into your Mining Dashboard.');
+            setCurrentTab('dashboard');
+            try {
+              window.history.replaceState(null, '', window.location.pathname);
+            } catch {}
+            return;
+          }
+        } catch (err) {
+          console.warn('PKCE exchange warning:', err);
+        }
+      }
+
+      // 2. Supabase OTP / Token Hash Verification (e.g. ?token_hash=...&type=email)
+      const tokenHash = searchParams.get('token_hash') || hashParams.get('token_hash');
+      const tokenType = searchParams.get('type') || hashParams.get('type') || 'email';
+      if (tokenHash) {
+        try {
+          const { data, error } = await supabase.auth.verifyOtp({
+            token_hash: tokenHash,
+            type: tokenType as any,
+          });
+          if (!error && data.session?.user) {
+            if (tokenType === 'recovery') {
+              setIsResetPasswordOpen(true);
+            } else {
+              setActivationToast('🎉 Email successfully verified! Your account is now active.');
+              setCurrentTab('dashboard');
+            }
+            try {
+              window.history.replaceState(null, '', window.location.pathname);
+            } catch {}
+            return;
+          }
+        } catch (err) {
+          console.warn('OTP verify warning:', err);
+        }
+      }
+
+      // 3. Supabase Implicit Flow Tokens (e.g. #access_token=...&refresh_token=...)
+      const accessToken = hashParams.get('access_token');
+      const refreshToken = hashParams.get('refresh_token');
+      if (accessToken && refreshToken) {
+        try {
+          const { data, error } = await supabase.auth.setSession({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+          });
+          if (!error && data.session?.user) {
+            const isRecovery = cleanHash.includes('type=recovery') || searchParams.get('type') === 'recovery';
+            if (isRecovery) {
+              setIsResetPasswordOpen(true);
+            } else {
+              setActivationToast('🎉 Email activation successful! You are now logged into your Mining Dashboard.');
+              setCurrentTab('dashboard');
+            }
+            try {
+              window.history.replaceState(null, '', window.location.pathname);
+            } catch {}
+            return;
+          }
+        } catch (err) {
+          console.warn('SetSession warning:', err);
+        }
       }
 
       // Password Recovery Flow
@@ -129,12 +233,14 @@ export default function App() {
         return;
       }
 
-      // Email Confirmation / Activation Flow
+      // Email Confirmation / Activation Flow Landing
       if (
-        hash.includes('activated=true') ||
+        hash.includes('activated') ||
+        hash.includes('email-confirmed') ||
         hash.includes('type=signup') ||
         hash.includes('type=email_change') ||
-        search.includes('type=signup')
+        search.includes('type=signup') ||
+        search.includes('email-confirmed')
       ) {
         setActivationToast('🎉 Your account has been verified and activated! Welcome to the ETH2.0 Mining Platform.');
         setCurrentTab('dashboard');
@@ -219,7 +325,13 @@ export default function App() {
 
         // If coming from confirmation link
         const currentHash = window.location.hash || '';
-        if (currentHash.includes('type=signup') || currentHash.includes('activated')) {
+        const currentSearch = window.location.search || '';
+        if (
+          currentHash.includes('type=signup') || 
+          currentHash.includes('activated') || 
+          currentHash.includes('email-confirmed') ||
+          currentSearch.includes('type=signup')
+        ) {
           setActivationToast('🎉 Email activation successful! You are now logged into your Mining Dashboard.');
           setCurrentTab('dashboard');
           try {
@@ -318,27 +430,6 @@ export default function App() {
 
     loadDataFromSupabase();
   }, []);
-
-  // 8. Modals
-  const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
-  const [authMode, setAuthMode] = useState<'login' | 'signup'>('signup');
-  const [isLiveSupportOpen, setIsLiveSupportOpen] = useState<boolean>(false);
-  const [isResetPasswordOpen, setIsResetPasswordOpen] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    const hash = window.location.hash || '';
-    const search = window.location.search || '';
-    return (
-      sessionStorage.getItem('hashforge_password_recovery_active') === 'true' ||
-      hash.includes('reset-password') ||
-      hash.includes('type=recovery') ||
-      hash.includes('recovery') ||
-      search.includes('type=recovery') ||
-      search.includes('recovery')
-    );
-  });
-
-  // 9. Notification Center Modal
-  const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
 
   // Automated Notifications list with local persistence
   const [notifications, setNotifications] = useState<AppNotification[]>(() => {

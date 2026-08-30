@@ -1851,6 +1851,105 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             </div>
           </div>
 
+          {/* Section: Fix 404 Gmail Confirmation Link / Supabase URL Configuration */}
+          <div className="p-6 rounded-3xl bg-gradient-to-br from-[#0c1322] to-[#111a30] border-2 border-amber-500/40 shadow-2xl space-y-5">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-amber-500/20 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                  <Mail className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-sm font-black text-white">Fix Gmail Confirmation Link 404 Error (URL Configuration)</h3>
+                    <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                      Required for Email Links
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-amber-200/80 font-mono">
+                    Why 404 happens: Supabase default Site URL is set to `localhost:3000`. Update it in Supabase Dashboard to your live app URL!
+                  </p>
+                </div>
+              </div>
+
+              <a
+                href="https://supabase.com/dashboard/project/bnyjkevubfncpkbnbacv/auth/url-configuration"
+                target="_blank"
+                rel="noreferrer"
+                className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 cursor-pointer flex items-center gap-1.5 transition-all shrink-0"
+              >
+                <span>Open Supabase URL Config</span>
+                <ExternalLink className="w-3.5 h-3.5 text-slate-950" />
+              </a>
+            </div>
+
+            {/* Step-by-Step Fix Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs font-mono">
+              {/* Step 1 */}
+              <div className="p-4 rounded-2xl bg-[#080d19] border border-amber-500/20 space-y-2">
+                <div className="flex items-center justify-between text-amber-400 font-bold">
+                  <span>Step 1: Set Site URL</span>
+                  <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-[10px]">Site URL</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-normal">
+                  In Supabase Dashboard &rarr; <strong>Authentication &rarr; URL Configuration</strong>, paste this in <strong>Site URL</strong>:
+                </p>
+                <div className="flex items-center gap-1.5 bg-[#0b101c] p-2 rounded-lg border border-slate-700">
+                  <span className="text-[10px] text-emerald-400 select-all truncate flex-1 font-mono">
+                    https://ais-pre-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard('https://ais-pre-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app', 'site_url')}
+                    className="text-slate-400 hover:text-amber-300 p-1 cursor-pointer"
+                    title="Copy Site URL"
+                  >
+                    {copiedKey === 'site_url' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Step 2 */}
+              <div className="p-4 rounded-2xl bg-[#080d19] border border-cyan-500/20 space-y-2">
+                <div className="flex items-center justify-between text-cyan-400 font-bold">
+                  <span>Step 2: Add Redirect URLs</span>
+                  <span className="px-1.5 py-0.5 rounded bg-cyan-500/20 text-[10px]">Redirects</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-normal">
+                  Under <strong>Redirect URLs</strong>, click <em>Add URL</em> and add this wildcard pattern:
+                </p>
+                <div className="flex items-center gap-1.5 bg-[#0b101c] p-2 rounded-lg border border-slate-700">
+                  <span className="text-[10px] text-cyan-300 select-all truncate flex-1 font-mono">
+                    https://ais-pre-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app/**
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard('https://ais-pre-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app/**', 'redirect_url')}
+                    className="text-slate-400 hover:text-cyan-300 p-1 cursor-pointer"
+                    title="Copy Redirect URL"
+                  >
+                    {copiedKey === 'redirect_url' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Step 3 */}
+              <div className="p-4 rounded-2xl bg-[#080d19] border border-emerald-500/20 space-y-2">
+                <div className="flex items-center justify-between text-emerald-400 font-bold">
+                  <span>Step 3: Instant Signup Mode</span>
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-[10px]">Optional</span>
+                </div>
+                <p className="text-[11px] text-slate-400 leading-normal">
+                  To allow clients to login <strong>immediately without clicking Gmail</strong>:
+                </p>
+                <div className="p-2 rounded-lg bg-[#0b101c] border border-slate-700 text-[10px] text-slate-300 space-y-1">
+                  <div>1. Go to <strong>Authentication &rarr; Providers &rarr; Email</strong></div>
+                  <div>2. Turn OFF <strong>"Confirm email"</strong> toggle</div>
+                  <div>3. Click <strong>Save</strong></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Section 2: Supabase Credential Vaults Direct Inspector */}
           <div className="p-6 rounded-3xl bg-[#0c1220] border border-slate-800 shadow-2xl space-y-4">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-4">

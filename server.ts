@@ -131,6 +131,28 @@ function generateFallbackAdvice(question: string, lang: string): string {
 
 // Vite integration
 async function startServer() {
+  // Dedicated Supabase Auth email confirmation & callback fallback routes
+  app.get(
+    [
+      "/auth/confirm",
+      "/auth/callback",
+      "/auth/v1/callback",
+      "/auth/v1/verify",
+      "/verify",
+      "/confirm",
+      "/email-confirmed",
+      "/activate",
+      "/reset-password"
+    ],
+    (req, res, next) => {
+      if (req.headers.accept && req.headers.accept.includes("application/json")) {
+        return next();
+      }
+      const search = req.url.includes("?") ? req.url.substring(req.url.indexOf("?")) : "";
+      return res.redirect(`/${search}`);
+    }
+  );
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },

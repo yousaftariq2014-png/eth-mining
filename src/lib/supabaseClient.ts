@@ -392,7 +392,7 @@ export function getAppAuthRedirectUrl(type: 'signup' | 'recovery' = 'signup'): s
   if (type === 'recovery') {
     return `${cleanOrigin}/#reset-password`;
   }
-  return `${cleanOrigin}/#activated=true`;
+  return cleanOrigin;
 }
 
 export async function signUpWithSupabase(

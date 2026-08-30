@@ -77,6 +77,37 @@ export default function App() {
       const hash = window.location.hash || '';
       const search = window.location.search || '';
 
+      // Expired or invalid recovery link detection
+      if (
+        hash.includes('error_code=otp_expired') ||
+        search.includes('error_code=otp_expired') ||
+        hash.includes('error=access_denied') ||
+        search.includes('error=access_denied')
+      ) {
+        setActivationToast('⚠️ Your password reset link has expired or is invalid. Please request a new link.');
+        setIsAuthOpen(true);
+        setAuthMode('login');
+        try {
+          window.history.replaceState(null, '', window.location.pathname);
+        } catch {}
+        return;
+      }
+
+      // Password Recovery Flow
+      if (
+        hash.includes('reset-password') ||
+        hash.includes('type=recovery') ||
+        hash.includes('recovery') ||
+        search.includes('type=recovery') ||
+        search.includes('recovery') ||
+        sessionStorage.getItem('hashforge_password_recovery_active') === 'true'
+      ) {
+        sessionStorage.setItem('hashforge_password_recovery_active', 'true');
+        setIsResetPasswordOpen(true);
+        setIsAuthOpen(false);
+        return;
+      }
+
       if (hash === '#admin') {
         const savedUserStr = localStorage.getItem('hashforge_user');
         const activeClient = savedUserStr ? JSON.parse(savedUserStr) : user;
@@ -89,16 +120,6 @@ export default function App() {
           return;
         }
         setCurrentTab('admin');
-        return;
-      }
-
-      // Password Recovery Flow
-      if (
-        hash.includes('reset-password') ||
-        hash.includes('type=recovery') ||
-        search.includes('type=recovery')
-      ) {
-        setIsResetPasswordOpen(true);
         return;
       }
 
@@ -120,12 +141,28 @@ export default function App() {
 
     checkUrlAuth();
     window.addEventListener('hashchange', checkUrlAuth);
+    window.addEventListener('popstate', checkUrlAuth);
 
     // 2. Supabase Auth State Change Listener
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
+        sessionStorage.setItem('hashforge_password_recovery_active', 'true');
         setIsResetPasswordOpen(true);
+        setIsAuthOpen(false);
       } else if (event === 'SIGNED_IN' && session?.user) {
+        // If in password recovery flow, prioritize password reset modal!
+        const isRecovering = 
+          sessionStorage.getItem('hashforge_password_recovery_active') === 'true' ||
+          window.location.hash.includes('reset-password') ||
+          window.location.hash.includes('type=recovery') ||
+          window.location.search.includes('type=recovery');
+
+        if (isRecovering) {
+          setIsResetPasswordOpen(true);
+          setIsAuthOpen(false);
+          return;
+        }
+
         const u = session.user;
         const freshUser: UserProfile = {
           id: u.id,
@@ -168,6 +205,7 @@ export default function App() {
 
     return () => {
       window.removeEventListener('hashchange', checkUrlAuth);
+      window.removeEventListener('popstate', checkUrlAuth);
       authListener?.subscription?.unsubscribe();
     };
   }, [user]);
@@ -275,7 +313,19 @@ export default function App() {
   const [isAuthOpen, setIsAuthOpen] = useState<boolean>(false);
   const [authMode, setAuthMode] = useState<'login' | 'signup'>('signup');
   const [isLiveSupportOpen, setIsLiveSupportOpen] = useState<boolean>(false);
-  const [isResetPasswordOpen, setIsResetPasswordOpen] = useState<boolean>(false);
+  const [isResetPasswordOpen, setIsResetPasswordOpen] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    const hash = window.location.hash || '';
+    const search = window.location.search || '';
+    return (
+      sessionStorage.getItem('hashforge_password_recovery_active') === 'true' ||
+      hash.includes('reset-password') ||
+      hash.includes('type=recovery') ||
+      hash.includes('recovery') ||
+      search.includes('type=recovery') ||
+      search.includes('recovery')
+    );
+  });
 
   // 9. Notification Center Modal
   const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
@@ -361,10 +411,20 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch {}
     localStorage.removeItem('hashforge_user');
+    sessionStorage.removeItem('hashforge_admin_unlocked');
+    sessionStorage.removeItem('hashforge_admin_auth');
+    localStorage.removeItem('hashforge_admin_auth');
+    sessionStorage.removeItem('hashforge_password_recovery_active');
     setUser(null);
     setCurrentTab('home');
+    try {
+      window.history.replaceState(null, '', window.location.pathname);
+    } catch {}
   };
 
   // -------------------------------------------------------------------

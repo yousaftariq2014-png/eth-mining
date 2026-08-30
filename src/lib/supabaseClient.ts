@@ -89,7 +89,7 @@ export async function checkSupabaseConnection(): Promise<{ connected: boolean; e
 // AUTHENTICATION & EMAIL ACTIVATION HELPERS
 // ----------------------------------------------------
 export function getAppAuthRedirectUrl(type: 'signup' | 'recovery' = 'signup'): string {
-  const defaultPublicOrigin = 'https://ais-pre-q52bihbqpd7vjsdd6trsyw-416902820996.asia-southeast1.run.app';
+  const defaultPublicOrigin = 'https://ais-pre-sntnq6upgk7smxstiwons3-318034483586.asia-southeast1.run.app';
   let cleanOrigin = defaultPublicOrigin;
 
   if (typeof window !== 'undefined' && window.location?.origin) {

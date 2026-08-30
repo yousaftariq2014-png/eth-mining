@@ -26,7 +26,8 @@ export const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({
 
   const handleClose = () => {
     try {
-      if (window.location.hash.includes('reset-password')) {
+      sessionStorage.removeItem('hashforge_password_recovery_active');
+      if (window.location.hash.includes('reset-password') || window.location.hash.includes('recovery')) {
         window.history.replaceState(null, '', window.location.pathname);
       }
     } catch {}
@@ -61,12 +62,23 @@ export const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({
         return;
       }
 
-      setSuccessMsg('Your password has been successfully updated!');
+      const clientEmail = data.user?.email || '';
+      if (clientEmail) {
+        try {
+          await supabase.from('clients').update({ password: newPassword }).eq('email', clientEmail.toLowerCase());
+        } catch {}
+      }
+
+      try {
+        sessionStorage.removeItem('hashforge_password_recovery_active');
+      } catch {}
+
+      setSuccessMsg('Your password has been successfully updated! Logging into dashboard...');
 
       const userProfile: UserProfile = {
         id: data.user?.id || `usr-${Date.now()}`,
         name: (data.user?.user_metadata?.full_name as string) || data.user?.email?.split('@')[0] || 'User',
-        email: data.user?.email || '',
+        email: clientEmail,
         plan: 'VIP 1 Starter',
         vipLevel: 1,
         joinedDate: new Date().toISOString().substring(0, 10),

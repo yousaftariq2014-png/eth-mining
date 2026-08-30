@@ -83,13 +83,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 }) => {
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState<boolean>(() => {
     try {
+      const isUnlocked = sessionStorage.getItem('hashforge_admin_unlocked') === 'true';
       const activeAdmin = sessionStorage.getItem('hashforge_admin_auth');
-      return activeAdmin === MASTER_ADMIN_EMAIL.toLowerCase();
+      return isUnlocked && activeAdmin === MASTER_ADMIN_EMAIL.toLowerCase();
     } catch {
       return false;
     }
   });
-  const [checkingSession, setCheckingSession] = useState<boolean>(true);
+  const [checkingSession, setCheckingSession] = useState<boolean>(false);
   const [adminEmail, setAdminEmail] = useState<string>('');
   const [adminPassword, setAdminPassword] = useState<string>('');
   const [loginError, setLoginError] = useState<string>('');
@@ -138,14 +139,25 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
   };
 
-  // Check admin session on mount
+  // Check admin session on mount - STRICT: Requires explicit unlocked session flag
   useEffect(() => {
     async function checkExistingSession() {
       try {
+        const isUnlocked = sessionStorage.getItem('hashforge_admin_unlocked') === 'true';
+        if (!isUnlocked) {
+          setIsAdminLoggedIn(false);
+          setCheckingSession(false);
+          return;
+        }
+
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.user?.email?.toLowerCase() === MASTER_ADMIN_EMAIL.toLowerCase()) {
           setIsAdminLoggedIn(true);
-          sessionStorage.setItem('hashforge_admin_auth', MASTER_ADMIN_EMAIL.toLowerCase());
+        } else {
+          // If session expired or invalid, lock admin console
+          sessionStorage.removeItem('hashforge_admin_unlocked');
+          sessionStorage.removeItem('hashforge_admin_auth');
+          setIsAdminLoggedIn(false);
         }
       } catch (err) {
         console.warn('Session check fallback:', err);
@@ -210,8 +222,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       });
 
       if (!error && data.user && data.user.email?.toLowerCase() === MASTER_ADMIN_EMAIL.toLowerCase()) {
-        setIsAdminLoggedIn(true);
+        sessionStorage.setItem('hashforge_admin_unlocked', 'true');
         sessionStorage.setItem('hashforge_admin_auth', MASTER_ADMIN_EMAIL.toLowerCase());
+        setIsAdminLoggedIn(true);
         setIsSubmittingLogin(false);
         return;
       }
@@ -228,8 +241,17 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     try {
       await supabase.auth.signOut();
     } catch {}
+    sessionStorage.removeItem('hashforge_admin_unlocked');
     sessionStorage.removeItem('hashforge_admin_auth');
+    localStorage.removeItem('hashforge_admin_auth');
     setIsAdminLoggedIn(false);
+    setAdminEmail('');
+    setAdminPassword('');
+    setLoginError('');
+    try {
+      window.history.replaceState(null, '', window.location.pathname);
+    } catch {}
+    onBackToClientApp();
   };
 
   // Synchronize and aggregate customer data with real-time financial accuracy

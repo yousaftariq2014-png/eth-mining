@@ -97,21 +97,31 @@ export async function checkSupabaseConnection(): Promise<{ connected: boolean; e
 // AUTHENTICATION & EMAIL ACTIVATION HELPERS
 // ----------------------------------------------------
 export function getAppAuthRedirectUrl(type: 'signup' | 'recovery' = 'signup'): string {
-  const defaultPublicOrigin = 'https://ais-pre-sntnq6upgk7smxstiwons3-318034483586.asia-southeast1.run.app';
+  // Current public shared preview origin for this applet
+  const defaultPublicOrigin = 'https://ais-pre-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app';
   let cleanOrigin = defaultPublicOrigin;
 
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    let current = window.location.origin.replace(/\/+$/, '');
-    // If running in development sandbox (ais-dev), transform to public shared preview (ais-pre)
-    // so mobile users and external clients clicking email links do NOT get Google 403 Forbidden
-    if (current.includes('ais-dev-')) {
-      current = current.replace('ais-dev-', 'ais-pre-');
-    }
-    // If inside Google AI Studio host frame, fallback to public shared applet URL
-    if (current.includes('aistudio.google.com') || current.includes('google.com')) {
-      current = defaultPublicOrigin;
-    }
-    cleanOrigin = current;
+  if (typeof window !== 'undefined') {
+    // Check if custom override is configured
+    try {
+      const customOrigin = localStorage.getItem('hashforge_custom_site_url');
+      if (customOrigin && customOrigin.startsWith('http')) {
+        cleanOrigin = customOrigin.replace(/\/+$/, '');
+      } else if (window.location?.origin) {
+        let current = window.location.origin.replace(/\/+$/, '');
+        // If running in development sandbox (ais-dev), transform to public shared preview (ais-pre)
+        // so mobile users and external clients clicking email links do NOT get Google 403 Forbidden
+        if (current.includes('ais-dev-')) {
+          current = current.replace('ais-dev-', 'ais-pre-');
+        }
+        // If inside Google AI Studio host frame, fallback to public shared applet URL
+        if (current.includes('aistudio.google.com') || current.includes('google.com')) {
+          current = defaultPublicOrigin;
+        } else if (current && !current.includes('localhost')) {
+          cleanOrigin = current;
+        }
+      }
+    } catch {}
   }
 
   if (type === 'recovery') {
@@ -691,7 +701,18 @@ export async function purgeAllTestData(): Promise<{ success: boolean; message: s
     localStorage.removeItem('hashforge_withdrawals');
     localStorage.removeItem('hashforge_registered_users');
     localStorage.removeItem('hashforge_password_vault');
-    localStorage.removeItem('hashforge_user');
+    localStorage.removeItem('hashforge_admin_credentials_store');
+    
+    // Clear active client session if not master admin
+    try {
+      const activeUser = localStorage.getItem('hashforge_user');
+      if (activeUser) {
+        const parsed = JSON.parse(activeUser);
+        if (parsed?.email?.trim().toLowerCase() !== 'yousaftariq2014@gmail.com') {
+          localStorage.removeItem('hashforge_user');
+        }
+      }
+    } catch {}
 
     return {
       success: true,

@@ -36,7 +36,10 @@ import {
   Send,
   Eye,
   EyeOff,
-  KeyRound
+  KeyRound,
+  Globe,
+  Mail,
+  Sliders
 } from 'lucide-react';
 import { UserProfile, DepositRequest, MiningPackage, WithdrawalRecordItem, GlobalAnnouncement } from '../types';
 import { 
@@ -118,7 +121,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [syncToast, setSyncToast] = useState<string>('');
 
-  const [activeTab, setActiveTab] = useState<'clients' | 'deposits' | 'withdrawals' | 'announcements'>('clients');
+  const [activeTab, setActiveTab] = useState<'clients' | 'deposits' | 'withdrawals' | 'announcements' | 'email_config'>('clients');
   const [clientFilter, setClientFilter] = useState<'all' | 'active_miners' | 'pending_deposits' | 'pending_withdrawals' | 'inactive'>('all');
   const [depositFilter, setDepositFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
   const [withdrawalFilter, setWithdrawalFilter] = useState<'all' | 'pending' | 'approved' | 'failed'>('pending');
@@ -804,6 +807,22 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             {announcementState.isActive && (
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
             )}
+          </button>
+
+          {/* Tab 5: Supabase & Email Activation Config */}
+          <button
+            onClick={() => setActiveTab('email_config')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-2 transition-all ${
+              activeTab === 'email_config'
+                ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/20'
+                : 'bg-[#0f172a] text-slate-300 hover:text-white border border-slate-800'
+            }`}
+          >
+            <Globe className="w-4 h-4 text-cyan-400" />
+            <span>Email Activation & URLs</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+              Fix Vercel
+            </span>
           </button>
         </div>
       </div>
@@ -1588,6 +1607,130 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               <Send className="w-4 h-4" />
               <span>Save & Broadcast Announcement Sitewide</span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* TAB 5: SUPABASE EMAIL ACTIVATION & REDIRECT CONFIGURATION    */}
+      {/* ============================================================ */}
+      {activeTab === 'email_config' && (
+        <div className="space-y-6">
+          {/* Main Informational Alert */}
+          <div className="p-5 rounded-3xl bg-[#0e1628] border border-amber-500/30 shadow-2xl space-y-4">
+            <div className="flex items-start gap-3.5">
+              <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                <Globe className="w-6 h-6" />
+              </div>
+              <div className="space-y-1">
+                <h2 className="text-lg font-black text-white">Supabase Email Activation & Redirect URL Setup</h2>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  When a client registers, Supabase sends an email confirmation link. If the <strong>Site URL</strong> in your Supabase project dashboard is set to the old Vercel deployment URL, users clicking the email link will be redirected to Vercel instead of this live app. Follow the simple 2-step setup below to fix this permanently.
+                </p>
+              </div>
+            </div>
+
+            {/* Quick Action Button to Open Supabase Dashboard */}
+            <div className="pt-2">
+              <a
+                href="https://supabase.com/dashboard/project/bnyjkevubfncpkbnbacv/auth/url-configuration"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 transition-all"
+              >
+                <span>Open Supabase Auth URL Configuration</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            </div>
+          </div>
+
+          {/* Configuration Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Step 1: Site URL */}
+            <div className="p-5 rounded-2xl bg-[#0c1220] border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                  Step 1: Set Site URL
+                </span>
+                <span className="text-[11px] text-slate-400 font-mono">Supabase Auth</span>
+              </div>
+              <h3 className="text-sm font-bold text-white">Primary Site URL (Replaces Vercel)</h3>
+              <p className="text-xs text-slate-400">
+                In Supabase Dashboard &rarr; Authentication &rarr; URL Configuration, paste this in the <strong>Site URL</strong> field:
+              </p>
+              <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-950 border border-slate-700 font-mono text-xs text-amber-400">
+                <span className="truncate flex-1">https://ais-pre-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText('https://ais-pre-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app');
+                    setCopiedKey('site_url');
+                    setTimeout(() => setCopiedKey(null), 2000);
+                  }}
+                  className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-[10px] font-bold shrink-0 flex items-center gap-1 cursor-pointer"
+                >
+                  {copiedKey === 'site_url' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  <span>{copiedKey === 'site_url' ? 'Copied' : 'Copy'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Step 2: Redirect URLs */}
+            <div className="p-5 rounded-2xl bg-[#0c1220] border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                  Step 2: Add Redirect URLs
+                </span>
+                <span className="text-[11px] text-slate-400 font-mono">Wildcard Whitelist</span>
+              </div>
+              <h3 className="text-sm font-bold text-white">Allowed Redirect URLs</h3>
+              <p className="text-xs text-slate-400">
+                Add these entries into the <strong>Redirect URLs</strong> list in Supabase so activation links never fail:
+              </p>
+              
+              <div className="space-y-1.5 font-mono text-[11px]">
+                <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200">
+                  <span className="truncate">https://ais-pre-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app/**</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText('https://ais-pre-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app/**');
+                      setCopiedKey('red_1');
+                      setTimeout(() => setCopiedKey(null), 2000);
+                    }}
+                    className="p-1 text-slate-400 hover:text-white"
+                  >
+                    {copiedKey === 'red_1' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  </button>
+                </div>
+
+                <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200">
+                  <span className="truncate">https://ais-dev-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app/**</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText('https://ais-dev-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app/**');
+                      setCopiedKey('red_2');
+                      setTimeout(() => setCopiedKey(null), 2000);
+                    }}
+                    className="p-1 text-slate-400 hover:text-white"
+                  >
+                    {copiedKey === 'red_2' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Email Template Check Note */}
+          <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 text-xs text-slate-300 space-y-2">
+            <h4 className="font-bold text-white flex items-center gap-1.5">
+              <Mail className="w-4 h-4 text-amber-400" />
+              <span>Email Confirmation Template in Supabase</span>
+            </h4>
+            <p className="text-slate-400 leading-relaxed text-[11px]">
+              In Supabase Dashboard &rarr; Authentication &rarr; Email Templates &rarr; <strong>Confirm signup</strong>: make sure the confirmation button link uses <code className="text-amber-400 bg-slate-950 px-1 py-0.5 rounded font-mono">{'{{ .ConfirmationURL }}'}</code>. Supabase will automatically attach the verification token and route the client back to this applet.
+            </p>
           </div>
         </div>
       )}

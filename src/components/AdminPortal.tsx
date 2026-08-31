@@ -3038,30 +3038,36 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
             {/* Image Attachments */}
             <div className="space-y-4">
-              <h4 className="text-xs font-bold text-slate-300 font-mono">Submitted Document Photos & Biometrics:</h4>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-slate-300 font-mono">Submitted Encrypted Document Scans & Biometrics:</h4>
+                <span className="text-[10px] font-mono text-emerald-400 font-bold bg-emerald-500/10 px-2.5 py-0.5 rounded border border-emerald-500/30">
+                  🔒 Private Compliance Vault Active
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {/* Front Photo */}
                 <div className="space-y-1.5">
                   <span className="text-[11px] font-mono text-slate-400 font-bold block">1. Front Document</span>
-                  {inspectedKyc.frontDocUrl ? (
+                  {(inspectedKyc.frontDocUrl || inspectedKyc.docFrontUrl) ? (
                     <div className="rounded-2xl overflow-hidden border border-slate-700 bg-slate-950 group relative">
                       <img
-                        src={inspectedKyc.frontDocUrl}
+                        src={inspectedKyc.frontDocUrl || inspectedKyc.docFrontUrl}
                         alt="Front Document"
                         referrerPolicy="no-referrer"
-                        className="w-full h-36 object-cover"
+                        className="w-full h-32 object-cover"
                       />
                       <a
-                        href={inspectedKyc.frontDocUrl}
+                        href={inspectedKyc.frontDocUrl || inspectedKyc.docFrontUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-xs text-white font-mono font-bold transition-all"
+                        className="absolute inset-0 bg-slate-950/70 opacity-0 group-hover:opacity-100 flex items-center justify-center text-xs text-cyan-300 font-mono font-bold transition-all"
                       >
-                        Open Full Image ↗
+                        Inspect Document ↗
                       </a>
                     </div>
                   ) : (
-                    <div className="h-36 rounded-2xl border border-dashed border-slate-800 flex items-center justify-center text-xs text-slate-600 font-mono">
+                    <div className="h-32 rounded-2xl border border-dashed border-slate-800 flex items-center justify-center text-xs text-slate-600 font-mono">
                       Not uploaded
                     </div>
                   )}
@@ -3070,25 +3076,25 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 {/* Back Photo */}
                 <div className="space-y-1.5">
                   <span className="text-[11px] font-mono text-slate-400 font-bold block">2. Back Document</span>
-                  {inspectedKyc.backDocUrl ? (
+                  {(inspectedKyc.backDocUrl || inspectedKyc.docBackUrl) ? (
                     <div className="rounded-2xl overflow-hidden border border-slate-700 bg-slate-950 group relative">
                       <img
-                        src={inspectedKyc.backDocUrl}
+                        src={inspectedKyc.backDocUrl || inspectedKyc.docBackUrl}
                         alt="Back Document"
                         referrerPolicy="no-referrer"
-                        className="w-full h-36 object-cover"
+                        className="w-full h-32 object-cover"
                       />
                       <a
-                        href={inspectedKyc.backDocUrl}
+                        href={inspectedKyc.backDocUrl || inspectedKyc.docBackUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-xs text-white font-mono font-bold transition-all"
+                        className="absolute inset-0 bg-slate-950/70 opacity-0 group-hover:opacity-100 flex items-center justify-center text-xs text-cyan-300 font-mono font-bold transition-all"
                       >
-                        Open Full Image ↗
+                        Inspect Document ↗
                       </a>
                     </div>
                   ) : (
-                    <div className="h-36 rounded-2xl border border-dashed border-slate-800 flex items-center justify-center text-xs text-slate-600 font-mono">
+                    <div className="h-32 rounded-2xl border border-dashed border-slate-800 flex items-center justify-center text-xs text-slate-600 font-mono">
                       Not uploaded
                     </div>
                   )}
@@ -3096,26 +3102,53 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
                 {/* Live Selfie */}
                 <div className="space-y-1.5">
-                  <span className="text-[11px] font-mono text-slate-400 font-bold block">3. Live Selfie with ID</span>
-                  {inspectedKyc.selfieDocUrl ? (
+                  <span className="text-[11px] font-mono text-slate-400 font-bold block">3. Live Biometric Selfie</span>
+                  {(inspectedKyc.selfieDocUrl || inspectedKyc.selfieUrl) ? (
                     <div className="rounded-2xl overflow-hidden border border-slate-700 bg-slate-950 group relative">
                       <img
-                        src={inspectedKyc.selfieDocUrl}
+                        src={inspectedKyc.selfieDocUrl || inspectedKyc.selfieUrl}
                         alt="Selfie"
                         referrerPolicy="no-referrer"
-                        className="w-full h-36 object-cover"
+                        className="w-full h-32 object-cover"
                       />
                       <a
-                        href={inspectedKyc.selfieDocUrl}
+                        href={inspectedKyc.selfieDocUrl || inspectedKyc.selfieUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-xs text-white font-mono font-bold transition-all"
+                        className="absolute inset-0 bg-slate-950/70 opacity-0 group-hover:opacity-100 flex items-center justify-center text-xs text-cyan-300 font-mono font-bold transition-all"
                       >
-                        Open Full Image ↗
+                        Inspect Selfie ↗
                       </a>
                     </div>
                   ) : (
-                    <div className="h-36 rounded-2xl border border-dashed border-slate-800 flex items-center justify-center text-xs text-slate-600 font-mono">
+                    <div className="h-32 rounded-2xl border border-dashed border-slate-800 flex items-center justify-center text-xs text-slate-600 font-mono">
+                      Not uploaded
+                    </div>
+                  )}
+                </div>
+
+                {/* Utility Bill / Bank Statement (Tier 2) */}
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-mono text-slate-400 font-bold block">4. Utility Bill / Statement</span>
+                  {inspectedKyc.utilityBillUrl ? (
+                    <div className="rounded-2xl overflow-hidden border border-purple-500/40 bg-slate-950 group relative">
+                      <img
+                        src={inspectedKyc.utilityBillUrl}
+                        alt="Proof of Address"
+                        referrerPolicy="no-referrer"
+                        className="w-full h-32 object-cover"
+                      />
+                      <a
+                        href={inspectedKyc.utilityBillUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="absolute inset-0 bg-slate-950/70 opacity-0 group-hover:opacity-100 flex items-center justify-center text-xs text-purple-300 font-mono font-bold transition-all"
+                      >
+                        Inspect Bill / Statement ↗
+                      </a>
+                    </div>
+                  ) : (
+                    <div className="h-32 rounded-2xl border border-dashed border-slate-800 flex items-center justify-center text-xs text-slate-600 font-mono">
                       Not uploaded
                     </div>
                   )}

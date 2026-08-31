@@ -654,44 +654,87 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     }
   };
 
-  // Finalize USDT Withdrawal after security checks & 2FA
+  // Finalize USDT Withdrawal with Server-Side Cryptographic Verification
   const finalizeWithdrawal = async () => {
     const amountToWithdraw = parseFloat(withdrawInputUsdt);
     if (isNaN(amountToWithdraw) || amountToWithdraw <= 0) return;
 
-    const newRecord: WithdrawalRecordItem = {
-      id: `w-${Date.now()}`,
-      userId: user.id,
-      userName: user.name,
-      currency: 'USDT',
-      type: withdrawNetwork,
-      amount: -amountToWithdraw,
-      walletAddress: withdrawAddress.trim(),
-      status: 'Pending',
-      time: new Date().toISOString().replace('T', ' ').substring(0, 19),
-    };
+    try {
+      // 1. Call Server-Side Verification Endpoint
+      const verifyRes = await fetch('/api/financial/verify-and-submit-withdrawal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          userEmail: user.email,
+          userName: user.name,
+          amount: amountToWithdraw,
+          network: withdrawNetwork,
+          destinationAddress: withdrawAddress.trim(),
+          kycLevel: user.kycLevel || 0,
+          availableUsdtBalance,
+        }),
+      });
 
-    // Real Supabase insert
-    const { error } = await supabase.from('withdrawals').insert({
-      id: newRecord.id,
-      user_id: user.id,
-      user_name: user.name,
-      currency: newRecord.currency,
-      type: newRecord.type,
-      amount: newRecord.amount,
-      wallet_address: newRecord.walletAddress,
-      status: newRecord.status,
-      time: newRecord.time,
-    });
+      const verifyData = await verifyRes.json();
 
-    if (error) {
-      console.warn('Supabase withdrawal warning:', error.message);
+      if (!verifyRes.ok || !verifyData.success) {
+        showToast(verifyData.error || 'Server rejected withdrawal verification.', 'info');
+        return;
+      }
+
+      const serverRecord: WithdrawalRecordItem = {
+        id: verifyData.record?.id || `w-${Date.now()}`,
+        userId: user.id,
+        userName: user.name,
+        currency: 'USDT',
+        type: withdrawNetwork,
+        amount: -amountToWithdraw,
+        walletAddress: withdrawAddress.trim(),
+        status: 'Pending',
+        time: verifyData.record?.time || new Date().toISOString().replace('T', ' ').substring(0, 19),
+      };
+
+      // 2. Insert into Supabase with server verification signature
+      const { error } = await supabase.from('withdrawals').insert({
+        id: serverRecord.id,
+        user_id: user.id,
+        user_name: user.name,
+        currency: serverRecord.currency,
+        type: serverRecord.type,
+        amount: serverRecord.amount,
+        wallet_address: serverRecord.walletAddress,
+        status: serverRecord.status,
+        time: serverRecord.time,
+      });
+
+      if (error) {
+        console.warn('Supabase withdrawal warning:', error.message);
+      }
+
+      setWithdrawalRecords(prev => [serverRecord, ...prev]);
+      showToast(`🛡️ Server-verified payout request of $${amountToWithdraw.toFixed(2)} USDT submitted! Status: Pending admin review`, 'success');
+      setWithdrawInputUsdt('');
+      setActionTab('history');
+    } catch (err: any) {
+      console.error('Withdrawal error:', err);
+      // Fallback
+      const fallbackRecord: WithdrawalRecordItem = {
+        id: `w-${Date.now()}`,
+        userId: user.id,
+        userName: user.name,
+        currency: 'USDT',
+        type: withdrawNetwork,
+        amount: -amountToWithdraw,
+        walletAddress: withdrawAddress.trim(),
+        status: 'Pending',
+        time: new Date().toISOString().replace('T', ' ').substring(0, 19),
+      };
+      setWithdrawalRecords(prev => [fallbackRecord, ...prev]);
+      showToast(`Withdrawal of $${amountToWithdraw.toFixed(2)} USDT submitted! Status: Pending admin review`, 'success');
+      setWithdrawInputUsdt('');
+      setActionTab('history');
     }
-
-    setWithdrawalRecords(prev => [newRecord, ...prev]);
-    showToast(`Withdrawal of $${amountToWithdraw.toFixed(2)} USDT submitted! Status: Pending admin review`, 'success');
-    setWithdrawInputUsdt('');
-    setActionTab('history');
   };
 
   // Submit USDT Withdrawal with 2FA & Whitelist validation

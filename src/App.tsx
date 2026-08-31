@@ -23,7 +23,10 @@ import {
   DepositRequest,
   WithdrawalRecordItem,
   AppNotification,
-  GlobalAnnouncement
+  GlobalAnnouncement,
+  KYCSubmission,
+  BonusAdjustment,
+  PromoCode
 } from './types';
 import { MINING_PACKAGES, INITIAL_WITHDRAWAL_RECORDS } from './data/packagesData';
 import { 
@@ -519,6 +522,188 @@ export default function App() {
     try {
       localStorage.setItem('hashforge_global_announcement', JSON.stringify(newAnnouncement));
     } catch {}
+  };
+
+  // 11. KYC Verification Submissions State
+  const [kycSubmissions, setKycSubmissions] = useState<KYCSubmission[]>(() => {
+    try {
+      const saved = localStorage.getItem('hashforge_kyc_submissions');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [
+      {
+        id: 'kyc-demo-1',
+        userId: 'usr-vip-001',
+        userName: 'Alexander Vance',
+        userEmail: 'alex.vance.crypto@proton.me',
+        documentType: 'passport',
+        idNumber: 'PA-9842109X',
+        country: 'Switzerland',
+        frontDocUrl: 'https://images.unsplash.com/photo-1544717305-2782549b5136?w=600&auto=format&fit=crop&q=80',
+        backDocUrl: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=600&auto=format&fit=crop&q=80',
+        selfieDocUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&auto=format&fit=crop&q=80',
+        submittedAt: new Date(Date.now() - 3600000 * 5).toISOString(),
+        status: 'pending',
+        requestedLevel: 2,
+      },
+      {
+        id: 'kyc-demo-2',
+        userId: 'usr-vip-002',
+        userName: 'Marcus Aurelius Sterling',
+        userEmail: 'marcus.sterling@institutional-vault.ch',
+        documentType: 'national_id',
+        idNumber: 'ID-CHE-882190',
+        country: 'Germany',
+        frontDocUrl: 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=600&auto=format&fit=crop&q=80',
+        backDocUrl: 'https://images.unsplash.com/photo-1589829545856-d10d557cf95f?w=600&auto=format&fit=crop&q=80',
+        selfieDocUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600&auto=format&fit=crop&q=80',
+        submittedAt: new Date(Date.now() - 3600000 * 24).toISOString(),
+        status: 'verified',
+        requestedLevel: 1,
+        approvedAt: new Date(Date.now() - 3600000 * 12).toISOString(),
+      }
+    ];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('hashforge_kyc_submissions', JSON.stringify(kycSubmissions));
+    } catch {}
+  }, [kycSubmissions]);
+
+  // 12. Promo Codes & Vouchers State
+  const [promoCodes, setPromoCodes] = useState<PromoCode[]>(() => {
+    try {
+      const saved = localStorage.getItem('hashforge_promo_codes');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [
+      {
+        code: 'VIP-PROMO-100',
+        type: 'bonus_usdt',
+        value: 100,
+        description: 'VIP Starter Welcome Bonus',
+        isActive: true,
+        usedCount: 3,
+        maxUses: 50,
+        createdAt: new Date().toISOString(),
+      },
+      {
+        code: 'BOOST-YIELD-1',
+        type: 'yield_boost_pct',
+        value: 1.0,
+        description: '1.0% Additional Daily Yield Boost',
+        isActive: true,
+        usedCount: 7,
+        maxUses: 20,
+        createdAt: new Date().toISOString(),
+      }
+    ];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('hashforge_promo_codes', JSON.stringify(promoCodes));
+    } catch {}
+  }, [promoCodes]);
+
+  // 13. Admin Bonus & Yield Injections History
+  const [bonusHistory, setBonusHistory] = useState<BonusAdjustment[]>(() => {
+    try {
+      const saved = localStorage.getItem('hashforge_bonus_history');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [
+      {
+        id: 'bonus-init-1',
+        userId: 'usr-vip-001',
+        userName: 'Alexander Vance',
+        type: 'instant_usdt_credit',
+        amountUsd: 500,
+        yieldBoostPercent: 0.5,
+        reason: 'VIP Institutional Onboarding Grant',
+        createdAt: new Date(Date.now() - 3600000 * 48).toISOString(),
+      }
+    ];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('hashforge_bonus_history', JSON.stringify(bonusHistory));
+    } catch {}
+  }, [bonusHistory]);
+
+  // Handlers for KYC Approval / Rejection
+  const handleAdminApproveKYC = (submissionId: string, level: 1 | 2 = 1) => {
+    setKycSubmissions(prev => prev.map(k => {
+      if (k.id === submissionId) {
+        const updated = {
+          ...k,
+          status: 'verified' as const,
+          requestedLevel: level,
+          approvedAt: new Date().toISOString(),
+        };
+        // Also update the target user profile
+        setRegisteredUsers(users => users.map(u => {
+          if (u.id === k.userId || u.email.toLowerCase() === k.userEmail.toLowerCase()) {
+            const updatedUser: UserProfile = {
+              ...u,
+              kycStatus: 'verified',
+              kycLevel: level,
+              kycVerifiedAt: new Date().toISOString(),
+            };
+            saveSupabaseUser(updatedUser);
+            if (user && (user.id === u.id || user.email.toLowerCase() === u.email.toLowerCase())) {
+              setUser(updatedUser);
+              localStorage.setItem('hashforge_user', JSON.stringify(updatedUser));
+            }
+            return updatedUser;
+          }
+          return u;
+        }));
+        return updated;
+      }
+      return k;
+    }));
+  };
+
+  const handleAdminRejectKYC = (submissionId: string, reason: string) => {
+    setKycSubmissions(prev => prev.map(k => {
+      if (k.id === submissionId) {
+        const updated = {
+          ...k,
+          status: 'rejected' as const,
+          rejectionReason: reason,
+        };
+        // Also update the user profile
+        setRegisteredUsers(users => users.map(u => {
+          if (u.id === k.userId || u.email.toLowerCase() === k.userEmail.toLowerCase()) {
+            const updatedUser: UserProfile = {
+              ...u,
+              kycStatus: 'rejected',
+              kycRejectionReason: reason,
+            };
+            saveSupabaseUser(updatedUser);
+            if (user && (user.id === u.id || user.email.toLowerCase() === u.email.toLowerCase())) {
+              setUser(updatedUser);
+              localStorage.setItem('hashforge_user', JSON.stringify(updatedUser));
+            }
+            return updatedUser;
+          }
+          return u;
+        }));
+        return updated;
+      }
+      return k;
+    }));
+  };
+
+  const handleSavePromoCodes = (newPromoCodes: PromoCode[]) => {
+    setPromoCodes(newPromoCodes);
+  };
+
+  const handleInjectBonus = (bonus: BonusAdjustment) => {
+    setBonusHistory(prev => [bonus, ...prev]);
   };
 
   // User Actions
@@ -1069,6 +1254,13 @@ export default function App() {
             onUpdateUser={handleAdminUpdateUser}
             announcement={globalAnnouncement}
             onSaveAnnouncement={handleSaveAnnouncement}
+            kycSubmissions={kycSubmissions}
+            onApproveKYC={handleAdminApproveKYC}
+            onRejectKYC={handleAdminRejectKYC}
+            promoCodes={promoCodes}
+            onSavePromoCodes={handleSavePromoCodes}
+            onInjectBonus={handleInjectBonus}
+            bonusHistory={bonusHistory}
           />
         )}
 

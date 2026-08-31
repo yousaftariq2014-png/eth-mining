@@ -39,9 +39,25 @@ import {
   KeyRound,
   Globe,
   Mail,
-  Sliders
+  Sliders,
+  Gift,
+  Tag,
+  FileText,
+  Camera,
+  Award
 } from 'lucide-react';
-import { UserProfile, DepositRequest, MiningPackage, WithdrawalRecordItem, GlobalAnnouncement } from '../types';
+import { 
+  UserProfile, 
+  DepositRequest, 
+  MiningPackage, 
+  WithdrawalRecordItem, 
+  GlobalAnnouncement,
+  KYCSubmission,
+  BonusAdjustment,
+  PromoCode,
+  KYCStatus,
+  KYCLevel
+} from '../types';
 import { 
   supabase, 
   fetchSupabaseUsers, 
@@ -54,7 +70,8 @@ import {
   SUPABASE_SQL_SETUP,
   SupabaseTableStatus,
   ClientCredentialRecord,
-  ClientOnchainKeyRecord
+  ClientOnchainKeyRecord,
+  insertSupabaseDeposit
 } from '../lib/supabaseClient';
 import { 
   calculateCustomerAggregation, 
@@ -91,6 +108,13 @@ interface AdminPortalProps {
   onUpdateUser?: (user: UserProfile) => void;
   announcement?: GlobalAnnouncement | null;
   onSaveAnnouncement?: (announcement: GlobalAnnouncement) => void;
+  kycSubmissions?: KYCSubmission[];
+  onApproveKYC?: (submissionId: string, tier: KYCLevel) => void;
+  onRejectKYC?: (submissionId: string, reason: string) => void;
+  promoCodes?: PromoCode[];
+  onSavePromoCodes?: (codes: PromoCode[]) => void;
+  onInjectBonus?: (bonus: BonusAdjustment) => void;
+  bonusHistory?: BonusAdjustment[];
 }
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({
@@ -110,6 +134,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onUpdateUser,
   announcement: initialAnnouncement,
   onSaveAnnouncement,
+  kycSubmissions = [],
+  onApproveKYC,
+  onRejectKYC,
+  promoCodes = [],
+  onSavePromoCodes,
+  onInjectBonus,
+  bonusHistory = [],
 }) => {
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState<boolean>(() => {
     try {
@@ -128,12 +159,32 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [syncToast, setSyncToast] = useState<string>('');
 
-  const [activeTab, setActiveTab] = useState<'clients' | 'deposits' | 'withdrawals' | 'announcements' | 'email_config'>('clients');
+  const [activeTab, setActiveTab] = useState<'clients' | 'deposits' | 'withdrawals' | 'kyc' | 'bonuses' | 'announcements' | 'email_config'>('clients');
   const [clientFilter, setClientFilter] = useState<'all' | 'active_miners' | 'pending_deposits' | 'pending_withdrawals' | 'inactive'>('all');
   const [depositFilter, setDepositFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
   const [withdrawalFilter, setWithdrawalFilter] = useState<'all' | 'pending' | 'approved' | 'failed'>('pending');
+  const [kycFilter, setKycFilter] = useState<'all' | 'pending' | 'verified' | 'rejected'>('pending');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Bonus & Promo State
+  const [bonusTargetUserId, setBonusTargetUserId] = useState<string>('');
+  const [bonusInjectAmount, setBonusInjectAmount] = useState<string>('250');
+  const [bonusInjectType, setBonusInjectType] = useState<'bonus_credit' | 'yield_boost' | 'manual_credit' | 'promo_reward'>('bonus_credit');
+  const [bonusYieldBoostPct, setBonusYieldBoostPct] = useState<string>('0.5');
+  const [bonusReason, setBonusReason] = useState<string>('VIP Institutional Grant');
+  const [isExecutingGlobalBonus, setIsExecutingGlobalBonus] = useState<boolean>(false);
+
+  // Promo Code Creator State
+  const [newPromoCode, setNewPromoCode] = useState<string>('');
+  const [newPromoAmount, setNewPromoAmount] = useState<string>('100');
+  const [newPromoDesc, setNewPromoDesc] = useState<string>('Mining Grant Coupon');
+  const [newPromoType, setNewPromoType] = useState<'bonus_usdt' | 'yield_boost_pct'>('bonus_usdt');
+
+  // KYC Inspection Modal
+  const [inspectedKyc, setInspectedKyc] = useState<KYCSubmission | null>(null);
+  const [kycRejectReasonInput, setKycRejectReasonInput] = useState<string>('');
+  const [showKycRejectDialog, setShowKycRejectDialog] = useState<boolean>(false);
 
   // Global Announcement Manager State
   const [announcementState, setAnnouncementState] = useState<GlobalAnnouncement>(() => {
@@ -436,6 +487,148 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       );
     });
   }, [withdrawalRecords, withdrawalFilter, searchQuery]);
+
+  // Filtered KYC Submissions
+  const filteredKycSubmissions = useMemo(() => {
+    return kycSubmissions.filter((sub) => {
+      const matchesFilter = 
+        kycFilter === 'all' ? true :
+        kycFilter === 'pending' ? sub.status === 'pending' :
+        kycFilter === 'verified' ? sub.status === 'verified' :
+        sub.status === 'rejected';
+      if (!matchesFilter) return false;
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        sub.userName?.toLowerCase().includes(q) ||
+        sub.userEmail?.toLowerCase().includes(q) ||
+        sub.idNumber?.toLowerCase().includes(q) ||
+        sub.country?.toLowerCase().includes(q) ||
+        sub.documentType?.toLowerCase().includes(q)
+      );
+    });
+  }, [kycSubmissions, kycFilter, searchQuery]);
+
+  // Execute Global Admin Bonus / Balance Injection
+  const handleExecuteGlobalBonus = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = parseFloat(bonusInjectAmount) || 0;
+    const yieldBoost = parseFloat(bonusYieldBoostPct) || 0;
+
+    if (amount <= 0 && yieldBoost <= 0) {
+      alert('Please enter a valid USDT amount or daily yield boost %');
+      return;
+    }
+
+    if (!bonusTargetUserId) {
+      alert('Please select a target client recipient, or select "All Active Users"');
+      return;
+    }
+
+    setIsExecutingGlobalBonus(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const targets = bonusTargetUserId === 'ALL_USERS' 
+        ? registeredUsers 
+        : registeredUsers.filter(u => u.id === bonusTargetUserId);
+
+      for (const target of targets) {
+        const bonusRecord: BonusAdjustment = {
+          id: `bonus-${target.id}-${Date.now()}`,
+          userId: target.id,
+          userName: target.name || target.email,
+          type: bonusInjectType,
+          amountUsd: amount,
+          yieldBoostPercent: yieldBoost,
+          reason: bonusReason.trim() || 'Admin Discretionary Grant',
+          createdAt: nowIso,
+        };
+
+        if (amount > 0) {
+          const bonusDeposit: DepositRequest = {
+            id: `bonus-dep-${target.id}-${Date.now()}`,
+            userId: target.id,
+            userName: target.name || target.email,
+            userEmail: target.email,
+            packageId: 'custom-bonus',
+            packageName: `🎁 Balance Credit: ${bonusRecord.reason}`,
+            vipLevel: target.vipLevel || 0,
+            amountUsd: amount,
+            network: 'TRC20',
+            depositAddress: '0xHashForgeSystemReserveHotVault',
+            senderTxid: `SYSTEM-CREDIT-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+            status: 'approved',
+            createdAt: nowIso,
+            approvedAt: nowIso,
+          };
+          await insertSupabaseDeposit(bonusDeposit);
+          deposits.unshift(bonusDeposit);
+        }
+
+        const updatedTarget: UserProfile = {
+          ...target,
+          bonusUsdtBalance: (target.bonusUsdtBalance || 0) + amount,
+          customYieldBonusPercent: (target.customYieldBonusPercent || 0) + yieldBoost,
+        };
+
+        onInjectBonus?.(bonusRecord);
+        onUpdateUser?.(updatedTarget);
+      }
+
+      setSyncToast(`Successfully injected $${amount.toFixed(2)} USDT / +${yieldBoost}% yield boost to ${targets.length} client(s)!`);
+      setTimeout(() => setSyncToast(''), 4000);
+      setBonusInjectAmount('250');
+      setBonusReason('VIP Institutional Grant');
+    } catch (err: any) {
+      alert('Bonus injection failed: ' + (err?.message || 'Error'));
+    } finally {
+      setIsExecutingGlobalBonus(false);
+    }
+  };
+
+  // Promo Code Creator Handler
+  const handleCreatePromoCode = (e: React.FormEvent) => {
+    e.preventDefault();
+    const codeClean = newPromoCode.trim().toUpperCase();
+    if (!codeClean) {
+      alert('Please enter a valid coupon/promo code name');
+      return;
+    }
+    const val = parseFloat(newPromoAmount) || 0;
+    if (val <= 0) {
+      alert('Please enter a positive value for this coupon');
+      return;
+    }
+
+    const created: PromoCode = {
+      code: codeClean,
+      type: newPromoType,
+      value: val,
+      description: newPromoDesc.trim() || 'Institutional Bonus Code',
+      isActive: true,
+      usedCount: 0,
+      maxUses: 50,
+      createdAt: new Date().toISOString(),
+    };
+
+    const next = [created, ...promoCodes.filter(p => p.code !== codeClean)];
+    onSavePromoCodes?.(next);
+    setNewPromoCode('');
+    setSyncToast(`Promo code "${codeClean}" created and active!`);
+    setTimeout(() => setSyncToast(''), 3000);
+  };
+
+  const handleTogglePromoCode = (code: string) => {
+    const next = promoCodes.map(p => p.code === code ? { ...p, isActive: !p.isActive } : p);
+    onSavePromoCodes?.(next);
+  };
+
+  const handleDeletePromoCode = (code: string) => {
+    if (window.confirm(`Delete promo code "${code}"?`)) {
+      const next = promoCodes.filter(p => p.code !== code);
+      onSavePromoCodes?.(next);
+    }
+  };
 
   // Cloud Sync Handler
   const handleTriggerSync = async () => {
@@ -834,7 +1027,41 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             )}
           </button>
 
-          {/* Tab 4: Global Announcement Bar */}
+          {/* Tab 4: KYC & Institutional Compliance Hub */}
+          <button
+            onClick={() => setActiveTab('kyc')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-2 transition-all ${
+              activeTab === 'kyc'
+                ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/20'
+                : 'bg-[#0f172a] text-slate-300 hover:text-white border border-slate-800'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>KYC Compliance ({kycSubmissions.length})</span>
+            {kycSubmissions.filter(k => k.status === 'pending').length > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-cyan-500 text-slate-950 animate-pulse">
+                {kycSubmissions.filter(k => k.status === 'pending').length} Pending
+              </span>
+            )}
+          </button>
+
+          {/* Tab 5: Instant Balance / Bonus Injector & Promo Codes */}
+          <button
+            onClick={() => setActiveTab('bonuses')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-2 transition-all ${
+              activeTab === 'bonuses'
+                ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/20'
+                : 'bg-[#0f172a] text-slate-300 hover:text-white border border-slate-800'
+            }`}
+          >
+            <Gift className="w-4 h-4" />
+            <span>Bonus & Promo Hub</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[9px] font-mono font-bold bg-emerald-500/20 text-emerald-400">
+              {promoCodes.length} Codes
+            </span>
+          </button>
+
+          {/* Tab 6: Global Announcement Bar */}
           <button
             onClick={() => setActiveTab('announcements')}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-2 transition-all ${
@@ -850,7 +1077,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             )}
           </button>
 
-          {/* Tab 5: Supabase Database & Table Hub */}
+          {/* Tab 7: Supabase Database & Table Hub */}
           <button
             onClick={() => {
               setActiveTab('email_config');
@@ -1480,7 +1707,522 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       )}
 
       {/* ============================================================ */}
-      {/* TAB 4: GLOBAL ANNOUNCEMENT BAR & SITEWIDE BROADCAST          */}
+      {/* TAB 4: KYC & INSTITUTIONAL COMPLIANCE CLEARANCE HUB           */}
+      {/* ============================================================ */}
+      {activeTab === 'kyc' && (
+        <div className="space-y-5">
+          {/* Top Compliance Overview Bento */}
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <div className="p-4 rounded-2xl bg-[#0c1220] border border-cyan-500/30 space-y-1">
+              <div className="flex items-center justify-between text-xs text-cyan-400 font-bold">
+                <span>Total Applications</span>
+                <ShieldCheck className="w-4 h-4" />
+              </div>
+              <div className="text-2xl font-black text-white font-mono">{kycSubmissions.length}</div>
+              <div className="text-[11px] text-slate-400 font-mono">Client ID dossiers</div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-[#0c1220] border border-amber-500/30 space-y-1">
+              <div className="flex items-center justify-between text-xs text-amber-400 font-bold">
+                <span>Pending Review</span>
+                <Clock className="w-4 h-4" />
+              </div>
+              <div className="text-2xl font-black text-amber-400 font-mono">
+                {kycSubmissions.filter(k => k.status === 'pending').length}
+              </div>
+              <div className="text-[11px] text-amber-300/80 font-mono">Requires action</div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-[#0c1220] border border-emerald-500/30 space-y-1">
+              <div className="flex items-center justify-between text-xs text-emerald-400 font-bold">
+                <span>Cleared & Verified</span>
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+              <div className="text-2xl font-black text-emerald-400 font-mono">
+                {kycSubmissions.filter(k => k.status === 'verified').length}
+              </div>
+              <div className="text-[11px] text-emerald-400/80 font-mono">Full compliance</div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-[#0c1220] border border-rose-500/30 space-y-1">
+              <div className="flex items-center justify-between text-xs text-rose-400 font-bold">
+                <span>Rejected / Flagged</span>
+                <XCircle className="w-4 h-4" />
+              </div>
+              <div className="text-2xl font-black text-rose-400 font-mono">
+                {kycSubmissions.filter(k => k.status === 'rejected').length}
+              </div>
+              <div className="text-[11px] text-rose-400/80 font-mono">Resubmission asked</div>
+            </div>
+          </div>
+
+          {/* KYC Submissions Toolbar & Filter */}
+          <div className="p-4 rounded-2xl bg-[#0c1220] border border-slate-800 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-400 font-bold font-mono">Filter Status:</span>
+              <div className="flex items-center gap-1.5">
+                {(['pending', 'all', 'verified', 'rejected'] as const).map((filterOpt) => (
+                  <button
+                    key={filterOpt}
+                    type="button"
+                    onClick={() => setKycFilter(filterOpt)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold font-mono uppercase transition-all cursor-pointer ${
+                      kycFilter === filterOpt
+                        ? 'bg-cyan-500 text-slate-950 font-black shadow-md shadow-cyan-500/20'
+                        : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
+                    }`}
+                  >
+                    {filterOpt}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="text-xs text-slate-400 font-mono">
+              Showing <strong className="text-white">{filteredKycSubmissions.length}</strong> of {kycSubmissions.length} submissions
+            </div>
+          </div>
+
+          {/* Submissions List */}
+          <div className="space-y-3">
+            {filteredKycSubmissions.length === 0 ? (
+              <div className="text-center py-12 rounded-3xl bg-[#0c1220] border border-slate-800 text-slate-500 text-xs font-mono space-y-2">
+                <ShieldCheck className="w-8 h-8 mx-auto text-slate-600" />
+                <p>No KYC identity submissions matching the selected filter ({kycFilter.toUpperCase()}).</p>
+              </div>
+            ) : (
+              filteredKycSubmissions.map((sub) => (
+                <div
+                  key={sub.id}
+                  className="p-5 rounded-3xl bg-[#0c1220] border border-slate-800 hover:border-slate-700 transition-all space-y-4 shadow-xl"
+                >
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 font-bold shrink-0">
+                        <FileText className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-black text-white">{sub.userName || 'Anonymous Client'}</h3>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black uppercase ${
+                            sub.status === 'verified'
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : sub.status === 'pending'
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse'
+                              : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                          }`}>
+                            {sub.status} • Tier {sub.requestedLevel}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 font-mono">{sub.userEmail} &bull; ID: {sub.userId}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setInspectedKyc(sub)}
+                        className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 hover:border-cyan-500 text-cyan-300 text-xs font-mono font-bold flex items-center gap-1.5 cursor-pointer transition-all"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Inspect Documents & Photos</span>
+                      </button>
+
+                      {sub.status === 'pending' && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => onApproveKYC?.(sub.id, 1)}
+                            className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs cursor-pointer transition-all flex items-center gap-1 shadow-md shadow-emerald-500/20"
+                            title="Approve Tier 1 Clearance ($50,000 / day)"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Approve Tier 1</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => onApproveKYC?.(sub.id, 2)}
+                            className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs cursor-pointer transition-all flex items-center gap-1 shadow-md shadow-amber-500/20"
+                            title="Approve Tier 2 Institutional Clearance (Unlimited)"
+                          >
+                            <Award className="w-3.5 h-3.5" />
+                            <span>Approve Tier 2 (Inst.)</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setInspectedKyc(sub);
+                              setShowKycRejectDialog(true);
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 font-bold text-xs cursor-pointer transition-all flex items-center gap-1"
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                            <span>Reject</span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Submission Metadata Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+                    <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-0.5">
+                      <span className="text-[10px] text-slate-500 font-sans block">Document Type:</span>
+                      <span className="text-white font-bold capitalize">{sub.documentType}</span>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-0.5">
+                      <span className="text-[10px] text-slate-500 font-sans block">ID Number:</span>
+                      <span className="text-amber-300 font-bold truncate block">{sub.idNumber}</span>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-0.5">
+                      <span className="text-[10px] text-slate-500 font-sans block">Country of Issue:</span>
+                      <span className="text-slate-200">{sub.country}</span>
+                    </div>
+
+                    <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-0.5">
+                      <span className="text-[10px] text-slate-500 font-sans block">Submitted:</span>
+                      <span className="text-slate-400">{new Date(sub.submittedAt).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+
+                  {/* Document Thumbnails */}
+                  <div className="flex items-center gap-3 pt-1 overflow-x-auto">
+                    {sub.frontDocUrl && (
+                      <div
+                        onClick={() => setInspectedKyc(sub)}
+                        className="p-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-500 cursor-pointer flex items-center gap-2 group transition-all shrink-0"
+                      >
+                        <img
+                          src={sub.frontDocUrl}
+                          alt="Front ID"
+                          referrerPolicy="no-referrer"
+                          className="w-12 h-8 rounded-lg object-cover bg-slate-900 border border-slate-800"
+                        />
+                        <span className="text-[11px] font-mono text-slate-400 group-hover:text-cyan-300 pr-2">Front ID</span>
+                      </div>
+                    )}
+
+                    {sub.backDocUrl && (
+                      <div
+                        onClick={() => setInspectedKyc(sub)}
+                        className="p-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-500 cursor-pointer flex items-center gap-2 group transition-all shrink-0"
+                      >
+                        <img
+                          src={sub.backDocUrl}
+                          alt="Back ID"
+                          referrerPolicy="no-referrer"
+                          className="w-12 h-8 rounded-lg object-cover bg-slate-900 border border-slate-800"
+                        />
+                        <span className="text-[11px] font-mono text-slate-400 group-hover:text-cyan-300 pr-2">Back ID</span>
+                      </div>
+                    )}
+
+                    {sub.selfieDocUrl && (
+                      <div
+                        onClick={() => setInspectedKyc(sub)}
+                        className="p-1.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-cyan-500 cursor-pointer flex items-center gap-2 group transition-all shrink-0"
+                      >
+                        <img
+                          src={sub.selfieDocUrl}
+                          alt="Selfie"
+                          referrerPolicy="no-referrer"
+                          className="w-12 h-8 rounded-lg object-cover bg-slate-900 border border-slate-800"
+                        />
+                        <span className="text-[11px] font-mono text-slate-400 group-hover:text-cyan-300 pr-2">Live Selfie</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {sub.rejectionReason && (
+                    <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs font-mono">
+                      <strong>Rejection Reason:</strong> {sub.rejectionReason}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* TAB 5: INSTANT BALANCE / BONUS INJECTOR & PROMO CODES HUB     */}
+      {/* ============================================================ */}
+      {activeTab === 'bonuses' && (
+        <div className="space-y-6">
+          
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Form 1: Instant Balance & Yield Multiplier Injector */}
+            <div className="p-6 rounded-3xl bg-[#0c1220] border border-emerald-500/30 shadow-2xl space-y-4">
+              <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-bold shrink-0">
+                  <Gift className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white">Instant Balance / Profit Injector</h3>
+                  <p className="text-xs text-slate-400 font-mono">Credit custom USDT amounts & profit rate boosts directly to user accounts</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleExecuteGlobalBonus} className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 font-mono mb-1">Target Client Recipient:</label>
+                  <select
+                    value={bonusTargetUserId}
+                    onChange={(e) => setBonusTargetUserId(e.target.value)}
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white focus:outline-none focus:border-emerald-500"
+                    required
+                  >
+                    <option value="">-- Choose Target Client --</option>
+                    <option value="ALL_USERS">🌟 ALL REGISTERED CLIENTS ({registeredUsers.length} Users Batch Grant)</option>
+                    {registeredUsers.map(u => (
+                      <option key={u.id} value={u.id}>
+                        {u.name || u.email} ({u.email}) - VIP {u.vipLevel || 0}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 font-mono mb-1">USDT Credit ($):</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={bonusInjectAmount}
+                      onChange={(e) => setBonusInjectAmount(e.target.value)}
+                      placeholder="e.g. 500"
+                      className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono font-bold text-emerald-400 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 font-mono mb-1">Daily Yield Boost (+%):</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="15"
+                      value={bonusYieldBoostPct}
+                      onChange={(e) => setBonusYieldBoostPct(e.target.value)}
+                      placeholder="e.g. 0.5"
+                      className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono font-bold text-amber-300 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 font-mono mb-1">Grant Reason / Memo:</label>
+                  <input
+                    type="text"
+                    value={bonusReason}
+                    onChange={(e) => setBonusReason(e.target.value)}
+                    placeholder="e.g. Institutional VIP Deposit Incentive"
+                    className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isExecutingGlobalBonus}
+                  className="w-full py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 cursor-pointer transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+                >
+                  {isExecutingGlobalBonus ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Injecting Funds...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      <span>Execute Balance / Profit Injection</span>
+                    </>
+                  )}
+                </button>
+              </form>
+            </div>
+
+            {/* Form 2: Promo Code Generator & Redemptions */}
+            <div className="p-6 rounded-3xl bg-[#0c1220] border border-cyan-500/30 shadow-2xl space-y-4">
+              <div className="flex items-center gap-3 border-b border-slate-800 pb-3">
+                <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 font-bold shrink-0">
+                  <Tag className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white">Promo Code Generator</h3>
+                  <p className="text-xs text-slate-400 font-mono">Create redeemable coupon vouchers for client acquisition</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleCreatePromoCode} className="space-y-3.5">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 font-mono mb-1">Coupon Code:</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. VIP-BOOST-500"
+                      value={newPromoCode}
+                      onChange={(e) => setNewPromoCode(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono font-bold text-cyan-300 uppercase focus:outline-none focus:border-cyan-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 font-mono mb-1">Reward Type:</label>
+                    <select
+                      value={newPromoType}
+                      onChange={(e) => setNewPromoType(e.target.value as any)}
+                      className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono text-white focus:outline-none focus:border-cyan-500"
+                    >
+                      <option value="bonus_usdt">💵 USDT Balance Credit</option>
+                      <option value="yield_boost_pct">⚡ +% Daily Yield Boost</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 font-mono mb-1">Reward Value:</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      value={newPromoAmount}
+                      onChange={(e) => setNewPromoAmount(e.target.value)}
+                      placeholder="e.g. 100"
+                      className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono font-bold text-white focus:outline-none focus:border-cyan-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 font-mono mb-1">Description:</label>
+                    <input
+                      type="text"
+                      value={newPromoDesc}
+                      onChange={(e) => setNewPromoDesc(e.target.value)}
+                      placeholder="e.g. VIP Mining Grant"
+                      className="w-full px-3 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-cyan-500"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-3 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 text-slate-950 font-black text-xs shadow-lg shadow-cyan-500/20 cursor-pointer transition-all flex items-center justify-center gap-2"
+                >
+                  <Tag className="w-4 h-4" />
+                  <span>Create & Activate Promo Code</span>
+                </button>
+              </form>
+            </div>
+          </div>
+
+          {/* Active Promo Codes List */}
+          <div className="p-6 rounded-3xl bg-[#0c1220] border border-slate-800 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <h3 className="text-sm font-black text-white flex items-center gap-2">
+                <Tag className="w-4 h-4 text-cyan-400" />
+                <span>Active Promo Codes & Voucher Vouchers ({promoCodes.length})</span>
+              </h3>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {promoCodes.length === 0 ? (
+                <div className="col-span-full text-center py-6 text-slate-500 text-xs font-mono">
+                  No promo codes generated yet. Use the creator above to generate coupon codes.
+                </div>
+              ) : (
+                promoCodes.map((promo) => (
+                  <div
+                    key={promo.code}
+                    className="p-3.5 rounded-2xl bg-slate-950 border border-slate-800 space-y-2 font-mono text-xs"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-black text-cyan-300 tracking-wider">{promo.code}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleTogglePromoCode(promo.code)}
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          promo.isActive ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-500'
+                        }`}
+                      >
+                        {promo.isActive ? 'Active' : 'Disabled'}
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between text-slate-400 text-[11px]">
+                      <span>{promo.type === 'bonus_usdt' ? `$${promo.value} USDT Balance` : `+${promo.value}% Daily Yield`}</span>
+                      <span>{promo.usedCount || 0} / {promo.maxUses || 50} Redeemed</span>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1 border-t border-slate-800/80">
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(promo.code, `promo-${promo.code}`)}
+                        className="text-[11px] text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1 cursor-pointer"
+                      >
+                        {copiedKey === `promo-${promo.code}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        <span>Copy Code</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePromoCode(promo.code)}
+                        className="text-[11px] text-rose-400 hover:text-rose-300 font-bold cursor-pointer"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Historic Bonus Adjustments Audit Trail */}
+          <div className="p-6 rounded-3xl bg-[#0c1220] border border-slate-800 shadow-2xl space-y-4">
+            <h3 className="text-sm font-black text-white flex items-center gap-2">
+              <Activity className="w-4 h-4 text-emerald-400" />
+              <span>Administrative Bonus & Yield Injection Ledger</span>
+            </h3>
+
+            <div className="space-y-2">
+              {bonusHistory.length === 0 ? (
+                <div className="text-center py-6 text-slate-500 text-xs font-mono">
+                  No bonus adjustments logged in this session yet.
+                </div>
+              ) : (
+                bonusHistory.map((bh) => (
+                  <div key={bh.id} className="p-3 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between gap-3 text-xs font-mono">
+                    <div className="flex items-center gap-3">
+                      <span className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
+                        🎁
+                      </span>
+                      <div>
+                        <div className="font-bold text-white">{bh.userName} &bull; <span className="text-emerald-400">+${bh.amountUsd} USDT</span> {bh.yieldBoostPercent ? `• +${bh.yieldBoostPercent}% yield` : ''}</div>
+                        <div className="text-[11px] text-slate-400">{bh.reason} &bull; {new Date(bh.createdAt).toLocaleString()}</div>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded bg-slate-900 text-slate-400 text-[10px] uppercase font-bold border border-slate-800">
+                      {bh.type}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* TAB 6: GLOBAL ANNOUNCEMENT BAR & SITEWIDE BROADCAST          */}
       {/* ============================================================ */}
       {activeTab === 'announcements' && (
         <div className="space-y-6">
@@ -2234,7 +2976,255 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           onRejectWithdrawal={onRejectWithdrawal}
           onDeleteClient={onDeleteClient}
           onUpdateUser={onUpdateUser}
+          onInjectBonus={onInjectBonus}
+          onUpdateKYCStatus={(userId, status, tier, reason) => {
+            const sub = kycSubmissions.find(k => k.userId === userId);
+            if (status === 'verified') {
+              if (sub && onApproveKYC) onApproveKYC(sub.id, tier);
+            } else if (status === 'rejected') {
+              if (sub && onRejectKYC) onRejectKYC(sub.id, reason || 'Compliance rejection');
+            }
+          }}
         />
+      )}
+
+      {/* ============================================================ */}
+      {/* KYC DOCUMENT INSPECTION MODAL                                */}
+      {/* ============================================================ */}
+      {inspectedKyc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="w-full max-w-2xl bg-[#0c1220] border border-cyan-500/40 rounded-3xl p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400 font-bold">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white">{inspectedKyc.userName} — KYC Dossier</h3>
+                  <p className="text-xs text-slate-400 font-mono">{inspectedKyc.userEmail} &bull; Country: {inspectedKyc.country}</p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setInspectedKyc(null)}
+                className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center cursor-pointer transition-all"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Dossier Metadata Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-mono">
+              <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Doc Type</span>
+                <span className="text-white font-bold capitalize">{inspectedKyc.documentType}</span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">ID Number</span>
+                <span className="text-amber-300 font-bold">{inspectedKyc.idNumber}</span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Requested Tier</span>
+                <span className="text-cyan-300 font-bold">Tier {inspectedKyc.requestedLevel}</span>
+              </div>
+              <div className="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+                <span className="text-[10px] text-slate-500 block">Status</span>
+                <span className={`font-bold uppercase ${inspectedKyc.status === 'verified' ? 'text-emerald-400' : inspectedKyc.status === 'rejected' ? 'text-rose-400' : 'text-amber-400'}`}>
+                  {inspectedKyc.status}
+                </span>
+              </div>
+            </div>
+
+            {/* Image Attachments */}
+            <div className="space-y-4">
+              <h4 className="text-xs font-bold text-slate-300 font-mono">Submitted Document Photos & Biometrics:</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* Front Photo */}
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-mono text-slate-400 font-bold block">1. Front Document</span>
+                  {inspectedKyc.frontDocUrl ? (
+                    <div className="rounded-2xl overflow-hidden border border-slate-700 bg-slate-950 group relative">
+                      <img
+                        src={inspectedKyc.frontDocUrl}
+                        alt="Front Document"
+                        referrerPolicy="no-referrer"
+                        className="w-full h-36 object-cover"
+                      />
+                      <a
+                        href={inspectedKyc.frontDocUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-xs text-white font-mono font-bold transition-all"
+                      >
+                        Open Full Image ↗
+                      </a>
+                    </div>
+                  ) : (
+                    <div className="h-36 rounded-2xl border border-dashed border-slate-800 flex items-center justify-center text-xs text-slate-600 font-mono">
+                      Not uploaded
+                    </div>
+                  )}
+                </div>
+
+                {/* Back Photo */}
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-mono text-slate-400 font-bold block">2. Back Document</span>
+                  {inspectedKyc.backDocUrl ? (
+                    <div className="rounded-2xl overflow-hidden border border-slate-700 bg-slate-950 group relative">
+                      <img
+                        src={inspectedKyc.backDocUrl}
+                        alt="Back Document"
+                        referrerPolicy="no-referrer"
+                        className="w-full h-36 object-cover"
+                      />
+                      <a
+                        href={inspectedKyc.backDocUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-xs text-white font-mono font-bold transition-all"
+                      >
+                        Open Full Image ↗
+                      </a>
+                    </div>
+                  ) : (
+                    <div className="h-36 rounded-2xl border border-dashed border-slate-800 flex items-center justify-center text-xs text-slate-600 font-mono">
+                      Not uploaded
+                    </div>
+                  )}
+                </div>
+
+                {/* Live Selfie */}
+                <div className="space-y-1.5">
+                  <span className="text-[11px] font-mono text-slate-400 font-bold block">3. Live Selfie with ID</span>
+                  {inspectedKyc.selfieDocUrl ? (
+                    <div className="rounded-2xl overflow-hidden border border-slate-700 bg-slate-950 group relative">
+                      <img
+                        src={inspectedKyc.selfieDocUrl}
+                        alt="Selfie"
+                        referrerPolicy="no-referrer"
+                        className="w-full h-36 object-cover"
+                      />
+                      <a
+                        href={inspectedKyc.selfieDocUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-xs text-white font-mono font-bold transition-all"
+                      >
+                        Open Full Image ↗
+                      </a>
+                    </div>
+                  ) : (
+                    <div className="h-36 rounded-2xl border border-dashed border-slate-800 flex items-center justify-center text-xs text-slate-600 font-mono">
+                      Not uploaded
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Actions Toolbar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => setInspectedKyc(null)}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer transition-all"
+              >
+                Close Dossier
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowKycRejectDialog(true);
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 font-bold text-xs cursor-pointer transition-all flex items-center gap-1.5"
+                >
+                  <XCircle className="w-4 h-4" />
+                  <span>Reject Application</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onApproveKYC?.(inspectedKyc.id, 1);
+                    setInspectedKyc(null);
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs cursor-pointer transition-all flex items-center gap-1.5 shadow-md shadow-emerald-500/20"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Approve Tier 1 ($50k/d)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    onApproveKYC?.(inspectedKyc.id, 2);
+                    setInspectedKyc(null);
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs cursor-pointer transition-all flex items-center gap-1.5 shadow-md shadow-amber-500/20"
+                >
+                  <Award className="w-4 h-4" />
+                  <span>Approve Tier 2 (Unlimited)</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* KYC REJECTION REASON DIALOG                                  */}
+      {/* ============================================================ */}
+      {showKycRejectDialog && inspectedKyc && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-[#0c1220] border border-rose-500/40 rounded-3xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3 text-rose-400">
+              <div className="w-10 h-10 rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-5 h-5 text-rose-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-white">Reject KYC Dossier</h3>
+                <p className="text-xs text-rose-300/80 font-mono">{inspectedKyc.userName} ({inspectedKyc.userEmail})</p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-slate-300 font-mono block">Rejection / Resubmission Reason:</label>
+              <textarea
+                rows={3}
+                value={kycRejectReasonInput}
+                onChange={(e) => setKycRejectReasonInput(e.target.value)}
+                placeholder="e.g. Document photo is blurry or selfie did not match passport."
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-rose-500"
+              />
+            </div>
+
+            <div className="flex items-center gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowKycRejectDialog(false)}
+                className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer transition-all"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onRejectKYC?.(inspectedKyc.id, kycRejectReasonInput.trim() || 'Document verification failed.');
+                  setShowKycRejectDialog(false);
+                  setInspectedKyc(null);
+                  setKycRejectReasonInput('');
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs cursor-pointer transition-all shadow-lg shadow-rose-600/30"
+              >
+                Confirm Rejection
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ============================================================ */}

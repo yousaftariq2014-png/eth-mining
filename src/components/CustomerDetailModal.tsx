@@ -11,6 +11,7 @@ import {
   Save,
   Lock,
   ShieldCheck,
+  ShieldAlert,
   Zap,
   DollarSign,
   TrendingUp,
@@ -31,10 +32,13 @@ import {
   RefreshCw,
   Cpu,
   PlusCircle,
-  Sparkles
+  Sparkles,
+  Gift,
+  Award,
+  Sliders
 } from 'lucide-react';
 import { AggregatedCustomerData } from '../utils/adminCustomerMetrics';
-import { UserProfile, DepositRequest } from '../types';
+import { UserProfile, DepositRequest, BonusAdjustment, KYCStatus, KYCLevel } from '../types';
 import { 
   getClientCredentials, 
   updateClientCredentials, 
@@ -52,6 +56,8 @@ interface CustomerDetailModalProps {
   onRejectWithdrawal?: (withdrawalId: string) => void;
   onDeleteClient?: (userId: string, email: string) => void;
   onUpdateUser?: (user: UserProfile) => void;
+  onInjectBonus?: (bonus: BonusAdjustment) => void;
+  onUpdateKYCStatus?: (userId: string, status: KYCStatus, tier: KYCLevel, reason?: string) => void;
 }
 
 export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
@@ -62,7 +68,9 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   onApproveWithdrawal,
   onRejectWithdrawal,
   onDeleteClient,
-  onUpdateUser
+  onUpdateUser,
+  onInjectBonus,
+  onUpdateKYCStatus,
 }) => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'contracts' | 'deposits' | 'withdrawals'>('overview');
@@ -86,6 +94,21 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   const [editPassInput, setEditPassInput] = useState<string>(initialCreds.password);
 
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+
+  // Bonus & Profit Injector State
+  const [showBonusModal, setShowBonusModal] = useState<boolean>(false);
+  const [bonusAmountInput, setBonusAmountInput] = useState<string>('250');
+  const [bonusTypeInput, setBonusTypeInput] = useState<'bonus_credit' | 'yield_boost' | 'manual_credit' | 'promo_reward'>('bonus_credit');
+  const [yieldBoostInput, setYieldBoostInput] = useState<string>('0.5');
+  const [bonusReasonInput, setBonusReasonInput] = useState<string>('Executive VIP Welcome Bonus');
+  const [isInjectingBonus, setIsInjectingBonus] = useState<boolean>(false);
+
+  // KYC Management State
+  const [showKycEditModal, setShowKycEditModal] = useState<boolean>(false);
+  const [kycStatusSelect, setKycStatusSelect] = useState<KYCStatus>(customer.user.kycStatus || 'verified');
+  const [kycLevelSelect, setKycLevelSelect] = useState<KYCLevel>(customer.user.kycLevel || 1);
+  const [kycReasonInput, setKycReasonInput] = useState<string>('');
+  const [isUpdatingKyc, setIsUpdatingKyc] = useState<boolean>(false);
 
   // Direct package activation state
   const [showAssignModal, setShowAssignModal] = useState<boolean>(false);
@@ -195,6 +218,104 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
       alert('Failed to assign package: ' + (e?.message || 'Error'));
     } finally {
       setIsAssigning(false);
+    }
+  };
+
+  // Execute Bonus & Yield Boost Injection
+  const handleExecuteBonusInjection = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = parseFloat(bonusAmountInput) || 0;
+    const yieldBoost = parseFloat(yieldBoostInput) || 0;
+    
+    if (amount <= 0 && yieldBoost <= 0) {
+      alert('Please enter a valid bonus amount in USDT or a yield boost percentage.');
+      return;
+    }
+
+    setIsInjectingBonus(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const bonusRecord: BonusAdjustment = {
+        id: `bonus-${customer.user.id}-${Date.now()}`,
+        userId: customer.user.id,
+        userName: customer.user.name || customer.user.email,
+        type: bonusTypeInput,
+        amountUsd: amount,
+        yieldBoostPercent: yieldBoost,
+        reason: bonusReasonInput.trim() || 'Admin Discretionary Bonus',
+        createdAt: nowIso,
+      };
+
+      // Also create an auto-approved deposit record for balance injection if amount > 0
+      if (amount > 0) {
+        const bonusDeposit: DepositRequest = {
+          id: `bonus-dep-${Date.now()}`,
+          userId: customer.user.id,
+          userName: customer.user.name || customer.user.email,
+          userEmail: customer.user.email,
+          packageId: 'custom-bonus',
+          packageName: `🎁 Balance Credit: ${bonusRecord.reason}`,
+          vipLevel: customer.user.vipLevel || 0,
+          amountUsd: amount,
+          network: 'TRC20',
+          depositAddress: '0xHashForgeSystemReserveHotVault',
+          senderTxid: `SYSTEM-CREDIT-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+          status: 'approved',
+          createdAt: nowIso,
+          approvedAt: nowIso,
+        };
+        await insertSupabaseDeposit(bonusDeposit);
+        customer.deposits.push(bonusDeposit);
+      }
+
+      const updatedUser: UserProfile = {
+        ...customer.user,
+        bonusUsdtBalance: (customer.user.bonusUsdtBalance || 0) + amount,
+        customYieldBonusPercent: (customer.user.customYieldBonusPercent || 0) + yieldBoost,
+      };
+
+      // Update storage
+      try {
+        const historyKey = 'hashforge_bonus_adjustments';
+        const saved: BonusAdjustment[] = JSON.parse(localStorage.getItem(historyKey) || '[]');
+        saved.unshift(bonusRecord);
+        localStorage.setItem(historyKey, JSON.stringify(saved));
+      } catch {}
+
+      onInjectBonus?.(bonusRecord);
+      onUpdateUser?.(updatedUser);
+
+      setSaveSuccessMsg(`Successfully injected $${amount.toFixed(2)} USDT & +${yieldBoost.toFixed(2)}% Daily Yield Boost for ${customer.user.name || customer.user.email}!`);
+      setShowBonusModal(false);
+      setTimeout(() => setSaveSuccessMsg(null), 4000);
+    } catch (err: any) {
+      alert('Bonus injection error: ' + (err?.message || 'Failed'));
+    } finally {
+      setIsInjectingBonus(false);
+    }
+  };
+
+  // Execute KYC Verification Status Update
+  const handleExecuteKycUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsUpdatingKyc(true);
+    try {
+      const updatedUser: UserProfile = {
+        ...customer.user,
+        kycStatus: kycStatusSelect,
+        kycLevel: kycLevelSelect,
+      };
+
+      onUpdateKYCStatus?.(customer.user.id, kycStatusSelect, kycLevelSelect, kycReasonInput);
+      onUpdateUser?.(updatedUser);
+
+      setSaveSuccessMsg(`KYC Status updated to "${kycStatusSelect.toUpperCase()}" (Tier ${kycLevelSelect}) for ${customer.user.name || customer.user.email}!`);
+      setShowKycEditModal(false);
+      setTimeout(() => setSaveSuccessMsg(null), 4000);
+    } catch (err: any) {
+      alert('KYC update error: ' + (err?.message || 'Failed'));
+    } finally {
+      setIsUpdatingKyc(false);
     }
   };
 
@@ -319,6 +440,26 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={() => setShowBonusModal(true)}
+              className="px-3 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+              title="Inject instant USDT bonus or yield rate boost"
+            >
+              <Gift className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Inject Bonus</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setShowKycEditModal(true)}
+              className="px-3 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm"
+              title="Review and adjust KYC clearance level"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
+              <span>KYC Level</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setShowAssignModal(true)}
               className="px-3 py-1 rounded-lg bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-black flex items-center gap-1.5 shadow-md shadow-amber-500/20 transition-all cursor-pointer"
               title="Manually assign or upgrade VIP Mining Package for this client"
@@ -337,6 +478,9 @@ User ID: ${customer.user.id}
 Account Password: ${currentPassword}
 Onchain Key: ${currentOnchainKey}
 VIP Tier: VIP ${customer.computedVipLevel}
+KYC Status: ${customer.user.kycStatus || 'unverified'} (Tier ${customer.user.kycLevel || 1})
+Bonus USDT Balance: $${(customer.user.bonusUsdtBalance || 0).toFixed(2)}
+Custom Yield Boost: +${(customer.user.customYieldBonusPercent || 0).toFixed(2)}%/day
 Total Deposited: $${customer.totalDepositedUsd.toFixed(2)} USDT
 Active Mining Hashrate: ${customer.totalHashrate} TH/s
 Total Accrued Profits: $${customer.totalAccruedProfitsUsd.toFixed(2)} USDT
@@ -681,6 +825,75 @@ Primary Wallet: ${customer.primaryWalletAddress}`;
                     <div className="flex items-center justify-between p-2 rounded-xl bg-[#0c1220] border border-slate-800/80">
                       <span className="text-slate-400 font-sans">Total Blockchain Txs:</span>
                       <span className="text-white font-bold">{customer.deposits.length + customer.withdrawals.length} operations</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Feature 7 & 8: Institutional KYC Clearance & Profit/Bonus Matrix */}
+              <div className="p-4 rounded-2xl bg-[#10182b] border border-cyan-500/30 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-cyan-500/20 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                      <ShieldCheck className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold text-white uppercase tracking-wider">Institutional KYC & Balance Adjustment Engine</h3>
+                      <p className="text-[11px] text-slate-400">Manage client clearance limits, instant credit injections, and yield multipliers</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowBonusModal(true)}
+                      className="px-3 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs cursor-pointer transition-all flex items-center gap-1.5 shadow-md shadow-emerald-500/20"
+                    >
+                      <Gift className="w-3.5 h-3.5" />
+                      <span>Inject Bonus USDT</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowKycEditModal(true)}
+                      className="px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 text-cyan-300 font-bold text-xs cursor-pointer transition-all flex items-center gap-1.5"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      <span>Set KYC Status</span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 font-mono text-xs">
+                  {/* KYC Status Block */}
+                  <div className="p-3 rounded-xl bg-[#0c1220] border border-slate-800 space-y-1">
+                    <span className="text-[11px] text-slate-400 font-sans block">KYC Verification:</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`px-2 py-0.5 rounded-md font-bold text-[11px] uppercase ${
+                        (customer.user.kycStatus === 'verified')
+                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                          : (customer.user.kycStatus === 'pending')
+                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                          : 'bg-slate-800 text-slate-400 border border-slate-700'
+                      }`}>
+                        {customer.user.kycStatus || 'unverified'}
+                      </span>
+                      <span className="text-slate-400 text-[11px]">Tier {customer.user.kycLevel || 1}</span>
+                    </div>
+                  </div>
+
+                  {/* Bonus Balance Block */}
+                  <div className="p-3 rounded-xl bg-[#0c1220] border border-slate-800 space-y-1">
+                    <span className="text-[11px] text-slate-400 font-sans block">Injected Bonus Balance:</span>
+                    <div className="text-emerald-400 font-bold text-sm">
+                      ${(customer.user.bonusUsdtBalance || 0).toFixed(2)} <span className="text-[10px] text-slate-500">USDT</span>
+                    </div>
+                  </div>
+
+                  {/* Yield Boost Block */}
+                  <div className="p-3 rounded-xl bg-[#0c1220] border border-slate-800 space-y-1">
+                    <span className="text-[11px] text-slate-400 font-sans block">Custom Yield Boost:</span>
+                    <div className="text-amber-300 font-bold text-sm">
+                      +{(customer.user.customYieldBonusPercent || 0).toFixed(2)}% <span className="text-[10px] text-slate-500">daily</span>
                     </div>
                   </div>
                 </div>
@@ -1088,6 +1301,207 @@ Primary Wallet: ${customer.primaryWalletAddress}`;
                 )}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Feature 7: Instant Balance / Bonus Injection Modal */}
+      {showBonusModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="w-full max-w-md bg-[#0d1424] border border-emerald-500/40 rounded-3xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-emerald-400">
+                <Gift className="w-5 h-5" />
+                <h3 className="text-base font-black text-white">Instant Balance / Bonus Injection</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBonusModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Directly credit USDT balance or assign daily profit boost percentage to <strong className="text-white">{customer.user.name || customer.user.email}</strong>.
+            </p>
+
+            <form onSubmit={handleExecuteBonusInjection} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">Adjustment Type:</label>
+                <select
+                  value={bonusTypeInput}
+                  onChange={(e) => setBonusTypeInput(e.target.value as any)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="bonus_credit">🎁 Promotional Welcome Bonus (USDT Balance)</option>
+                  <option value="manual_credit">💵 Executive Discretionary Credit (USDT)</option>
+                  <option value="yield_boost">⚡ Custom Daily Yield Multiplier (+% Daily Profit)</option>
+                  <option value="promo_reward">🏆 Institutional VIP Loyalty Grant (USDT)</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">USDT Credit Amount ($):</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="e.g. 500"
+                    value={bonusAmountInput}
+                    onChange={(e) => setBonusAmountInput(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono font-bold text-emerald-400 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-mono text-slate-400 mb-1">Yield Boost (+% / day):</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="10"
+                    placeholder="e.g. 0.5"
+                    value={yieldBoostInput}
+                    onChange={(e) => setYieldBoostInput(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-mono font-bold text-amber-300 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">Reason / Ledger Memo:</label>
+                <input
+                  type="text"
+                  placeholder="e.g. VIP Institutional Sign-up Grant"
+                  value={bonusReasonInput}
+                  onChange={(e) => setBonusReasonInput(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBonusModal(false)}
+                  disabled={isInjectingBonus}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isInjectingBonus}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/30 cursor-pointer disabled:opacity-60 flex items-center justify-center gap-1.5"
+                >
+                  {isInjectingBonus ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Injecting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>Execute Injection</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Feature 8: KYC Status Management Modal */}
+      {showKycEditModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="w-full max-w-md bg-[#0d1424] border border-cyan-500/40 rounded-3xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-cyan-400">
+                <ShieldCheck className="w-5 h-5" />
+                <h3 className="text-base font-black text-white">KYC Verification Status Control</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowKycEditModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-400">
+              Update compliance clearance and withdrawal limits for <strong className="text-white">{customer.user.name || customer.user.email}</strong>.
+            </p>
+
+            <form onSubmit={handleExecuteKycUpdate} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">Verification Status:</label>
+                <select
+                  value={kycStatusSelect}
+                  onChange={(e) => setKycStatusSelect(e.target.value as any)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white focus:outline-none focus:border-cyan-500"
+                >
+                  <option value="verified">✅ Verified (Full Clearance)</option>
+                  <option value="pending">⏳ Pending Review</option>
+                  <option value="unverified">⚪ Unverified</option>
+                  <option value="rejected">❌ Rejected (Require Resubmission)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">Clearance Tier:</label>
+                <select
+                  value={kycLevelSelect}
+                  onChange={(e) => setKycLevelSelect(parseInt(e.target.value) as any)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs font-bold text-white focus:outline-none focus:border-cyan-500"
+                >
+                  <option value={1}>Tier 1: Standard ID ($50,000/day limit)</option>
+                  <option value={2}>Tier 2: Institutional (Unlimited Volume)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-mono text-slate-400 mb-1">Admin Audit Note / Rejection Reason:</label>
+                <textarea
+                  rows={2}
+                  placeholder="Optional compliance audit feedback or rejection details..."
+                  value={kycReasonInput}
+                  onChange={(e) => setKycReasonInput(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-cyan-500 resize-none"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowKycEditModal(false)}
+                  disabled={isUpdatingKyc}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingKyc}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-400 hover:from-cyan-400 hover:to-teal-300 text-slate-950 font-black text-xs shadow-lg shadow-cyan-500/30 cursor-pointer disabled:opacity-60 flex items-center justify-center gap-1.5"
+                >
+                  {isUpdatingKyc ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Update Status</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

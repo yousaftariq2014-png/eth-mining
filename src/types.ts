@@ -47,6 +47,7 @@ export interface DepositRequest {
   id: string;
   userId: string;
   userName: string;
+  userEmail?: string;
   packageId: string;
   packageName: string;
   planType?: PackageType;
@@ -60,6 +61,67 @@ export interface DepositRequest {
   approvedAt?: string;
 }
 
+export type KYCStatus = 'unverified' | 'pending' | 'verified' | 'rejected';
+export type KYCLevel = 1 | 2;
+
+export interface KYCSubmission {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  tier?: KYCLevel; // 1 = Standard Identity, 2 = Enhanced Institutional
+  requestedLevel?: KYCLevel;
+  status: KYCStatus;
+  fullName?: string;
+  dob?: string;
+  country: string;
+  docType?: 'passport' | 'national_id' | 'driver_license';
+  documentType?: string;
+  docNumber?: string;
+  idNumber?: string;
+  docFrontUrl?: string;
+  frontDocUrl?: string;
+  docBackUrl?: string;
+  backDocUrl?: string;
+  selfieUrl?: string;
+  selfieDocUrl?: string;
+  residentialAddress?: string;
+  city?: string;
+  postalCode?: string;
+  utilityBillUrl?: string;
+  submittedAt: string;
+  reviewedAt?: string;
+  approvedAt?: string;
+  reviewedBy?: string;
+  rejectionReason?: string;
+}
+
+export interface BonusAdjustment {
+  id: string;
+  userId: string;
+  userName: string;
+  type: string;
+  amountUsd: number;
+  yieldBoostPercent?: number;
+  reason: string;
+  adminNote?: string;
+  createdAt: string;
+}
+
+export interface PromoCode {
+  id?: string;
+  code: string;
+  type: string;
+  value: number;
+  minDepositUsd?: number;
+  maxUses?: number;
+  usedCount?: number;
+  isActive: boolean;
+  description: string;
+  createdAt: string;
+  expiresAt?: string;
+}
+
 export interface UserProfile {
   id: string;
   name: string;
@@ -71,6 +133,10 @@ export interface UserProfile {
   isLoggedIn?: boolean;
   hasClaimedFreeBonus?: boolean;
   onchainKey?: string;
+  kycStatus?: KYCStatus;
+  kycLevel?: KYCLevel;
+  bonusUsdtBalance?: number;
+  customYieldBonusPercent?: number;
 }
 
 export interface EarningRecordItem {

@@ -472,12 +472,23 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     return () => { isMounted = false; };
   }, [user.id, user.name, externalPendingDepositsHash]);
 
+  // Helper to determine the exact daily rate for any daily investment amount
+  const getTierDailyRatePercent = (amount: number, pkgRate?: number): number => {
+    if (pkgRate && pkgRate > 0) return pkgRate;
+    if (amount >= 50000) return 3.0; // 3.00% max ($50k - $100k)
+    if (amount >= 30000) return 2.8; // 2.80% ($30k - $50k)
+    if (amount >= 10000) return 2.6; // 2.60% ($10k - $30k)
+    if (amount >= 5000) return 2.2;  // 2.00% - 2.40% ($5k - $10k)
+    return 1.9;                      // 1.80% - 2.00% ($100 - $5k)
+  };
+
   // Process all approved deposits with real-time countdown, accrual and expiration calculations
   const processedContracts: ProcessedContract[] = approvedDeposits.map(dep => {
     const matchedPkg = packages.find(p => p.id === dep.packageId) 
       || packages.find(p => p.name.toLowerCase() === (dep.packageName || '').toLowerCase())
       || packages.find(p => p.vipLevel === dep.vipLevel && p.priceUsd === Number(dep.amountUsd))
-      || MINING_PACKAGES.find(p => p.vipLevel === dep.vipLevel)
+      || MINING_PACKAGES.find(p => p.id === dep.packageId || p.name === dep.packageName || (p.vipLevel === dep.vipLevel && p.priceUsd === Number(dep.amountUsd)))
+      || DAILY_PACKAGES.find(p => p.vipLevel === dep.vipLevel)
       || null;
 
     const { durationMs, durationLabel, isFlash } = getContractDurationMs(dep, matchedPkg);
@@ -493,13 +504,16 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     const progressPercent = Math.min(100, Math.max(0, (totalElapsedMs / durationMs) * 100));
 
     const amountUsd = Number(dep.amountUsd ?? (dep as any).amount_usd ?? 0);
-    const estTotalYieldUsd = isFlash 
-      ? (matchedPkg?.totalPayoutUsd || (amountUsd * (1 + (matchedPkg?.profitPercent || 10) / 100)))
-      : (matchedPkg?.dailyReturnUsd ? matchedPkg.dailyReturnUsd * (matchedPkg.durationDays || 365) : amountUsd * 2.5);
+    
+    const dailyRatePercent = getTierDailyRatePercent(amountUsd, matchedPkg?.dailyReturnPercent);
 
     const dailyYieldUsd = isFlash
       ? (matchedPkg?.dailyReturnUsd || (amountUsd * 0.05))
-      : (matchedPkg?.dailyReturnUsd || (amountUsd * (matchedPkg?.dailyReturnPercent || 2.5) / 100));
+      : (matchedPkg?.dailyReturnUsd || (amountUsd * (dailyRatePercent / 100)));
+
+    const estTotalYieldUsd = isFlash 
+      ? (matchedPkg?.totalPayoutUsd || (amountUsd * (1 + (matchedPkg?.profitPercent || 10) / 100)))
+      : (dailyYieldUsd * (matchedPkg?.durationDays || 365));
 
     // Yield accrual rule
     let accruedYieldUsd = 0;

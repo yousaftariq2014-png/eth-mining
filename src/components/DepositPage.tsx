@@ -32,6 +32,7 @@ export const DepositPage: React.FC<DepositPageProps> = ({
   const [submitError, setSubmitError] = useState<string>('');
 
   const isFlash = selectedPackage.planType === 'flash_48h';
+  const isCustom = selectedPackage.planType === 'custom_pool';
 
   const depositAddresses: Record<'TRC20' | 'ERC20' | 'POLYGON', string> = {
     TRC20: 'TGgfnPVkq3P3L7ZXGR74ikNwxmPCm8SxT1',
@@ -100,6 +101,10 @@ export const DepositPage: React.FC<DepositPageProps> = ({
 
     if (!amount || amount <= 0) {
       setSubmitError('Please enter a valid deposit amount.');
+      return;
+    }
+    if (isCustom && (amount < 10000 || amount > 200000)) {
+      setSubmitError('Custom package deposit amount must be between $10,000 and $200,000 USDT.');
       return;
     }
     if (!senderTxid.trim()) {
@@ -230,15 +235,23 @@ export const DepositPage: React.FC<DepositPageProps> = ({
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
           <div>
             <div className="flex items-center gap-2">
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${isFlash ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' : 'bg-amber-500/20 text-amber-400 border-amber-500/40'}`}>
-                {isFlash ? '48H Flash Contract' : `Daily Mining VIP ${selectedPackage.vipLevel}`}
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                isCustom 
+                  ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' 
+                  : isFlash 
+                  ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' 
+                  : 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+              }`}>
+                {isCustom ? 'Custom Institutional Rig ($10k - $200k)' : isFlash ? '48H Flash Contract' : `Daily Mining VIP ${selectedPackage.vipLevel}`}
               </span>
             </div>
             <h2 className="text-2xl font-black text-white mt-1">Deposit for {selectedPackage.name}</h2>
           </div>
           <div className="text-left sm:text-right font-mono">
-            <div className="text-xs text-slate-400">Suggested Amount</div>
-            <div className="text-2xl sm:text-3xl font-black text-amber-400">${selectedPackage.priceUsd.toLocaleString()} USDT</div>
+            <div className="text-xs text-slate-400">{isCustom ? 'Configured Amount' : 'Suggested Amount'}</div>
+            <div className="text-2xl sm:text-3xl font-black text-cyan-400 sm:text-amber-400">
+              ${selectedPackage.priceUsd.toLocaleString()} USDT
+            </div>
           </div>
         </div>
 

@@ -317,10 +317,105 @@ export const FLASH_48H_PACKAGES: MiningPackage[] = [
   }
 ];
 
+// Category 3: Custom Enterprise Hashrate & Institutional Rig Builder ($10,000 to $200,000)
+// Configurable custom packages scaling from $10k to $200k max
+export const CUSTOM_PACKAGE_MIN_USD = 10000;
+export const CUSTOM_PACKAGE_MAX_USD = 200000;
+
+export function calculateCustomPackageRates(amountUsd: number) {
+  const clampedAmount = Math.max(CUSTOM_PACKAGE_MIN_USD, Math.min(CUSTOM_PACKAGE_MAX_USD, Number(amountUsd) || CUSTOM_PACKAGE_MIN_USD));
+  
+  // Rate scale:
+  // $10,000 - $30,000 -> 2.60% daily
+  // $30,000 - $50,000 -> 2.80% daily
+  // $50,000 - $100,000 -> 3.00% daily
+  // $100,000 - $200,000 -> 3.00% - 3.20% daily (Institutional Sovereign Node)
+  let dailyRate = 2.60;
+  let tierName = 'Custom High-Yield Tier ($10k-$30k)';
+  let vipLevel = 5;
+  let tierBadge = 'TIER-1 (2.60%)';
+
+  if (clampedAmount >= 100000) {
+    dailyRate = 3.20;
+    tierName = 'Custom Sovereign Megawatt Node ($100k-$200k)';
+    vipLevel = 8;
+    tierBadge = 'SOVEREIGN (3.20%)';
+  } else if (clampedAmount >= 50000) {
+    dailyRate = 3.00;
+    tierName = 'Custom Diamond Enterprise ($50k-$100k)';
+    vipLevel = 7;
+    tierBadge = 'DIAMOND (3.00%)';
+  } else if (clampedAmount >= 30000) {
+    dailyRate = 2.80;
+    tierName = 'Custom Enterprise Cluster ($30k-$50k)';
+    vipLevel = 6;
+    tierBadge = 'ENTERPRISE (2.80%)';
+  }
+
+  // Hashpower allocated (~0.55 TH/s per $1 USD)
+  const hashrate = Math.round(clampedAmount * 0.55);
+  const dailyReturnUsd = Number(((clampedAmount * dailyRate) / 100).toFixed(2));
+  const sixHourIncomeEth = Number(((dailyReturnUsd / 2750) / 4).toFixed(6));
+  const monthlyProjectedUsd = Number((dailyReturnUsd * 30).toFixed(2));
+  const weeklyProjectedUsd = Number((dailyReturnUsd * 7).toFixed(2));
+
+  return {
+    clampedAmount,
+    dailyRate,
+    tierName,
+    vipLevel,
+    tierBadge,
+    hashrate,
+    dailyReturnUsd,
+    weeklyProjectedUsd,
+    monthlyProjectedUsd,
+    sixHourIncomeEth
+  };
+}
+
+export function createCustomMiningPackage(amountUsd: number, durationDays: number = 365): MiningPackage {
+  const calc = calculateCustomPackageRates(amountUsd);
+  return {
+    id: `pkg-custom-${calc.clampedAmount}`,
+    vipLevel: calc.vipLevel,
+    planType: 'custom_pool',
+    name: `Custom Rig ($${calc.clampedAmount.toLocaleString()})`,
+    priceUsd: calc.clampedAmount,
+    hashrate: calc.hashrate,
+    hashrateUnit: 'TH/s Dedicated',
+    dailyReturnPercent: calc.dailyRate,
+    dailyReturnPercentMin: calc.dailyRate,
+    dailyReturnPercentMax: calc.dailyRate,
+    profitRangeText: `${calc.dailyRate.toFixed(2)}% Daily Tier Yield`,
+    dailyReturnUsd: calc.dailyReturnUsd,
+    sixHourIncomeEth: calc.sixHourIncomeEth,
+    durationDays: durationDays,
+    badge: calc.tierBadge,
+    features: [
+      `${calc.hashrate.toLocaleString()} TH/s Dedicated Stratum Hashpower`,
+      `${calc.dailyRate.toFixed(2)}% Fixed Daily Output ($${calc.dailyReturnUsd.toLocaleString()}/day)`,
+      `$${calc.monthlyProjectedUsd.toLocaleString()} Projected 30-Day Mining Output`,
+      '4 Mining Settlement Cycles Every 6 Hours',
+      'Direct Stratum ASIC Grid Dedicated Cluster',
+      'VIP 1-on-1 Dedicated Institutional Concierge'
+    ],
+    popular: calc.clampedAmount >= 50000
+  };
+}
+
+export const CUSTOM_PRESET_PACKAGES: MiningPackage[] = [
+  createCustomMiningPackage(10000, 365),
+  createCustomMiningPackage(25000, 365),
+  createCustomMiningPackage(50000, 365),
+  createCustomMiningPackage(100000, 365),
+  createCustomMiningPackage(200000, 365)
+];
+
 // Combined default list
 export const MINING_PACKAGES: MiningPackage[] = [
   ...DAILY_PACKAGES,
-  ...FLASH_48H_PACKAGES
+  ...FLASH_48H_PACKAGES,
+  ...CUSTOM_PRESET_PACKAGES
 ];
 
 export const INITIAL_EARNINGS_RECORDS: EarningRecordItem[] = [];

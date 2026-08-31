@@ -22,10 +22,12 @@ import {
   ArrowUpRight,
   ShieldAlert,
   ChevronRight,
-  Activity
+  Activity,
+  Sliders
 } from 'lucide-react';
 import { MiningPackage, UserProfile, PackageType, DepositRequest } from '../types';
-import { DAILY_PACKAGES, FLASH_48H_PACKAGES } from '../data/packagesData';
+import { DAILY_PACKAGES, FLASH_48H_PACKAGES, CUSTOM_PRESET_PACKAGES } from '../data/packagesData';
+import { CustomPackageBuilder } from './CustomPackageBuilder';
 import { DatacenterInfrastructure } from './DatacenterInfrastructure';
 import { MiningFaqSection } from './MiningFaqSection';
 
@@ -46,10 +48,14 @@ export const HomePage: React.FC<HomePageProps> = ({
   onSelectPackage,
   onOpenLiveSupport,
 }) => {
-  // Plan type selector: 'daily' | 'flash_48h'
+  // Plan type selector: 'daily' | 'flash_48h' | 'custom_pool'
   const [selectedPlanType, setSelectedPlanType] = useState<PackageType>('daily');
 
-  const activePackageList = selectedPlanType === 'daily' ? DAILY_PACKAGES : FLASH_48H_PACKAGES;
+  const activePackageList = selectedPlanType === 'daily' 
+    ? DAILY_PACKAGES 
+    : selectedPlanType === 'flash_48h'
+    ? FLASH_48H_PACKAGES
+    : CUSTOM_PRESET_PACKAGES;
 
   // Check if current user has already purchased this package (1 purchase max limit per package)
   const isPackagePurchased = (pkg: MiningPackage): boolean => {
@@ -96,13 +102,13 @@ export const HomePage: React.FC<HomePageProps> = ({
           <h1 className="text-3xl sm:text-5xl lg:text-6xl font-black text-white tracking-tight leading-[1.15]">
             High-Yield Cloud Mining & <br className="hidden sm:block" />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500">
-              48-Hour Flash Contracts
+              Institutional Custom Hashrate
             </span>
           </h1>
 
           {/* Subtitle */}
           <p className="text-sm sm:text-base lg:text-lg text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            Choose between <strong>Continuous Daily Mining (2% – 3% floating daily profit)</strong> or <strong>48-Hour Flash Contracts (10% to 25% one-time profit after 48h)</strong>.
+            Select between <strong>Continuous Daily Mining (1.80% – 3.00% daily)</strong>, <strong>48-Hour Flash Pools (10% to 25% profit)</strong>, or build your own <strong>Custom Enterprise Rig ($10,000 to $200,000)</strong>.
           </p>
 
           {/* Highlights Row */}
@@ -114,6 +120,10 @@ export const HomePage: React.FC<HomePageProps> = ({
             <div className="flex items-center gap-1.5 bg-slate-900/60 px-3 py-1.5 rounded-xl border border-slate-800">
               <Timer className="w-4 h-4 text-amber-400" />
               <span className="text-slate-300 font-semibold">48-Hour Flash (10% - 25%)</span>
+            </div>
+            <div className="flex items-center gap-1.5 bg-slate-900/60 px-3 py-1.5 rounded-xl border border-slate-800">
+              <Sliders className="w-4 h-4 text-cyan-400" />
+              <span className="text-slate-300 font-semibold">Custom Rig ($10k-$200k)</span>
             </div>
             <div className="flex items-center gap-1.5 bg-slate-900/60 px-3 py-1.5 rounded-xl border border-slate-800">
               <Wallet className="w-4 h-4 text-cyan-400" />
@@ -136,84 +146,126 @@ export const HomePage: React.FC<HomePageProps> = ({
             Choose Your Profit Strategy
           </h2>
           <p className="text-xs sm:text-sm text-slate-400">
-            Select your preferred model below: Continuous daily mining or 48-hour flash profit.
+            Select your preferred model below: Continuous daily mining, 48-hour flash profit, or custom enterprise pools.
           </p>
         </div>
 
-        {/* 2 Category Switcher Tabs */}
+        {/* 3 Category Switcher Tabs */}
         <div className="flex justify-center">
           <div className="p-1.5 rounded-2xl bg-[#0e1628] border border-slate-800 inline-flex flex-col sm:flex-row gap-2 shadow-xl">
             
             {/* Tab 1: Daily Variable Mining */}
             <button
               onClick={() => setSelectedPlanType('daily')}
-              className={`px-5 py-3 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
+              className={`px-4 sm:px-5 py-3 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
                 selectedPlanType === 'daily'
                   ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-black shadow-lg shadow-amber-500/25'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
               }`}
             >
               <Zap className="w-4 h-4" />
-              <span>Continuous Daily Mining (1.80% – 3.00% Daily)</span>
+              <span>Continuous Daily (1.8% – 3%)</span>
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
                 selectedPlanType === 'daily' ? 'bg-slate-950/20 text-slate-950' : 'bg-amber-500/20 text-amber-400'
               }`}>
-                365 Days
+                365D
               </span>
             </button>
 
             {/* Tab 2: 48-Hour Flash Contracts */}
             <button
               onClick={() => setSelectedPlanType('flash_48h')}
-              className={`px-5 py-3 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
+              className={`px-4 sm:px-5 py-3 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
                 selectedPlanType === 'flash_48h'
                   ? 'bg-gradient-to-r from-orange-500 via-rose-500 to-amber-500 text-white font-black shadow-lg shadow-rose-500/25'
                   : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
               }`}
             >
               <Flame className="w-4 h-4 text-orange-400" />
-              <span>48-Hour Flash Contracts (10% – 25% Profit)</span>
+              <span>48-Hour Flash (10% – 25%)</span>
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
                 selectedPlanType === 'flash_48h' ? 'bg-white/20 text-white' : 'bg-rose-500/20 text-rose-300'
               }`}>
-                Starts $100
+                48H
+              </span>
+            </button>
+
+            {/* Tab 3: Custom Institutional Rig ($10k - $200k) */}
+            <button
+              onClick={() => setSelectedPlanType('custom_pool')}
+              className={`px-4 sm:px-5 py-3 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
+                selectedPlanType === 'custom_pool'
+                  ? 'bg-gradient-to-r from-cyan-500 via-teal-400 to-cyan-500 text-slate-950 font-black shadow-lg shadow-cyan-500/25'
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+              }`}
+            >
+              <Sliders className="w-4 h-4 text-cyan-400" />
+              <span>Custom Rig ($10k – $200k)</span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-black ${
+                selectedPlanType === 'custom_pool' ? 'bg-slate-950/20 text-slate-950' : 'bg-cyan-500/20 text-cyan-300'
+              }`}>
+                NEW
               </span>
             </button>
 
           </div>
         </div>
 
-        {/* Category Description Banner */}
-        <div className={`p-4 rounded-2xl border text-xs sm:text-sm ${
-          selectedPlanType === 'daily'
-            ? 'bg-amber-500/10 border-amber-500/30 text-amber-200'
-            : 'bg-rose-500/10 border-rose-500/30 text-rose-200'
-        }`}>
-          {selectedPlanType === 'daily' ? (
-            <div className="flex items-center gap-3">
-              <Zap className="w-5 h-5 text-amber-400 shrink-0" />
-              <span>
-                <strong>Daily Variable Mining:</strong> Mining outputs are calculated 24/7 and distributed every 6 hours with <strong>1.80% to 3.00%</strong> daily yields (<strong>$100–$5,000</strong>: 1.80%–2.00%, <strong>$5,000–$10,000</strong>: 2.00%–2.40%, <strong>$10,000–$30,000</strong>: 2.60%, <strong>$30,000–$50,000</strong>: 2.80%, <strong>$50,000–$100,000</strong>: max 3.00%). 100% exchangeable to USDT anytime.
-              </span>
+        {/* Dynamic Builder for Custom Pool */}
+        {selectedPlanType === 'custom_pool' && (
+          <div className="space-y-6">
+            <CustomPackageBuilder
+              onSelectPackage={(pkg) => handlePackageClick(pkg)}
+              ethPriceUsd={2750}
+            />
+            
+            <div className="text-center pt-2">
+              <h3 className="text-lg font-bold text-white mb-1">
+                Or Select From Pre-Configured Institutional Pools
+              </h3>
+              <p className="text-xs text-slate-400">
+                Popular enterprise clusters ready for instant stratum deployment.
+              </p>
             </div>
-          ) : (
-            <div className="flex items-center gap-3">
-              <Flame className="w-5 h-5 text-rose-400 shrink-0" />
-              <span>
-                <strong>48-Hour Flash Contracts:</strong> One-time high-speed profit plans. Receive <strong>10% on $100, 12% on $500, 14% on $1,000, 20% on $5,000, and 25% on $10,000</strong> credited in lump sum after exactly 48 hours!
-              </span>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
+
+        {/* Category Description Banner for Daily and Flash */}
+        {selectedPlanType !== 'custom_pool' && (
+          <div className={`p-4 rounded-2xl border text-xs sm:text-sm ${
+            selectedPlanType === 'daily'
+              ? 'bg-amber-500/10 border-amber-500/30 text-amber-200'
+              : 'bg-rose-500/10 border-rose-500/30 text-rose-200'
+          }`}>
+            {selectedPlanType === 'daily' ? (
+              <div className="flex items-center gap-3">
+                <Zap className="w-5 h-5 text-amber-400 shrink-0" />
+                <span>
+                  <strong>Daily Variable Mining:</strong> Mining outputs are calculated 24/7 and distributed every 6 hours with <strong>1.80% to 3.00%</strong> daily yields (<strong>$100–$5,000</strong>: 1.80%–2.00%, <strong>$5,000–$10,000</strong>: 2.00%–2.40%, <strong>$10,000–$30,000</strong>: 2.60%, <strong>$30,000–$50,000</strong>: 2.80%, <strong>$50,000–$100,000</strong>: max 3.00%). 100% exchangeable to USDT anytime.
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-3">
+                <Flame className="w-5 h-5 text-rose-400 shrink-0" />
+                <span>
+                  <strong>48-Hour Flash Contracts:</strong> One-time high-speed profit plans. Receive <strong>10% on $100, 12% on $500, 14% on $1,000, 20% on $5,000, and 25% on $10,000</strong> credited in lump sum after exactly 48 hours!
+                </span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Packages Grid */}
         <div className={`grid gap-4 ${
           selectedPlanType === 'daily'
             ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+            : selectedPlanType === 'custom_pool'
+            ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5'
             : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-5'
         }`}>
           {activePackageList.map((pkg) => {
             const isFlash = pkg.planType === 'flash_48h';
+            const isCustom = pkg.planType === 'custom_pool';
             const isPurchased = isPackagePurchased(pkg);
 
             return (
@@ -222,6 +274,8 @@ export const HomePage: React.FC<HomePageProps> = ({
                 className={`relative rounded-3xl p-5 transition-all duration-300 flex flex-col justify-between border ${
                   isPurchased
                     ? 'bg-slate-900/90 border-emerald-500/40 shadow-emerald-950/20 shadow-lg'
+                    : isCustom
+                    ? 'bg-gradient-to-b from-[#0b162c] via-[#091122] to-[#050914] border-cyan-500/30 hover:border-cyan-400 shadow-lg shadow-cyan-950/20 hover:scale-[1.02]'
                     : isFlash
                     ? 'bg-gradient-to-b from-[#181128] via-[#100d1e] to-[#0a0714] border-rose-900/60 hover:border-rose-500/60 shadow-lg shadow-rose-950/20 hover:scale-[1.02]'
                     : 'bg-gradient-to-b from-[#10192e] via-[#0d1424] to-[#090e18] border-slate-800 hover:border-amber-500/50 shadow-xl hover:scale-[1.02]'
@@ -238,7 +292,9 @@ export const HomePage: React.FC<HomePageProps> = ({
                 ) : pkg.badge ? (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                     <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black tracking-wider uppercase shadow-md ${
-                      isFlash
+                      isCustom
+                        ? 'bg-gradient-to-r from-cyan-500 to-teal-400 text-slate-950 border border-cyan-300/40'
+                        : isFlash
                         ? 'bg-gradient-to-r from-rose-600 to-orange-500 text-white border border-rose-400/40'
                         : 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 border border-amber-300/40'
                     }`}>
@@ -252,92 +308,111 @@ export const HomePage: React.FC<HomePageProps> = ({
                   <div className="pt-2 text-center border-b border-slate-800/80 pb-3">
                     <div className="flex items-center justify-center gap-1">
                       <span className={`text-[10px] font-mono font-black uppercase px-2 py-0.5 rounded ${
-                        isPurchased ? 'bg-emerald-500/20 text-emerald-300' : isFlash ? 'bg-rose-500/20 text-rose-300' : 'bg-amber-500/20 text-amber-300'
+                        isPurchased 
+                          ? 'bg-emerald-500/20 text-emerald-300' 
+                          : isCustom
+                          ? 'bg-cyan-500/20 text-cyan-300'
+                          : isFlash 
+                          ? 'bg-rose-500/20 text-rose-300' 
+                          : 'bg-amber-500/20 text-amber-300'
                       }`}>
-                        {isPurchased ? 'Node Purchased' : isFlash ? '48H Flash' : `VIP Tier ${pkg.vipLevel}`}
+                        {isPurchased ? 'Node Purchased' : isCustom ? 'Custom Pool' : isFlash ? '48H Flash' : `VIP Tier ${pkg.vipLevel}`}
                       </span>
                     </div>
                     <h3 className="text-base font-black text-white mt-1.5">{pkg.name}</h3>
-                  </div>
-
-                  {/* Price */}
-                  <div className="text-center py-1">
-                    <div className="text-2xl sm:text-3xl font-black font-mono text-white">
-                      ${pkg.priceUsd.toLocaleString()}
+                    <div className="mt-2 font-mono">
+                      <span className="text-2xl sm:text-3xl font-black text-white">
+                        ${pkg.priceUsd.toLocaleString()}
+                      </span>
+                      <span className="text-xs text-slate-400 font-bold ml-1">USDT</span>
                     </div>
-                    <span className="text-[11px] text-slate-400 font-mono">USDT Capital</span>
                   </div>
 
-                  {/* Profit Rate Banner */}
-                  <div className={`p-2.5 rounded-2xl text-center border ${
-                    isPurchased
-                      ? 'bg-emerald-500/10 border-emerald-500/30'
+                  {/* Highlights */}
+                  <div className={`p-3 rounded-2xl space-y-2 border ${
+                    isCustom
+                      ? 'bg-cyan-950/20 border-cyan-500/20'
                       : isFlash 
-                      ? 'bg-rose-500/10 border-rose-500/30' 
-                      : 'bg-amber-500/10 border-amber-500/30'
+                      ? 'bg-rose-950/20 border-rose-500/20' 
+                      : 'bg-amber-950/20 border-amber-500/20'
                   }`}>
-                    <div className={`text-sm font-black font-mono ${isPurchased ? 'text-emerald-400' : isFlash ? 'text-rose-400' : 'text-amber-400'}`}>
-                      {isFlash ? `+${pkg.profitPercent}% Fixed Profit` : pkg.profitRangeText}
+                    {/* Hashrate */}
+                    <div className="flex items-center justify-between text-xs font-mono">
+                      <span className="text-slate-400 flex items-center gap-1">
+                        <Cpu className="w-3.5 h-3.5 text-cyan-400" />
+                        Hashrate
+                      </span>
+                      <span className="font-black text-white">
+                        {pkg.hashrate.toLocaleString()} {pkg.hashrateUnit}
+                      </span>
                     </div>
-                    <div className="text-[10px] text-slate-300 font-mono mt-0.5">
-                      {isPurchased ? 'Earning Active in Dashboard' : isFlash ? `After 48 Hours: +$${pkg.oneTimeProfitUsd?.toLocaleString()}` : `Est. $${pkg.dailyReturnUsd.toFixed(2)} / day`}
+
+                    {/* Return Rate */}
+                    <div className="flex items-center justify-between text-xs font-mono">
+                      <span className="text-slate-400 flex items-center gap-1">
+                        <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+                        {isFlash ? 'Total Profit' : 'Daily Output'}
+                      </span>
+                      <span className={`font-black ${
+                        isCustom ? 'text-cyan-400' : isFlash ? 'text-rose-400' : 'text-amber-400'
+                      }`}>
+                        {pkg.profitRangeText || `${pkg.dailyReturnPercent}% Daily`}
+                      </span>
+                    </div>
+
+                    {/* Payout Frequency / Est Daily Output */}
+                    <div className="flex items-center justify-between text-xs font-mono">
+                      <span className="text-slate-400 flex items-center gap-1">
+                        <Clock className="w-3.5 h-3.5 text-amber-400" />
+                        {isFlash ? 'Payout Term' : 'Est. Output'}
+                      </span>
+                      <span className="font-bold text-emerald-400">
+                        {isFlash 
+                          ? `+$${pkg.oneTimeProfitUsd?.toFixed(0)} in 48h`
+                          : `~$${pkg.dailyReturnUsd.toFixed(2)} / day`
+                        }
+                      </span>
                     </div>
                   </div>
 
-                  {/* Return Summary for Flash */}
-                  {isFlash && pkg.totalPayoutUsd && (
-                    <div className="p-2 rounded-xl bg-slate-900/90 border border-slate-800 text-[11px] font-mono space-y-1">
-                      <div className="flex justify-between text-slate-400">
-                        <span>Capital:</span>
-                        <span className="text-white font-bold">${pkg.priceUsd.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between text-emerald-400">
-                        <span>Profit (48h):</span>
-                        <span className="font-bold">+${pkg.oneTimeProfitUsd?.toLocaleString()}</span>
-                      </div>
-                      <div className="flex justify-between text-white font-black border-t border-slate-800 pt-1">
-                        <span>Total Payout:</span>
-                        <span className="text-amber-400">${pkg.totalPayoutUsd.toLocaleString()}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Features */}
-                  <div className="space-y-1.5 text-[11px] text-slate-300 pt-1">
-                    {pkg.features.map((f, i) => (
-                      <div key={i} className="flex items-start gap-1.5">
-                        <CheckCircle2 className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${isPurchased ? 'text-emerald-400' : isFlash ? 'text-rose-400' : 'text-emerald-400'}`} />
-                        <span className="leading-tight text-slate-300">{f}</span>
+                  {/* Feature Bullets */}
+                  <div className="space-y-1.5 text-xs text-slate-300">
+                    {pkg.features.slice(0, 3).map((f, i) => (
+                      <div key={i} className="flex items-start gap-1.5 text-[11px] leading-tight">
+                        <CheckCircle2 className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
+                          isCustom ? 'text-cyan-400' : isFlash ? 'text-rose-400' : 'text-amber-400'
+                        }`} />
+                        <span className="text-slate-300">{f}</span>
                       </div>
                     ))}
                   </div>
                 </div>
 
-                {/* Deposit / Start Button */}
-                <div className="pt-5">
-                  <button
-                    disabled={isPurchased}
-                    onClick={() => handlePackageClick(pkg)}
-                    className={`w-full py-3 rounded-2xl font-black text-xs transition-all shadow-lg flex items-center justify-center gap-1.5 ${
-                      isPurchased
-                        ? 'bg-slate-800 text-slate-400 border border-slate-700 cursor-not-allowed opacity-80'
-                        : isFlash
-                        ? 'bg-gradient-to-r from-rose-600 via-orange-500 to-amber-500 hover:from-rose-500 hover:to-amber-400 text-white shadow-rose-600/25 cursor-pointer'
-                        : 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-amber-500/25 cursor-pointer'
-                    }`}
-                  >
-                    {isPurchased ? (
-                      <>
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                        <span>Already Purchased (1 Max)</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>{user ? 'Select Package' : 'Deposit & Activate'}</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </>
-                    )}
-                  </button>
+                {/* Bottom Action Button */}
+                <div className="pt-5 mt-auto">
+                  {isPurchased ? (
+                    <button
+                      disabled
+                      className="w-full py-2.5 px-3 rounded-xl bg-slate-800 text-slate-400 text-xs font-bold font-mono cursor-not-allowed border border-slate-700 flex items-center justify-center gap-1.5"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Already Running</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handlePackageClick(pkg)}
+                      className={`w-full py-2.5 px-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all duration-200 cursor-pointer flex items-center justify-center gap-1.5 shadow-md ${
+                        isCustom
+                          ? 'bg-gradient-to-r from-cyan-500 to-teal-400 hover:from-cyan-400 hover:to-teal-300 text-slate-950 shadow-cyan-500/20 active:scale-95'
+                          : isFlash
+                          ? 'bg-gradient-to-r from-rose-500 to-orange-500 hover:from-rose-400 hover:to-orange-400 text-white shadow-rose-500/20 active:scale-95'
+                          : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-amber-500/20 active:scale-95'
+                      }`}
+                    >
+                      <span>{user ? 'Start Mining Plan' : 'Join & Start'}</span>
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
 
               </div>

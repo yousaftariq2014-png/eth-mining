@@ -48,13 +48,14 @@ import {
   WhitelistedWalletAddress,
   AutoReinvestConfig
 } from '../types';
-import { DAILY_PACKAGES, FLASH_48H_PACKAGES, MINING_PACKAGES } from '../data/packagesData';
+import { DAILY_PACKAGES, FLASH_48H_PACKAGES, MINING_PACKAGES, CUSTOM_PRESET_PACKAGES } from '../data/packagesData';
 import { supabase } from '../lib/supabaseClient';
 import { EthMiningPanel } from './EthMiningPanel';
 import { EthToUsdtSwapModal } from './EthToUsdtSwapModal';
 import { InvoiceReceiptModal } from './InvoiceReceiptModal';
 import { WalletWhitelistingModal } from './WalletWhitelistingModal';
 import { LiveHashratePulseGraph } from './LiveHashratePulseGraph';
+import { CustomPackageBuilder } from './CustomPackageBuilder';
 
 interface ClientSmartDashboardProps {
   user: UserProfile;
@@ -475,11 +476,12 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   // Helper to determine the exact daily rate for any daily investment amount
   const getTierDailyRatePercent = (amount: number, pkgRate?: number): number => {
     if (pkgRate && pkgRate > 0) return pkgRate;
-    if (amount >= 50000) return 3.0; // 3.00% max ($50k - $100k)
-    if (amount >= 30000) return 2.8; // 2.80% ($30k - $50k)
-    if (amount >= 10000) return 2.6; // 2.60% ($10k - $30k)
-    if (amount >= 5000) return 2.2;  // 2.00% - 2.40% ($5k - $10k)
-    return 1.9;                      // 1.80% - 2.00% ($100 - $5k)
+    if (amount >= 100000) return 3.2; // 3.20% ($100k - $200k Institutional)
+    if (amount >= 50000) return 3.0;  // 3.00% max ($50k - $100k)
+    if (amount >= 30000) return 2.8;  // 2.80% ($30k - $50k)
+    if (amount >= 10000) return 2.6;  // 2.60% ($10k - $30k)
+    if (amount >= 5000) return 2.2;   // 2.00% - 2.40% ($5k - $10k)
+    return 1.9;                       // 1.80% - 2.00% ($100 - $5k)
   };
 
   // Process all approved deposits with real-time countdown, accrual and expiration calculations
@@ -738,7 +740,11 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     return r.status === withdrawalFilter;
   });
 
-  const displayedCategoryPackages = dashCategory === 'daily' ? DAILY_PACKAGES : FLASH_48H_PACKAGES;
+  const displayedCategoryPackages = dashCategory === 'daily' 
+    ? DAILY_PACKAGES 
+    : dashCategory === 'flash_48h' 
+    ? FLASH_48H_PACKAGES 
+    : CUSTOM_PRESET_PACKAGES;
   const userPendingDeposit = pendingDeposits[0];
 
   return (
@@ -1669,7 +1675,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
           </div>
 
           {/* Plan Category Switcher */}
-          <div className="flex items-center gap-1 bg-[#10182c] p-1 rounded-xl border border-slate-800 self-start sm:self-auto">
+          <div className="flex flex-wrap items-center gap-1 bg-[#10182c] p-1 rounded-xl border border-slate-800 self-start sm:self-auto">
             <button
               type="button"
               onClick={() => setDashCategory('daily')}
@@ -1688,80 +1694,101 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
             >
               48H Flash Node
             </button>
+            <button
+              type="button"
+              onClick={() => setDashCategory('custom_pool')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                dashCategory === 'custom_pool' ? 'bg-cyan-500 text-slate-950 font-black' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <span>Custom Rig ($10k – $200k)</span>
+              <span className={`text-[9px] px-1.5 py-0.2 rounded font-black ${dashCategory === 'custom_pool' ? 'bg-slate-950 text-cyan-300' : 'bg-cyan-500/20 text-cyan-300'}`}>3.2% MAX</span>
+            </button>
           </div>
         </div>
 
-        {/* Packages Grid */}
-        <div className={`grid gap-3.5 ${
-          dashCategory === 'daily'
-            ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
-            : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-5'
-        }`}>
-          {displayedCategoryPackages.map((pkg) => {
-            const owned = isPackageOwned(pkg);
-            const estDailyEth = ethPriceUsd > 0 ? (pkg.dailyReturnUsd / ethPriceUsd) : 0;
+        {dashCategory === 'custom_pool' ? (
+          <div className="pt-2">
+            <CustomPackageBuilder
+              onSelectCustomPackage={(customPkg) => {
+                onSelectPackage(customPkg);
+              }}
+              ethPriceUsd={ethPriceUsd}
+            />
+          </div>
+        ) : (
+          /* Standard Packages Grid */
+          <div className={`grid gap-3.5 ${
+            dashCategory === 'daily'
+              ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+              : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-5'
+          }`}>
+            {displayedCategoryPackages.map((pkg) => {
+              const owned = isPackageOwned(pkg);
+              const estDailyEth = ethPriceUsd > 0 ? (pkg.dailyReturnUsd / ethPriceUsd) : 0;
 
-            return (
-              <div
-                key={pkg.id}
-                className={`p-4 rounded-2xl border transition-all flex flex-col justify-between space-y-3 group shadow-md ${
-                  owned 
-                    ? 'bg-[#0a1220] border-emerald-500/40 opacity-90' 
-                    : 'bg-gradient-to-b from-[#0f172a] to-[#090d18] border-slate-800 hover:border-cyan-500/40'
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className={`text-xs font-black font-mono ${owned ? 'text-emerald-400' : 'text-cyan-400'}`}>
-                    VIP {pkg.vipLevel}
-                  </span>
-                  {owned ? (
-                    <span className="text-[9px] px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30 flex items-center gap-1">
-                      <CheckCircle2 className="w-2.5 h-2.5" />
-                      Active Node
-                    </span>
-                  ) : pkg.planType === 'flash_48h' ? (
-                    <span className="text-[9px] px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 font-bold border border-rose-500/30">48H Flash</span>
-                  ) : (
-                    <span className="text-[9px] px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/30">365 Days</span>
-                  )}
-                </div>
-
-                <div>
-                  <div className="text-lg font-black text-white font-mono">${pkg.priceUsd.toLocaleString()} <span className="text-xs text-slate-400 font-normal">USDT</span></div>
-                  <div className="text-xs font-bold text-slate-200 truncate mt-0.5">{pkg.name}</div>
-                  <div className="text-[11px] font-mono text-cyan-300 font-bold mt-1">
-                    ~{estDailyEth.toFixed(5)} ETH / day
-                  </div>
-                  <div className="text-[10px] font-mono text-slate-400">
-                    {pkg.profitRangeText || `${pkg.dailyReturnPercent}% Daily`}
-                  </div>
-                </div>
-
-                <button
-                  disabled={owned}
-                  onClick={() => !owned && onSelectPackage(pkg)}
-                  className={`w-full py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                    owned
-                      ? 'bg-slate-800 text-slate-400 border border-slate-700 cursor-not-allowed opacity-75'
-                      : 'bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-white cursor-pointer shadow-md'
+              return (
+                <div
+                  key={pkg.id}
+                  className={`p-4 rounded-2xl border transition-all flex flex-col justify-between space-y-3 group shadow-md ${
+                    owned 
+                      ? 'bg-[#0a1220] border-emerald-500/40 opacity-90' 
+                      : 'bg-gradient-to-b from-[#0f172a] to-[#090d18] border-slate-800 hover:border-cyan-500/40'
                   }`}
                 >
-                  {owned ? (
-                    <>
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Active Mining (1/1)</span>
-                    </>
-                  ) : (
-                    <>
-                      <span>Deposit & Start</span>
-                      <ChevronRight className="w-3.5 h-3.5" />
-                    </>
-                  )}
-                </button>
-              </div>
-            );
-          })}
-        </div>
+                  <div className="flex items-center justify-between">
+                    <span className={`text-xs font-black font-mono ${owned ? 'text-emerald-400' : 'text-cyan-400'}`}>
+                      VIP {pkg.vipLevel}
+                    </span>
+                    {owned ? (
+                      <span className="text-[9px] px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30 flex items-center gap-1">
+                        <CheckCircle2 className="w-2.5 h-2.5" />
+                        Active Node
+                      </span>
+                    ) : pkg.planType === 'flash_48h' ? (
+                      <span className="text-[9px] px-2 py-0.5 rounded-md bg-rose-500/20 text-rose-300 font-bold border border-rose-500/30">48H Flash</span>
+                    ) : (
+                      <span className="text-[9px] px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 font-bold border border-cyan-500/30">365 Days</span>
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="text-lg font-black text-white font-mono">${pkg.priceUsd.toLocaleString()} <span className="text-xs text-slate-400 font-normal">USDT</span></div>
+                    <div className="text-xs font-bold text-slate-200 truncate mt-0.5">{pkg.name}</div>
+                    <div className="text-[11px] font-mono text-cyan-300 font-bold mt-1">
+                      ~{estDailyEth.toFixed(5)} ETH / day
+                    </div>
+                    <div className="text-[10px] font-mono text-slate-400">
+                      {pkg.profitRangeText || `${pkg.dailyReturnPercent}% Daily`}
+                    </div>
+                  </div>
+
+                  <button
+                    disabled={owned}
+                    onClick={() => !owned && onSelectPackage(pkg)}
+                    className={`w-full py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      owned
+                        ? 'bg-slate-800 text-slate-400 border border-slate-700 cursor-not-allowed opacity-75'
+                        : 'bg-slate-800 hover:bg-amber-500 hover:text-slate-950 text-white cursor-pointer shadow-md'
+                    }`}
+                  >
+                    {owned ? (
+                      <>
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Active Mining (1/1)</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Deposit & Start</span>
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </>
+                    )}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Floating Live Support button */}

@@ -2,7 +2,7 @@ export type Language = 'en';
 
 export type SupportedCoin = 'ETH' | 'BTC' | 'ETC' | 'KAS' | 'LTC' | 'XMR' | 'DOGE' | 'RVN';
 
-export type PackageType = 'daily' | 'flash_48h';
+export type PackageType = 'daily' | 'flash_48h' | 'custom_pool';
 
 export interface ExchangeRecordItem {
   id: string;

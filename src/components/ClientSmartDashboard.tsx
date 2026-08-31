@@ -64,6 +64,7 @@ interface ClientSmartDashboardProps {
   onOpenLiveSupport?: () => void;
   pendingDeposits?: DepositRequest[];
   onClearUserPackages?: () => void | Promise<void>;
+  onOpenPoR?: () => void;
 }
 
 interface ProcessedContract {
@@ -153,6 +154,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   onOpenLiveSupport,
   pendingDeposits: externalPendingDeposits,
   onClearUserPackages,
+  onOpenPoR,
 }) => {
   // Action tabs: 'exchange' | 'withdraw' | 'history' | 'swap_history'
   const [actionTab, setActionTab] = useState<'exchange' | 'withdraw' | 'history' | 'swap_history'>('exchange');

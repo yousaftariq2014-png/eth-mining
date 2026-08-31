@@ -38,6 +38,7 @@ interface HomePageProps {
   onOpenAuth: (mode: 'login' | 'signup', targetPkg?: MiningPackage) => void;
   onSelectPackage: (pkg: MiningPackage) => void;
   onOpenLiveSupport: () => void;
+  onOpenPoR?: () => void;
 }
 
 export const HomePage: React.FC<HomePageProps> = ({
@@ -47,6 +48,7 @@ export const HomePage: React.FC<HomePageProps> = ({
   onOpenAuth,
   onSelectPackage,
   onOpenLiveSupport,
+  onOpenPoR,
 }) => {
   // Plan type selector: 'daily' | 'flash_48h' | 'custom_pool'
   const [selectedPlanType, setSelectedPlanType] = useState<PackageType>('daily');
@@ -113,10 +115,13 @@ export const HomePage: React.FC<HomePageProps> = ({
 
           {/* Highlights Row */}
           <div className="pt-4 flex flex-wrap items-center justify-center gap-3 sm:gap-6 text-xs font-mono text-slate-400">
-            <div className="flex items-center gap-1.5 bg-slate-900/60 px-3 py-1.5 rounded-xl border border-slate-800">
-              <ShieldCheck className="w-4 h-4 text-emerald-400" />
-              <span className="text-slate-300 font-semibold">100% Guaranteed Payouts</span>
-            </div>
+            <button
+              onClick={onOpenPoR}
+              className="flex items-center gap-1.5 bg-emerald-950/40 hover:bg-emerald-900/60 px-3.5 py-1.5 rounded-xl border border-emerald-500/40 text-emerald-300 transition-all cursor-pointer shadow-lg shadow-emerald-950/40 group"
+            >
+              <ShieldCheck className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
+              <span className="font-bold">Proof of Reserves (128% Backed) ↗</span>
+            </button>
             <div className="flex items-center gap-1.5 bg-slate-900/60 px-3 py-1.5 rounded-xl border border-slate-800">
               <Timer className="w-4 h-4 text-amber-400" />
               <span className="text-slate-300 font-semibold">48-Hour Flash (10% - 25%)</span>

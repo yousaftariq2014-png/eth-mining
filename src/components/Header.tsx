@@ -26,6 +26,7 @@ interface HeaderProps {
   onLogout: () => void;
   onOpenNotifications?: () => void;
   unreadNotificationsCount?: number;
+  onOpenPoR?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -35,7 +36,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAuth,
   onLogout,
   onOpenNotifications,
-  unreadNotificationsCount = 0
+  unreadNotificationsCount = 0,
+  onOpenPoR,
 }) => {
   return (
     <header id="main-header" className="sticky top-0 z-40 bg-[#0c121e]/95 backdrop-blur-md border-b border-slate-800 shadow-lg">
@@ -90,6 +92,19 @@ export const Header: React.FC<HeaderProps> = ({
               >
                 <Home className="w-4 h-4 shrink-0" />
                 <span className="hidden sm:inline whitespace-nowrap">Investment Plans</span>
+              </button>
+            )}
+
+            {/* Proof of Reserves Badge Button */}
+            {onOpenPoR && (
+              <button
+                onClick={onOpenPoR}
+                title="Proof of Reserves & Security Audits"
+                className="px-2 sm:px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+              >
+                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span className="hidden sm:inline whitespace-nowrap">Proof of Reserves</span>
+                <span className="text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 px-1.5 py-0.2 rounded border border-emerald-500/40">100%</span>
               </button>
             )}
 

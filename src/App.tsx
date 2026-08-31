@@ -14,6 +14,7 @@ import { AuthModal } from './components/AuthModal';
 import { ResetPasswordModal } from './components/ResetPasswordModal';
 import { LiveSupportWidget } from './components/LiveSupportWidget';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
+import { ProofOfReservesModal } from './components/ProofOfReservesModal';
 import { GlobalAnnouncementBar } from './components/GlobalAnnouncementBar';
 import { LiveGlobalPayoutTicker } from './components/LiveGlobalPayoutTicker';
 
@@ -98,6 +99,7 @@ export default function App() {
     );
   });
   const [isNotificationsOpen, setIsNotificationsOpen] = useState<boolean>(false);
+  const [isPoROpen, setIsPoROpen] = useState<boolean>(false);
 
   // Activation & System Notice Toast
   const [activationToast, setActivationToast] = useState<string | null>(null);
@@ -1145,6 +1147,7 @@ export default function App() {
             onLogout={handleLogout}
             onOpenNotifications={() => setIsNotificationsOpen(true)}
             unreadNotificationsCount={unreadNotificationsCount}
+            onOpenPoR={() => setIsPoROpen(true)}
           />
           {/* Live On-Chain Payout & Hash Settlement Ticker */}
           <LiveGlobalPayoutTicker />
@@ -1179,6 +1182,7 @@ export default function App() {
             onOpenAuth={handleOpenAuth}
             onSelectPackage={handleSelectPackage}
             onOpenLiveSupport={() => setIsLiveSupportOpen(true)}
+            onOpenPoR={() => setIsPoROpen(true)}
           />
         )}
 
@@ -1218,6 +1222,7 @@ export default function App() {
                 onOpenLiveSupport={() => setIsLiveSupportOpen(true)}
                 pendingDeposits={deposits}
                 onClearUserPackages={handleClearUserPackages}
+                onOpenPoR={() => setIsPoROpen(true)}
               />
             </div>
           ) : (
@@ -1331,6 +1336,12 @@ export default function App() {
         onMarkAsRead={handleMarkNotificationAsRead}
         onMarkAllAsRead={handleMarkAllNotificationsAsRead}
         onClearAll={handleClearAllNotifications}
+      />
+
+      {/* Proof of Reserves & Security Audits Modal */}
+      <ProofOfReservesModal
+        isOpen={isPoROpen}
+        onClose={() => setIsPoROpen(false)}
       />
 
     </div>

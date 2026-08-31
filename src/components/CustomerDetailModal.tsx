@@ -41,7 +41,7 @@ import {
   ensureCustomerCredentials, 
   insertSupabaseDeposit 
 } from '../lib/supabaseClient';
-import { MINING_PACKAGES } from '../data/packagesData';
+import { MINING_PACKAGES, DAILY_PACKAGES, FLASH_48H_PACKAGES } from '../data/packagesData';
 
 interface CustomerDetailModalProps {
   customer: AggregatedCustomerData;

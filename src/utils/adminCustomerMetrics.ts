@@ -84,6 +84,16 @@ export function matchUserToWithdrawal(user: UserProfile, w: WithdrawalRecordItem
   return false;
 }
 
+// Helper to determine exact tier rate for any investment amount
+function getCustomTierRate(amount: number): number {
+  if (amount >= 100000) return 3.2; // 3.20% ($100k - $200k Institutional)
+  if (amount >= 50000) return 3.0;  // 3.00% ($50k - $100k)
+  if (amount >= 30000) return 2.8;  // 2.80% ($30k - $50k)
+  if (amount >= 10000) return 2.6;  // 2.60% ($10k - $30k)
+  if (amount >= 5000) return 2.2;   // 2.00% - 2.40% ($5k - $10k)
+  return 1.9;                       // 1.80% - 2.00% ($100 - $5k)
+}
+
 export function calculateCustomerAggregation(
   users: UserProfile[],
   deposits: DepositRequest[],
@@ -288,13 +298,18 @@ export function calculateCustomerAggregation(
       const progressPercent = Math.min(100, Math.max(0, (totalElapsedMs / durationMs) * 100));
 
       const amountUsd = Number(dep.amountUsd || 0);
+      const isCustomPool = dep.planType === 'custom_pool' || (amountUsd >= 10000 && !matchedPkg);
+      const tierDailyRate = isCustomPool ? getCustomTierRate(amountUsd) : (matchedPkg?.dailyReturnPercent || (dep.vipLevel >= 5 ? 2.5 : 2.0));
+
       const estTotalYieldUsd = isFlash
         ? (matchedPkg?.totalPayoutUsd || (amountUsd * (1 + (matchedPkg?.profitPercent || 10) / 100)))
-        : (matchedPkg?.dailyReturnUsd ? matchedPkg.dailyReturnUsd * (matchedPkg.durationDays || 365) : amountUsd * 2.5);
+        : (matchedPkg?.dailyReturnUsd 
+            ? matchedPkg.dailyReturnUsd * (matchedPkg.durationDays || 365) 
+            : amountUsd * (tierDailyRate / 100) * (matchedPkg?.durationDays || 365));
 
       const dailyYieldUsd = isFlash
         ? (matchedPkg?.dailyReturnUsd || (amountUsd * 0.05))
-        : (matchedPkg?.dailyReturnUsd || (amountUsd * (matchedPkg?.dailyReturnPercent || 2.5) / 100));
+        : (matchedPkg?.dailyReturnUsd || (amountUsd * (tierDailyRate / 100)));
 
       let accruedYieldUsd = 0;
       if (isFlash) {
@@ -313,6 +328,8 @@ export function calculateCustomerAggregation(
         }
       }
 
+      const computedHashrate = matchedPkg?.hashrate || (isCustomPool ? Math.round(amountUsd * 0.55) : (dep.vipLevel * 25));
+
       return {
         deposit: dep,
         pkg: matchedPkg,
@@ -321,7 +338,7 @@ export function calculateCustomerAggregation(
         isExpired,
         timeRemainingText,
         progressPercent,
-        hashrate: matchedPkg?.hashrate || (dep.vipLevel * 25),
+        hashrate: computedHashrate,
         hashrateUnit: matchedPkg?.hashrateUnit || 'TH/s',
         dailyYieldUsd,
         estTotalYieldUsd,

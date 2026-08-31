@@ -122,6 +122,8 @@ export interface PromoCode {
   expiresAt?: string;
 }
 
+export type UserAccountStatus = 'active' | 'pending' | 'suspended' | 'blocked';
+
 export interface UserProfile {
   id: string;
   name: string;
@@ -137,6 +139,9 @@ export interface UserProfile {
   kycLevel?: KYCLevel;
   bonusUsdtBalance?: number;
   customYieldBonusPercent?: number;
+  accountStatus?: UserAccountStatus;
+  statusReason?: string;
+  statusUpdatedAt?: string;
 }
 
 export interface EarningRecordItem {

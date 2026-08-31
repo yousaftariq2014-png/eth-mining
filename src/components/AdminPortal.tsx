@@ -160,7 +160,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [syncToast, setSyncToast] = useState<string>('');
 
   const [activeTab, setActiveTab] = useState<'clients' | 'deposits' | 'withdrawals' | 'kyc' | 'bonuses' | 'announcements' | 'email_config'>('clients');
-  const [clientFilter, setClientFilter] = useState<'all' | 'active_miners' | 'pending_deposits' | 'pending_withdrawals' | 'inactive'>('all');
+  const [clientFilter, setClientFilter] = useState<'all' | 'active_miners' | 'pending_deposits' | 'pending_withdrawals' | 'pending_status' | 'blocked' | 'inactive'>('all');
   const [depositFilter, setDepositFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
   const [withdrawalFilter, setWithdrawalFilter] = useState<'all' | 'pending' | 'approved' | 'failed'>('pending');
   const [kycFilter, setKycFilter] = useState<'all' | 'pending' | 'verified' | 'rejected'>('pending');
@@ -432,10 +432,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const filteredCustomers = useMemo(() => {
     return aggregatedCustomers.filter(c => {
       // Filter tab
-      if (clientFilter === 'active_miners' && c.activeContracts.length === 0) return false;
+      if (clientFilter === 'active_miners' && (c.activeContracts.length === 0 || c.user.accountStatus === 'blocked' || c.user.accountStatus === 'suspended' || c.user.accountStatus === 'pending')) return false;
       if (clientFilter === 'pending_deposits' && c.pendingDeposits.length === 0) return false;
       if (clientFilter === 'pending_withdrawals' && c.pendingWithdrawals.length === 0) return false;
-      if (clientFilter === 'inactive' && c.activeContracts.length > 0) return false;
+      if (clientFilter === 'pending_status' && c.user.accountStatus !== 'pending') return false;
+      if (clientFilter === 'blocked' && c.user.accountStatus !== 'blocked' && c.user.accountStatus !== 'suspended') return false;
+      if (clientFilter === 'inactive' && c.activeContracts.length > 0 && c.user.accountStatus !== 'blocked' && c.user.accountStatus !== 'suspended') return false;
 
       // Search query
       if (!searchQuery.trim()) return true;
@@ -1149,6 +1151,28 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 <span>Pending Payout ({pendingWithdrawals.length})</span>
               </button>
               <button
+                onClick={() => setClientFilter('pending_status')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-1.5 transition-all ${
+                  clientFilter === 'pending_status'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Clock className="w-3 h-3 text-amber-400" />
+                <span>Pending Hold ({aggregatedCustomers.filter(c => c.user.accountStatus === 'pending').length})</span>
+              </button>
+              <button
+                onClick={() => setClientFilter('blocked')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-1.5 transition-all ${
+                  clientFilter === 'blocked'
+                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <ShieldAlert className="w-3 h-3 text-rose-400" />
+                <span>Blocked / Frozen ({aggregatedCustomers.filter(c => c.user.accountStatus === 'blocked' || c.user.accountStatus === 'suspended').length})</span>
+              </button>
+              <button
                 onClick={() => setClientFilter('inactive')}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition-all ${
                   clientFilter === 'inactive'
@@ -1301,8 +1325,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         <div className="font-bold text-emerald-400 text-xs">
                           ${cust.totalDepositedUsd.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                         </div>
-                        <div>
-                          {cust.pendingDeposits.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {cust.user.accountStatus === 'blocked' || cust.user.accountStatus === 'suspended' ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/40">
+                              ⛔ Blocked
+                            </span>
+                          ) : cust.user.accountStatus === 'pending' ? (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                              ⏳ Hold
+                            </span>
+                          ) : cust.pendingDeposits.length > 0 ? (
                             <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
                               {cust.pendingDeposits.length} Dep. Pending
                             </span>
@@ -2977,6 +3009,17 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           onDeleteClient={onDeleteClient}
           onUpdateUser={onUpdateUser}
           onInjectBonus={onInjectBonus}
+          onUpdateAccountStatus={(userId, status, reason) => {
+            const user = registeredUsers.find(u => u.id === userId);
+            if (user && onUpdateUser) {
+              onUpdateUser({
+                ...user,
+                accountStatus: status,
+                statusReason: reason,
+                statusUpdatedAt: new Date().toISOString(),
+              });
+            }
+          }}
           onUpdateKYCStatus={(userId, status, tier, reason) => {
             const sub = kycSubmissions.find(k => k.userId === userId);
             if (status === 'verified') {

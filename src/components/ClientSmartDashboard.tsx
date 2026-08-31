@@ -558,6 +558,11 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   const activeContracts = processedContracts.filter(c => !c.isExpired);
   const expiredContracts = processedContracts.filter(c => c.isExpired);
 
+  // ACCOUNT HOLD / SUSPENSION STATUS CHECK
+  const isAccountBlocked = user.accountStatus === 'blocked' || user.accountStatus === 'suspended';
+  const isAccountPending = user.accountStatus === 'pending';
+  const isAccountHalted = isAccountBlocked || isAccountPending;
+
   // REAL FINANCIAL & ETH MINING VALUES:
   // 1. Total Active Capital = principal in running mining nodes
   const totalActiveCapital = activeContracts.reduce((sum, c) => sum + Number(c.deposit.amountUsd ?? (c.deposit as any).amount_usd ?? 0), 0);
@@ -565,11 +570,11 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   // 2. Total Earned Mined Profit (in USD)
   const totalEarnedProfitsUsd = processedContracts.reduce((sum, c) => sum + c.accruedYieldUsd, 0);
 
-  // 3. Today's Daily Mining Production in USD
-  const todayDailyReturnUsd = activeContracts.reduce((sum, c) => sum + c.dailyYieldUsd, 0);
+  // 3. Today's Daily Mining Production in USD (STOPS if account is blocked or on pending hold)
+  const todayDailyReturnUsd = isAccountHalted ? 0 : activeContracts.reduce((sum, c) => sum + c.dailyYieldUsd, 0);
 
-  // 4. Daily ETH Mining Output Rate
-  const dailyEthRate = ethPriceUsd > 0 ? (todayDailyReturnUsd / ethPriceUsd) : 0;
+  // 4. Daily ETH Mining Output Rate (0 if halted)
+  const dailyEthRate = isAccountHalted ? 0 : (ethPriceUsd > 0 ? (todayDailyReturnUsd / ethPriceUsd) : 0);
 
   // 5. Total Total Earned Mined ETH
   const totalMinedEthLifetime = ethPriceUsd > 0 ? (totalEarnedProfitsUsd / ethPriceUsd) : 0;
@@ -594,12 +599,16 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   // 9. Withdrawable Available USDT Balance (Must be converted from ETH first)
   const availableUsdtBalance = Math.max(0, totalConvertedUsdt - totalWithdrawnUsdt);
 
-  // 10. Total Hashrate Calculation
-  const totalHashrateTh = activeContracts.reduce((sum, c) => {
+  // 10. Total Hashrate Calculation (0 TH/s if halted by admin)
+  const totalHashrateTh = isAccountHalted ? 0 : activeContracts.reduce((sum, c) => {
     const hashrateNum = c.pkg?.hashrate || (c.deposit.vipLevel * 25);
     return sum + hashrateNum;
   }, 0);
-  const totalHashrateDisplay = totalHashrateTh > 0 ? `${totalHashrateTh.toLocaleString()} TH/s` : '0 TH/s';
+  const totalHashrateDisplay = isAccountBlocked 
+    ? '0 TH/s (Account Blocked)'
+    : isAccountPending
+    ? '0 TH/s (Account Pending Hold)'
+    : totalHashrateTh > 0 ? `${totalHashrateTh.toLocaleString()} TH/s` : '0 TH/s';
 
   const handleCopyTxid = (txid: string, id: string) => {
     navigator.clipboard.writeText(txid);
@@ -800,6 +809,65 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
         <div className="fixed top-20 right-6 z-50 p-4 rounded-2xl bg-amber-500 text-slate-950 font-black text-sm shadow-2xl flex items-center gap-2.5 animate-bounce">
           <Sparkles className="w-5 h-5 shrink-0" />
           <span>{notification.message}</span>
+        </div>
+      )}
+
+      {/* Account Status Lockout / Hold Notification Banner */}
+      {isAccountHalted && (
+        <div className={`p-4 sm:p-5 rounded-3xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-2xl animate-in fade-in duration-200 ${
+          isAccountBlocked 
+            ? 'bg-rose-950/50 border-rose-500/50 shadow-rose-500/10' 
+            : 'bg-amber-950/50 border-amber-500/50 shadow-amber-500/10'
+        }`}>
+          <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 border ${
+              isAccountBlocked 
+                ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse' 
+                : 'bg-amber-500/20 text-amber-400 border-amber-500/40 animate-pulse'
+            }`}>
+              {isAccountBlocked ? <ShieldAlert className="w-6 h-6" /> : <Clock className="w-6 h-6" />}
+            </div>
+            <div className="space-y-1 min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`text-sm sm:text-base font-black uppercase tracking-wider ${
+                  isAccountBlocked ? 'text-rose-300' : 'text-amber-300'
+                }`}>
+                  {isAccountBlocked ? '⛔ Account Temporarily Blocked / Frozen' : '⏳ Account On Pending Review Hold'}
+                </span>
+                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-black uppercase border ${
+                  isAccountBlocked 
+                    ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' 
+                    : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                }`}>
+                  Mining & Rewards Halted
+                </span>
+              </div>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                {isAccountBlocked 
+                  ? 'Your account has been temporarily placed on freeze by administration. All active cloud mining nodes, hashrate computing power, and daily reward distributions are currently STOPPED.'
+                  : 'Your account status has been placed on pending review by administration. Active mining contracts and daily reward payouts are temporarily paused while review is active.'
+                }
+              </p>
+              {user.statusReason && (
+                <div className="text-xs font-mono text-amber-300 bg-slate-950/80 px-3 py-1.5 rounded-xl border border-slate-800 inline-flex items-center gap-2 mt-1">
+                  <Info className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span><strong>Reason from Admin:</strong> {user.statusReason}</span>
+                </div>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenLiveSupport}
+            className={`px-4 py-2.5 rounded-xl font-black text-xs shrink-0 cursor-pointer transition-all flex items-center gap-1.5 shadow-lg ${
+              isAccountBlocked
+                ? 'bg-rose-500 hover:bg-rose-400 text-slate-950 shadow-rose-500/20'
+                : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20'
+            }`}
+          >
+            <MessageCircle className="w-4 h-4" />
+            <span>Contact Live Support</span>
+          </button>
         </div>
       )}
 
@@ -1025,10 +1093,17 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
               </h2>
             </div>
             {activeContracts.length > 0 && (
-              <span className="text-xs font-mono font-bold text-cyan-400 flex items-center gap-1.5 bg-cyan-500/10 px-2.5 py-1 rounded-full border border-cyan-500/20">
-                <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
-                Live ETH Hashing
-              </span>
+              isAccountHalted ? (
+                <span className="text-xs font-mono font-bold text-rose-400 flex items-center gap-1.5 bg-rose-500/10 px-2.5 py-1 rounded-full border border-rose-500/20">
+                  <span className="w-2 h-2 rounded-full bg-rose-500" />
+                  🛑 Mining Halted ({isAccountBlocked ? 'Blocked' : 'Pending'})
+                </span>
+              ) : (
+                <span className="text-xs font-mono font-bold text-cyan-400 flex items-center gap-1.5 bg-cyan-500/10 px-2.5 py-1 rounded-full border border-cyan-500/20">
+                  <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping" />
+                  Live ETH Hashing
+                </span>
+              )
             )}
           </div>
 
@@ -1090,6 +1165,14 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                     </div>
                   </div>
                 </div>
+
+                {/* Halted Status Indicator if Account is Blocked/Pending */}
+                {isAccountHalted && (
+                  <div className="p-3 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-mono flex items-center gap-2 relative z-10">
+                    <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span><strong>Node Halted:</strong> Daily mining yields and hashpower allocation for this package are stopped due to administrative account {isAccountBlocked ? 'freeze' : 'review hold'}.</span>
+                  </div>
+                )}
 
                 {/* REAL-TIME EXPIRATION COUNTDOWN TIMER BANNER */}
                 <div className="p-4 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-3 relative z-10">

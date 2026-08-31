@@ -38,12 +38,13 @@ import {
   Sliders
 } from 'lucide-react';
 import { AggregatedCustomerData } from '../utils/adminCustomerMetrics';
-import { UserProfile, DepositRequest, BonusAdjustment, KYCStatus, KYCLevel } from '../types';
+import { UserProfile, DepositRequest, BonusAdjustment, KYCStatus, KYCLevel, UserAccountStatus } from '../types';
 import { 
   getClientCredentials, 
   updateClientCredentials, 
   ensureCustomerCredentials, 
-  insertSupabaseDeposit 
+  insertSupabaseDeposit,
+  saveSupabaseUser
 } from '../lib/supabaseClient';
 import { MINING_PACKAGES, DAILY_PACKAGES, FLASH_48H_PACKAGES } from '../data/packagesData';
 
@@ -58,6 +59,7 @@ interface CustomerDetailModalProps {
   onUpdateUser?: (user: UserProfile) => void;
   onInjectBonus?: (bonus: BonusAdjustment) => void;
   onUpdateKYCStatus?: (userId: string, status: KYCStatus, tier: KYCLevel, reason?: string) => void;
+  onUpdateAccountStatus?: (userId: string, status: UserAccountStatus, reason?: string) => void;
 }
 
 export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
@@ -71,6 +73,7 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   onUpdateUser,
   onInjectBonus,
   onUpdateKYCStatus,
+  onUpdateAccountStatus,
 }) => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'contracts' | 'deposits' | 'withdrawals'>('overview');
@@ -94,6 +97,16 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   const [editPassInput, setEditPassInput] = useState<string>(initialCreds.password);
 
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
+
+  // Account Status / Suspension / Lockout State
+  const [showStatusModal, setShowStatusModal] = useState<boolean>(false);
+  const [accountStatusSelect, setAccountStatusSelect] = useState<UserAccountStatus>(
+    customer.user.accountStatus || 'active'
+  );
+  const [statusReasonInput, setStatusReasonInput] = useState<string>(
+    customer.user.statusReason || ''
+  );
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState<boolean>(false);
 
   // Bonus & Profit Injector State
   const [showBonusModal, setShowBonusModal] = useState<boolean>(false);
@@ -127,7 +140,9 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
     setCurrentOnchainKey(creds.onchainKey);
     setEditPassInput(creds.password);
     setEditKeyInput(creds.onchainKey);
-  }, [customer.user.email, customer.user.password, customer.user.onchainKey, customer.user.id]);
+    setAccountStatusSelect(customer.user.accountStatus || 'active');
+    setStatusReasonInput(customer.user.statusReason || '');
+  }, [customer.user.email, customer.user.password, customer.user.onchainKey, customer.user.id, customer.user.accountStatus, customer.user.statusReason]);
 
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -319,6 +334,49 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
     }
   };
 
+  // Feature 9: Execute Account Standing / Suspension / Lockout Update
+  const handleExecuteStatusUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsUpdatingStatus(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const updatedUser: UserProfile = {
+        ...customer.user,
+        accountStatus: accountStatusSelect,
+        statusReason: statusReasonInput.trim() || undefined,
+        statusUpdatedAt: nowIso,
+      };
+
+      customer.user.accountStatus = accountStatusSelect;
+      customer.user.statusReason = statusReasonInput.trim() || undefined;
+      customer.user.statusUpdatedAt = nowIso;
+
+      await saveSupabaseUser(updatedUser);
+      onUpdateUser?.(updatedUser);
+      onUpdateAccountStatus?.(customer.user.id, accountStatusSelect, statusReasonInput.trim() || undefined);
+
+      const actionTitle = 
+        accountStatusSelect === 'blocked' || accountStatusSelect === 'suspended'
+          ? 'TEMPORARILY BLOCKED / FROZEN'
+          : accountStatusSelect === 'pending'
+          ? 'PLACED ON PENDING HOLD'
+          : 'RESTORED TO ACTIVE MINING';
+
+      const miningImpact = 
+        accountStatusSelect === 'active'
+          ? 'All mining contracts and daily reward payouts are running.'
+          : 'All active mining packages are immediately HALTED / STOPPED (0 TH/s yields).';
+
+      setSaveSuccessMsg(`Account status updated to "${actionTitle}"! ${miningImpact}`);
+      setShowStatusModal(false);
+      setTimeout(() => setSaveSuccessMsg(null), 5000);
+    } catch (err: any) {
+      alert('Status update error: ' + (err?.message || 'Failed'));
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  };
+
   const getVipColor = (level: number) => {
     switch (level) {
       case 5: return 'bg-purple-500/20 text-purple-300 border-purple-500/40';
@@ -438,6 +496,37 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Account Status / Freeze Toggle Button */}
+            <button
+              type="button"
+              onClick={() => setShowStatusModal(true)}
+              className={`px-3 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm border ${
+                customer.user.accountStatus === 'blocked' || customer.user.accountStatus === 'suspended'
+                  ? 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border-rose-500/50 animate-pulse'
+                  : customer.user.accountStatus === 'pending'
+                  ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/50'
+                  : 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border-emerald-500/30'
+              }`}
+              title="Admin account suspension, hold or block control"
+            >
+              {customer.user.accountStatus === 'blocked' || customer.user.accountStatus === 'suspended' ? (
+                <>
+                  <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+                  <span>⛔ Blocked / Frozen</span>
+                </>
+              ) : customer.user.accountStatus === 'pending' ? (
+                <>
+                  <Clock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>⏳ Pending Hold</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>🟢 Account Active</span>
+                </>
+              )}
+            </button>
+
             <button
               type="button"
               onClick={() => setShowBonusModal(true)}
@@ -828,6 +917,77 @@ Primary Wallet: ${customer.primaryWalletAddress}`;
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* Account Standing & Mining Lockout Control Hub */}
+              <div className={`p-4 rounded-2xl border space-y-3 transition-all ${
+                customer.user.accountStatus === 'blocked' || customer.user.accountStatus === 'suspended'
+                  ? 'bg-rose-950/30 border-rose-500/50 shadow-lg shadow-rose-500/5'
+                  : customer.user.accountStatus === 'pending'
+                  ? 'bg-amber-950/30 border-amber-500/50 shadow-lg shadow-amber-500/5'
+                  : 'bg-[#10182b] border-slate-800'
+              }`}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center border ${
+                      customer.user.accountStatus === 'blocked' || customer.user.accountStatus === 'suspended'
+                        ? 'bg-rose-500/20 border-rose-500/40 text-rose-400'
+                        : customer.user.accountStatus === 'pending'
+                        ? 'bg-amber-500/20 border-amber-500/40 text-amber-400'
+                        : 'bg-emerald-500/20 border-emerald-500/40 text-emerald-400'
+                    }`}>
+                      {customer.user.accountStatus === 'blocked' || customer.user.accountStatus === 'suspended' ? (
+                        <ShieldAlert className="w-4 h-4" />
+                      ) : customer.user.accountStatus === 'pending' ? (
+                        <Clock className="w-4 h-4" />
+                      ) : (
+                        <CheckCircle2 className="w-4 h-4" />
+                      )}
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                        <span>Account Standing & Mining Lockout Control</span>
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase ${
+                          customer.user.accountStatus === 'blocked' || customer.user.accountStatus === 'suspended'
+                            ? 'bg-rose-500 text-slate-950'
+                            : customer.user.accountStatus === 'pending'
+                            ? 'bg-amber-500 text-slate-950'
+                            : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                        }`}>
+                          {customer.user.accountStatus || 'active'}
+                        </span>
+                      </h3>
+                      <p className="text-[11px] text-slate-400">
+                        {customer.user.accountStatus === 'blocked' || customer.user.accountStatus === 'suspended'
+                          ? 'All active mining packages & daily ETH yields are completely HALTED for this client.'
+                          : customer.user.accountStatus === 'pending'
+                          ? 'Account is on administrative hold. Mining package yields are paused until review completion.'
+                          : 'Client account is in good standing. Stratum mining nodes & daily payouts are operating normally.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowStatusModal(true)}
+                    className="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all self-start sm:self-auto shrink-0 shadow-sm"
+                  >
+                    <Sliders className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Change Account Status</span>
+                  </button>
+                </div>
+
+                {customer.user.statusReason && (
+                  <div className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800 text-xs font-mono flex items-center gap-2 text-slate-300">
+                    <span className="text-slate-500 font-bold shrink-0">Admin Memo:</span>
+                    <span className="italic">{customer.user.statusReason}</span>
+                    {customer.user.statusUpdatedAt && (
+                      <span className="text-[10px] text-slate-500 ml-auto shrink-0">
+                        Updated: {new Date(customer.user.statusUpdatedAt).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Feature 7 & 8: Institutional KYC Clearance & Profit/Bonus Matrix */}
@@ -1497,6 +1657,182 @@ Primary Wallet: ${customer.primaryWalletAddress}`;
                     <>
                       <CheckCircle2 className="w-3.5 h-3.5" />
                       <span>Update Status</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Feature 9: Account Status & Mining Lockout Control Modal */}
+      {showStatusModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="w-full max-w-lg bg-[#0d1424] border border-amber-500/40 rounded-3xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-amber-400">
+                <ShieldAlert className="w-5 h-5" />
+                <h3 className="text-base font-black text-white">Account Status & Mining Lockout Control</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowStatusModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-300">
+              Manage operational clearance for <strong className="text-white">{customer.user.name || customer.user.email}</strong>.
+            </p>
+
+            <form onSubmit={handleExecuteStatusUpdate} className="space-y-4">
+              <div className="space-y-2">
+                <label className="block text-[11px] font-mono text-slate-400">Select Account Standing:</label>
+                
+                <div className="grid grid-cols-1 gap-2.5">
+                  {/* Active Option */}
+                  <label className={`p-3 rounded-2xl border cursor-pointer transition-all flex items-start gap-3 ${
+                    accountStatusSelect === 'active'
+                      ? 'bg-emerald-500/15 border-emerald-500/60 shadow-lg shadow-emerald-500/10'
+                      : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="accountStatus"
+                      value="active"
+                      checked={accountStatusSelect === 'active'}
+                      onChange={() => setAccountStatusSelect('active')}
+                      className="mt-0.5 text-emerald-500 focus:ring-0"
+                    />
+                    <div className="space-y-0.5 flex-1">
+                      <div className="text-xs font-black text-emerald-300 flex items-center gap-1.5">
+                        <span>🟢 Active (Normal Mining Operations)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        Client can log in, all purchased VIP mining packages stay active, and daily ETH yield rewards are credited continuously.
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Pending Option */}
+                  <label className={`p-3 rounded-2xl border cursor-pointer transition-all flex items-start gap-3 ${
+                    accountStatusSelect === 'pending'
+                      ? 'bg-amber-500/15 border-amber-500/60 shadow-lg shadow-amber-500/10'
+                      : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="accountStatus"
+                      value="pending"
+                      checked={accountStatusSelect === 'pending'}
+                      onChange={() => setAccountStatusSelect('pending')}
+                      className="mt-0.5 text-amber-500 focus:ring-0"
+                    />
+                    <div className="space-y-0.5 flex-1">
+                      <div className="text-xs font-black text-amber-300 flex items-center gap-1.5">
+                        <span>⏳ Pending Hold (Packages & Yields Paused)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        Account placed under administrative review. Active mining contracts are <strong>temporarily paused</strong> and yields halted until cleared.
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Blocked Option */}
+                  <label className={`p-3 rounded-2xl border cursor-pointer transition-all flex items-start gap-3 ${
+                    accountStatusSelect === 'blocked' || accountStatusSelect === 'suspended'
+                      ? 'bg-rose-500/15 border-rose-500/60 shadow-lg shadow-rose-500/10'
+                      : 'bg-slate-950/60 border-slate-800 hover:border-slate-700'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="accountStatus"
+                      value="blocked"
+                      checked={accountStatusSelect === 'blocked' || accountStatusSelect === 'suspended'}
+                      onChange={() => setAccountStatusSelect('blocked')}
+                      className="mt-0.5 text-rose-500 focus:ring-0"
+                    />
+                    <div className="space-y-0.5 flex-1">
+                      <div className="text-xs font-black text-rose-300 flex items-center gap-1.5">
+                        <span>⛔ Temporarily Blocked / Frozen (All Packages Stopped)</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        Complete account freeze. All active mining packages are <strong>immediately STOPPED</strong> (0 TH/s hashrate), yield calculations drop to $0.00, and withdrawals are locked.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Status Reason / Memo */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-mono text-slate-400">Reason / Administrative Memo:</label>
+                  <span className="text-[10px] text-slate-500">Visible on admin dossier</span>
+                </div>
+                <textarea
+                  rows={2}
+                  placeholder="e.g. Compliance KYC review required, suspicious transaction hold, or restored by admin..."
+                  value={statusReasonInput}
+                  onChange={(e) => setStatusReasonInput(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-slate-700 text-xs text-white focus:outline-none focus:border-amber-500 resize-none"
+                />
+
+                {/* Quick Reason Presets */}
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {[
+                    'Routine Compliance Review',
+                    'KYC Resubmission Hold',
+                    'Suspicious Activity Investigation',
+                    'Payment Verification Hold',
+                    'Clearance Approved / Reactivated'
+                  ].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setStatusReasonInput(preset)}
+                      className="px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300 font-mono transition-all"
+                    >
+                      + {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Warning Notice */}
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] text-slate-400 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <span>
+                  Updating status to <strong>Pending</strong> or <strong>Blocked</strong> immediately updates the client's dashboard, halts their real-time mining hashrate, and zeros out their daily yield generation.
+                </span>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowStatusModal(false)}
+                  disabled={isUpdatingStatus}
+                  className="flex-1 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingStatus}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/30 cursor-pointer disabled:opacity-60 flex items-center justify-center gap-1.5"
+                >
+                  {isUpdatingStatus ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving Status...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Apply Account Status</span>
                     </>
                   )}
                 </button>

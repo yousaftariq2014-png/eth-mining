@@ -43,7 +43,7 @@ export interface AggregatedCustomerData {
   lastDepositTxid: string;
   lastActivityDate: string;
   computedVipLevel: number;
-  accountStatus: 'Active Miner' | 'Pending Verification' | 'Pending Withdrawal' | 'Inactive / Free';
+  accountStatus: 'Active Miner' | 'Pending Verification' | 'Pending Withdrawal' | 'Blocked / Suspended' | 'Pending Hold' | 'Inactive / Free';
 }
 
 function parseTimestamp(ts?: string): Date {
@@ -377,7 +377,11 @@ export function calculateCustomerAggregation(
     const computedVipLevel = approvedDeposits.length > 0 ? maxVipFromApproved : 0;
 
     let accountStatus: AggregatedCustomerData['accountStatus'] = 'Inactive / Free';
-    if (pendingDeposits.length > 0) {
+    if (user.accountStatus === 'blocked' || user.accountStatus === 'suspended') {
+      accountStatus = 'Blocked / Suspended';
+    } else if (user.accountStatus === 'pending') {
+      accountStatus = 'Pending Hold';
+    } else if (pendingDeposits.length > 0) {
       accountStatus = 'Pending Verification';
     } else if (pendingWithdrawals.length > 0) {
       accountStatus = 'Pending Withdrawal';

@@ -821,6 +821,11 @@ export async function fetchSupabaseUsers(): Promise<UserProfile[] | null> {
         effectiveKey
       );
 
+      const rawAccountStatus = (item.account_status || item.accountStatus || 'active').toLowerCase();
+      const accountStatus = (rawAccountStatus === 'blocked' || rawAccountStatus === 'suspended' || rawAccountStatus === 'pending') 
+        ? rawAccountStatus 
+        : 'active';
+
       return {
         id: item.id,
         name: item.name,
@@ -831,6 +836,9 @@ export async function fetchSupabaseUsers(): Promise<UserProfile[] | null> {
         joinedDate: item.joined_date || item.created_at?.substring(0, 10) || '2026-08-28',
         isLoggedIn: item.is_logged_in ?? true,
         onchainKey: onchain,
+        accountStatus: accountStatus as any,
+        statusReason: item.status_reason || item.statusReason,
+        statusUpdatedAt: item.status_updated_at || item.statusUpdatedAt,
       };
     });
   } catch (err) {
@@ -1156,6 +1164,9 @@ export async function saveSupabaseUser(user: UserProfile): Promise<boolean> {
       vip_level: computedVip,
       joined_date: user.joinedDate || new Date().toISOString().substring(0, 10),
       is_logged_in: user.isLoggedIn ?? true,
+      account_status: user.accountStatus || 'active',
+      status_reason: user.statusReason || null,
+      status_updated_at: user.statusUpdatedAt || new Date().toISOString(),
       ...(user.password ? { password: user.password } : {}),
       ...(user.onchainKey ? { onchain_key: user.onchainKey } : {}),
     };
@@ -1194,7 +1205,7 @@ export async function saveSupabaseUser(user: UserProfile): Promise<boolean> {
 
     if (error) {
       console.warn('Supabase client save warning (retrying safe payload):', error.message);
-      // If table lacks password/onchain_key columns, retry without those keys so saving still succeeds
+      // If table lacks password/onchain_key/account_status columns, retry without those keys so saving still succeeds
       const safePayload = {
         id: user.id,
         name: user.name,

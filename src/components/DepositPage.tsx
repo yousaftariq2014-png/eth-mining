@@ -31,6 +31,12 @@ export const DepositPage: React.FC<DepositPageProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [submitError, setSubmitError] = useState<string>('');
 
+  React.useEffect(() => {
+    if (selectedPackage && selectedPackage.priceUsd) {
+      setAmount(selectedPackage.priceUsd);
+    }
+  }, [selectedPackage]);
+
   const isFlash = selectedPackage.planType === 'flash_48h';
   const isCustom = selectedPackage.planType === 'custom_pool';
 

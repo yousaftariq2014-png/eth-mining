@@ -21,7 +21,8 @@ import {
 } from '../data/packagesData';
 
 interface CustomPackageBuilderProps {
-  onSelectPackage: (pkg: MiningPackage) => void;
+  onSelectPackage?: (pkg: MiningPackage) => void;
+  onSelectCustomPackage?: (pkg: MiningPackage) => void;
   ethPriceUsd?: number;
   compact?: boolean;
 }
@@ -30,6 +31,7 @@ const PRESET_AMOUNTS = [10000, 25000, 50000, 75000, 100000, 150000, 200000];
 
 export const CustomPackageBuilder: React.FC<CustomPackageBuilderProps> = ({
   onSelectPackage,
+  onSelectCustomPackage,
   ethPriceUsd = 2750,
   compact = false
 }) => {
@@ -255,13 +257,19 @@ export const CustomPackageBuilder: React.FC<CustomPackageBuilderProps> = ({
             </div>
           </div>
 
-          {/* Action Deploy Button */}
+          {/* Action Deposit & Start Button */}
           <button
             type="button"
-            onClick={() => onSelectPackage(customPkg)}
-            className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-cyan-500 via-teal-400 to-cyan-400 hover:from-cyan-400 hover:to-teal-300 text-slate-950 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/25 transition-all transform active:scale-95"
+            id="deploy-custom-package-btn"
+            onClick={() => {
+              const handler = onSelectPackage || onSelectCustomPackage;
+              if (handler) {
+                handler(customPkg);
+              }
+            }}
+            className="w-full py-4 px-4 rounded-xl bg-gradient-to-r from-cyan-500 via-teal-400 to-cyan-400 hover:from-cyan-400 hover:to-teal-300 text-slate-950 font-black text-sm uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/25 transition-all transform active:scale-95 cursor-pointer"
           >
-            <span>Deploy Custom Rig (${amount.toLocaleString()})</span>
+            <span>Deposit & Start (${amount.toLocaleString()} USDT)</span>
             <ArrowRight className="w-4 h-4" />
           </button>
 

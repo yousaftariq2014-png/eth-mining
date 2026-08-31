@@ -1710,6 +1710,9 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
         {dashCategory === 'custom_pool' ? (
           <div className="pt-2">
             <CustomPackageBuilder
+              onSelectPackage={(customPkg) => {
+                onSelectPackage(customPkg);
+              }}
               onSelectCustomPackage={(customPkg) => {
                 onSelectPackage(customPkg);
               }}

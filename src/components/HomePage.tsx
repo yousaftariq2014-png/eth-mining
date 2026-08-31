@@ -409,7 +409,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                           : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-amber-500/20 active:scale-95'
                       }`}
                     >
-                      <span>{user ? 'Start Mining Plan' : 'Join & Start'}</span>
+                      <span>{user ? 'Deposit & Start' : 'Deposit & Start'}</span>
                       <ArrowRight className="w-3.5 h-3.5" />
                     </button>
                   )}

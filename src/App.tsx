@@ -685,7 +685,12 @@ export default function App() {
       (
         d.packageId === pkg.id || 
         d.packageName === pkg.name || 
-        (d.vipLevel === pkg.vipLevel && (d.planType === pkg.planType || (!d.planType && pkg.planType === 'daily')))
+        (
+          pkg.planType !== 'custom_pool' && 
+          d.planType !== 'custom_pool' &&
+          d.vipLevel === pkg.vipLevel && 
+          (d.planType === pkg.planType || (!d.planType && pkg.planType === 'daily'))
+        )
       )
     );
   };

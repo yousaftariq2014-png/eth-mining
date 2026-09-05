@@ -44,7 +44,14 @@ import {
   Tag,
   FileText,
   Camera,
-  Award
+  Award,
+  BellRing,
+  Phone,
+  Download,
+  MessageSquare,
+  Plus,
+  CheckSquare,
+  User
 } from 'lucide-react';
 import { 
   UserProfile, 
@@ -56,7 +63,9 @@ import {
   BonusAdjustment,
   PromoCode,
   KYCStatus,
-  KYCLevel
+  KYCLevel,
+  LeadSubscriber,
+  LeadPopupConfig
 } from '../types';
 import { 
   supabase, 
@@ -115,6 +124,14 @@ interface AdminPortalProps {
   onSavePromoCodes?: (codes: PromoCode[]) => void;
   onInjectBonus?: (bonus: BonusAdjustment) => void;
   bonusHistory?: BonusAdjustment[];
+  leads?: LeadSubscriber[];
+  onUpdateLead?: (lead: LeadSubscriber) => void;
+  onDeleteLead?: (leadId: string) => void;
+  onClearAllLeads?: () => void;
+  onAddManualLead?: (lead: { name: string; email: string; phone: string; notes?: string }) => void;
+  leadConfig?: LeadPopupConfig;
+  onSaveLeadConfig?: (config: LeadPopupConfig) => void;
+  onPreviewLeadPopup?: () => void;
 }
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({
@@ -141,6 +158,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onSavePromoCodes,
   onInjectBonus,
   bonusHistory = [],
+  leads: propLeads = [],
+  onUpdateLead,
+  onDeleteLead,
+  onClearAllLeads,
+  onAddManualLead,
+  leadConfig: propLeadConfig,
+  onSaveLeadConfig,
+  onPreviewLeadPopup,
 }) => {
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState<boolean>(() => {
     try {
@@ -159,13 +184,60 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [syncToast, setSyncToast] = useState<string>('');
 
-  const [activeTab, setActiveTab] = useState<'clients' | 'deposits' | 'withdrawals' | 'kyc' | 'bonuses' | 'announcements' | 'email_config'>('clients');
+  const [activeTab, setActiveTab] = useState<'clients' | 'deposits' | 'withdrawals' | 'kyc' | 'bonuses' | 'announcements' | 'email_config' | 'leads'>('clients');
   const [clientFilter, setClientFilter] = useState<'all' | 'active_miners' | 'pending_deposits' | 'pending_withdrawals' | 'pending_status' | 'blocked' | 'inactive'>('all');
   const [depositFilter, setDepositFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
   const [withdrawalFilter, setWithdrawalFilter] = useState<'all' | 'pending' | 'approved' | 'failed'>('pending');
   const [kycFilter, setKycFilter] = useState<'all' | 'pending' | 'verified' | 'rejected'>('pending');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // VIP Update Leads State
+  const [leadList, setLeadList] = useState<LeadSubscriber[]>(() => {
+    if (propLeads && propLeads.length > 0) return propLeads;
+    try {
+      const saved = localStorage.getItem('hashforge_update_leads');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
+
+  useEffect(() => {
+    if (propLeads && propLeads.length > 0) {
+      setLeadList(propLeads);
+    }
+  }, [propLeads]);
+
+  const [leadConfigState, setLeadConfigState] = useState<LeadPopupConfig>(() => {
+    if (propLeadConfig) return propLeadConfig;
+    try {
+      const saved = localStorage.getItem('hashforge_lead_config');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {
+      isEnabled: true,
+      title: 'Subscribe for VIP Mining & Production Updates',
+      subtitle: 'Get instant real-time notifications for daily ETH yield rates, pool difficulty adjustments, exclusive VIP bonuses, and network announcements.',
+      badgeText: '⚡ REAL-TIME UPDATES',
+      buttonText: 'Subscribe for VIP Updates',
+      delaySeconds: 1.2
+    };
+  });
+
+  useEffect(() => {
+    if (propLeadConfig) {
+      setLeadConfigState(propLeadConfig);
+    }
+  }, [propLeadConfig]);
+
+  const [leadSearchQuery, setLeadSearchQuery] = useState<string>('');
+  const [leadStatusFilter, setLeadStatusFilter] = useState<'all' | 'new' | 'contacted' | 'subscribed'>('all');
+  const [showAddLeadModal, setShowAddLeadModal] = useState<boolean>(false);
+  const [manualLeadName, setManualLeadName] = useState<string>('');
+  const [manualLeadEmail, setManualLeadEmail] = useState<string>('');
+  const [manualLeadPhone, setManualLeadPhone] = useState<string>('');
+  const [manualLeadNotes, setManualLeadNotes] = useState<string>('');
+  const [leadToast, setLeadToast] = useState<string | null>(null);
 
   // Bonus & Promo State
   const [bonusTargetUserId, setBonusTargetUserId] = useState<string>('');
@@ -1096,6 +1168,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             <span className="px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
               7 Tables
             </span>
+          </button>
+
+          {/* Tab 8: VIP Update Leads & Subscribers */}
+          <button
+            onClick={() => setActiveTab('leads')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-2 transition-all ${
+              activeTab === 'leads'
+                ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/20'
+                : 'bg-[#0f172a] text-slate-300 hover:text-white border border-slate-800'
+            }`}
+          >
+            <BellRing className="w-4 h-4 text-amber-400" />
+            <span>VIP Update Leads ({leadList.length})</span>
+            {leadList.filter(l => l.status === 'new').length > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-emerald-500 text-slate-950 animate-pulse">
+                {leadList.filter(l => l.status === 'new').length} New
+              </span>
+            )}
           </button>
         </div>
       </div>
@@ -2992,6 +3082,676 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               In Supabase Dashboard &rarr; Authentication &rarr; Email Templates &rarr; <strong>Confirm signup</strong>: make sure the confirmation button link uses <code className="text-amber-400 bg-slate-950 px-1 py-0.5 rounded font-mono">{'{{ .ConfirmationURL }}'}</code>. Supabase will automatically attach the verification token and route the client back to this applet.
             </p>
           </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* TAB 8: VIP UPDATE LEADS & SUBSCRIBERS DIRECTORY              */}
+      {/* ============================================================ */}
+      {activeTab === 'leads' && (
+        <div className="space-y-5 animate-in fade-in duration-200">
+          {/* Notification Toast */}
+          {leadToast && (
+            <div className="p-3 rounded-2xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-bold flex items-center justify-between shadow-lg shadow-amber-500/10">
+              <span className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                {leadToast}
+              </span>
+              <button 
+                onClick={() => setLeadToast(null)}
+                className="text-amber-400/80 hover:text-amber-200 text-xs"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* Quick Metrics Bar */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="p-4 rounded-2xl bg-[#0c1220] border border-slate-800 space-y-1">
+              <div className="text-xs text-slate-400 font-bold flex items-center justify-between">
+                <span>Total Leads Collected</span>
+                <Users className="w-4 h-4 text-amber-400" />
+              </div>
+              <div className="text-2xl sm:text-3xl font-black text-amber-400 font-mono">
+                {leadList.length}
+              </div>
+              <div className="text-[11px] text-slate-400">All registered contacts</div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-[#0c1220] border border-slate-800 space-y-1">
+              <div className="text-xs text-emerald-400 font-bold flex items-center justify-between">
+                <span>New / Uncontacted</span>
+                <BellRing className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div className="text-2xl sm:text-3xl font-black text-emerald-400 font-mono">
+                {leadList.filter(l => l.status === 'new').length}
+              </div>
+              <div className="text-[11px] text-emerald-400/80">Pending outreach</div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-[#0c1220] border border-slate-800 space-y-1">
+              <div className="text-xs text-cyan-400 font-bold flex items-center justify-between">
+                <span>Contacted / Subscribed</span>
+                <ShieldCheck className="w-4 h-4 text-cyan-400" />
+              </div>
+              <div className="text-2xl sm:text-3xl font-black text-cyan-400 font-mono">
+                {leadList.filter(l => l.status === 'contacted' || l.status === 'subscribed').length}
+              </div>
+              <div className="text-[11px] text-cyan-400/80">VIP pipeline active</div>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-[#0c1220] border border-slate-800 space-y-1">
+              <div className="text-xs text-purple-400 font-bold flex items-center justify-between">
+                <span>Auto-Popup Status</span>
+                <Sparkles className="w-4 h-4 text-purple-400" />
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-black font-mono uppercase ${
+                  leadConfigState.isEnabled 
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${leadConfigState.isEnabled ? 'bg-emerald-400 animate-ping' : 'bg-rose-400'}`} />
+                  {leadConfigState.isEnabled ? 'Active (ON)' : 'Disabled (OFF)'}
+                </span>
+              </div>
+              <div className="text-[10px] text-slate-400 font-mono">
+                Trigger: {leadConfigState.delaySeconds}s delay
+              </div>
+            </div>
+          </div>
+
+          {/* Auto-Popup Configuration & Controls Panel */}
+          <div className="p-5 rounded-2xl bg-[#0c1220] border border-slate-800 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                  <Sliders className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white">Live Lead-Capture Popup Settings</h3>
+                  <p className="text-[11px] text-slate-400">Control how and when the update popup appears to new website visitors</p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (onPreviewLeadPopup) {
+                      onPreviewLeadPopup();
+                    } else {
+                      setLeadToast('Opening Lead Popup preview...');
+                    }
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold cursor-pointer flex items-center gap-1.5 transition-all"
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Test / Preview Popup</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    try {
+                      localStorage.removeItem('hashforge_lead_subscribed');
+                      sessionStorage.removeItem('hashforge_lead_dismissed');
+                      setLeadToast('✅ Client browser state reset! The popup will now show again to you when visiting the home page.');
+                    } catch {}
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold cursor-pointer flex items-center gap-1.5 transition-all"
+                  title="Clear localStorage suppression to test popup again as a visitor"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span>Reset Client Test State</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+              {/* Toggle Enable */}
+              <div className="space-y-1.5 p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                <label className="font-bold text-slate-300 flex items-center justify-between">
+                  <span>Auto-Open on Website Load</span>
+                  <input
+                    type="checkbox"
+                    checked={leadConfigState.isEnabled}
+                    onChange={(e) => {
+                      const updated = { ...leadConfigState, isEnabled: e.target.checked };
+                      setLeadConfigState(updated);
+                      if (onSaveLeadConfig) onSaveLeadConfig(updated);
+                      try {
+                        localStorage.setItem('hashforge_lead_config', JSON.stringify(updated));
+                      } catch {}
+                      setLeadToast(e.target.checked ? '✅ Auto Lead-Popup Enabled for visitors' : '⏸️ Auto Lead-Popup Paused');
+                    }}
+                    className="w-4 h-4 rounded text-amber-500 focus:ring-amber-500 cursor-pointer accent-amber-500"
+                  />
+                </label>
+                <p className="text-[11px] text-slate-400">
+                  When enabled, any visitor opening the website gets the update subscription popup.
+                </p>
+              </div>
+
+              {/* Delay Selector */}
+              <div className="space-y-1.5 p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                <label className="font-bold text-slate-300 flex items-center justify-between">
+                  <span>Popup Open Delay</span>
+                  <span className="text-amber-400 font-mono font-bold">{leadConfigState.delaySeconds}s</span>
+                </label>
+                <select
+                  value={leadConfigState.delaySeconds}
+                  onChange={(e) => {
+                    const updated = { ...leadConfigState, delaySeconds: parseFloat(e.target.value) };
+                    setLeadConfigState(updated);
+                    if (onSaveLeadConfig) onSaveLeadConfig(updated);
+                    try {
+                      localStorage.setItem('hashforge_lead_config', JSON.stringify(updated));
+                    } catch {}
+                  }}
+                  className="w-full bg-[#0b101d] border border-slate-700 rounded-lg px-2.5 py-1.5 text-slate-200 text-xs font-mono outline-none"
+                >
+                  <option value="0.5">0.5 Seconds (Immediate)</option>
+                  <option value="1.2">1.2 Seconds (Recommended)</option>
+                  <option value="2.5">2.5 Seconds (Smooth)</option>
+                  <option value="5.0">5.0 Seconds (After intro)</option>
+                </select>
+              </div>
+
+              {/* Custom Badge Text */}
+              <div className="space-y-1.5 p-3.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                <label className="font-bold text-slate-300">Popup Badge / Tag</label>
+                <input
+                  type="text"
+                  value={leadConfigState.badgeText}
+                  onChange={(e) => {
+                    const updated = { ...leadConfigState, badgeText: e.target.value };
+                    setLeadConfigState(updated);
+                    if (onSaveLeadConfig) onSaveLeadConfig(updated);
+                    try {
+                      localStorage.setItem('hashforge_lead_config', JSON.stringify(updated));
+                    } catch {}
+                  }}
+                  className="w-full bg-[#0b101d] border border-slate-700 rounded-lg px-2.5 py-1.5 text-white text-xs outline-none"
+                  placeholder="⚡ REAL-TIME UPDATES"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Marketing & Actions Toolbar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl bg-[#0c1220] border border-slate-800">
+            {/* Filter Pills */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              <button
+                onClick={() => setLeadStatusFilter('all')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition-all ${
+                  leadStatusFilter === 'all'
+                    ? 'bg-amber-500 text-slate-950 font-black'
+                    : 'bg-slate-900 text-slate-300 hover:text-white border border-slate-800'
+                }`}
+              >
+                All Leads ({leadList.length})
+              </button>
+              <button
+                onClick={() => setLeadStatusFilter('new')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-1 ${
+                  leadStatusFilter === 'new'
+                    ? 'bg-emerald-500 text-slate-950 font-black'
+                    : 'bg-slate-900 text-emerald-400 hover:text-emerald-300 border border-slate-800'
+                }`}
+              >
+                <span>New</span>
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-500/20 font-mono">
+                  {leadList.filter(l => l.status === 'new').length}
+                </span>
+              </button>
+              <button
+                onClick={() => setLeadStatusFilter('contacted')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-1 ${
+                  leadStatusFilter === 'contacted'
+                    ? 'bg-cyan-500 text-slate-950 font-black'
+                    : 'bg-slate-900 text-cyan-400 hover:text-cyan-300 border border-slate-800'
+                }`}
+              >
+                <span>Contacted</span>
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-cyan-500/20 font-mono">
+                  {leadList.filter(l => l.status === 'contacted').length}
+                </span>
+              </button>
+              <button
+                onClick={() => setLeadStatusFilter('subscribed')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-1 ${
+                  leadStatusFilter === 'subscribed'
+                    ? 'bg-purple-500 text-slate-950 font-black'
+                    : 'bg-slate-900 text-purple-400 hover:text-purple-300 border border-slate-800'
+                }`}
+              >
+                <span>Subscribed</span>
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-purple-500/20 font-mono">
+                  {leadList.filter(l => l.status === 'subscribed').length}
+                </span>
+              </button>
+            </div>
+
+            {/* Quick Export & Actions Buttons */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Copy Emails */}
+              <button
+                type="button"
+                onClick={() => {
+                  const emails = leadList.map(l => l.email).filter(Boolean).join(', ');
+                  if (!emails) {
+                    setLeadToast('No emails to copy.');
+                    return;
+                  }
+                  navigator.clipboard.writeText(emails);
+                  setLeadToast(`📋 Copied ${leadList.length} emails to clipboard!`);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-bold cursor-pointer flex items-center gap-1.5"
+                title="Copy all emails comma-separated for marketing campaigns"
+              >
+                <Mail className="w-3.5 h-3.5 text-amber-400" />
+                <span>Copy Emails</span>
+              </button>
+
+              {/* Copy Phones */}
+              <button
+                type="button"
+                onClick={() => {
+                  const phones = leadList.map(l => l.phone).filter(Boolean).join(', ');
+                  if (!phones) {
+                    setLeadToast('No phone numbers to copy.');
+                    return;
+                  }
+                  navigator.clipboard.writeText(phones);
+                  setLeadToast(`📋 Copied ${leadList.length} phone numbers to clipboard!`);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-bold cursor-pointer flex items-center gap-1.5"
+                title="Copy all phone numbers comma-separated for WhatsApp/SMS broadcasts"
+              >
+                <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Copy Phones</span>
+              </button>
+
+              {/* Download CSV */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (leadList.length === 0) {
+                    setLeadToast('No leads available to export.');
+                    return;
+                  }
+                  const header = 'ID,Name,Email,Phone,Status,Submitted At,Notes\n';
+                  const rows = leadList.map(l => {
+                    const cleanName = `"${(l.name || '').replace(/"/g, '""')}"`;
+                    const cleanEmail = `"${(l.email || '').replace(/"/g, '""')}"`;
+                    const cleanPhone = `"${(l.phone || '').replace(/"/g, '""')}"`;
+                    const cleanNotes = `"${(l.notes || '').replace(/"/g, '""')}"`;
+                    return `${l.id},${cleanName},${cleanEmail},${cleanPhone},${l.status},${l.createdAt},${cleanNotes}`;
+                  }).join('\n');
+
+                  const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `eth2_vip_update_leads_${new Date().toISOString().substring(0, 10)}.csv`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                  setLeadToast('📁 Leads exported to CSV successfully!');
+                }}
+                className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black cursor-pointer flex items-center gap-1.5 shadow-md shadow-amber-500/10"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export CSV</span>
+              </button>
+
+              {/* Add Manual Lead */}
+              <button
+                type="button"
+                onClick={() => setShowAddLeadModal(true)}
+                className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold cursor-pointer flex items-center gap-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Manual Lead</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Search Field */}
+          <div className="relative">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Search leads by name, email, phone number, or notes..."
+              value={leadSearchQuery}
+              onChange={(e) => setLeadSearchQuery(e.target.value)}
+              className="w-full bg-[#0c1220] border border-slate-800 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500/60"
+            />
+          </div>
+
+          {/* Leads Table */}
+          <div className="rounded-2xl bg-[#0c1220] border border-slate-800 overflow-hidden shadow-xl">
+            <div className="grid grid-cols-12 px-4 py-3 bg-[#0f172a] border-b border-slate-800 text-[11px] font-bold text-slate-400 font-mono uppercase tracking-wider gap-2">
+              <div className="col-span-3 sm:col-span-3">Client Contact</div>
+              <div className="col-span-3 sm:col-span-3">Email Address</div>
+              <div className="col-span-3 sm:col-span-3">Phone / WhatsApp</div>
+              <div className="col-span-2 sm:col-span-2 text-center">Status</div>
+              <div className="col-span-1 sm:col-span-1 text-right">Actions</div>
+            </div>
+
+            <div className="divide-y divide-slate-800/60">
+              {leadList
+                .filter((l) => {
+                  if (leadStatusFilter !== 'all' && l.status !== leadStatusFilter) return false;
+                  if (!leadSearchQuery.trim()) return true;
+                  const q = leadSearchQuery.toLowerCase();
+                  return (
+                    l.name?.toLowerCase().includes(q) ||
+                    l.email?.toLowerCase().includes(q) ||
+                    l.phone?.toLowerCase().includes(q) ||
+                    l.notes?.toLowerCase().includes(q)
+                  );
+                })
+                .map((lead) => {
+                  const cleanPhone = lead.phone?.replace(/[^0-9]/g, '') || '';
+                  const whatsappUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(
+                    `Hello ${lead.name}, this is ETH2.0 Smart Production Support regarding your VIP update subscription.`
+                  )}`;
+
+                  return (
+                    <div
+                      key={lead.id}
+                      className="grid grid-cols-12 px-4 py-3.5 text-xs items-center hover:bg-slate-900/50 transition-colors gap-2"
+                    >
+                      {/* Contact Name & Date */}
+                      <div className="col-span-3 sm:col-span-3 min-w-0">
+                        <div className="font-bold text-white truncate text-xs flex items-center gap-1.5">
+                          <User className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span className="truncate">{lead.name}</span>
+                        </div>
+                        <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                          {new Date(lead.createdAt).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Email */}
+                      <div className="col-span-3 sm:col-span-3 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <a
+                            href={`mailto:${lead.email}`}
+                            className="text-amber-400 hover:underline truncate font-mono text-[11px]"
+                            title="Send email"
+                          >
+                            {lead.email}
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(lead.email);
+                              setCopiedKey(`email-${lead.id}`);
+                              setTimeout(() => setCopiedKey(null), 2000);
+                            }}
+                            className="p-1 rounded text-slate-500 hover:text-white"
+                            title="Copy email"
+                          >
+                            {copiedKey === `email-${lead.id}` ? (
+                              <Check className="w-3 h-3 text-emerald-400" />
+                            ) : (
+                              <Copy className="w-3 h-3" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Phone & Direct WhatsApp Action */}
+                      <div className="col-span-3 sm:col-span-3 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-slate-200 font-mono text-[11px] truncate">
+                            {lead.phone}
+                          </span>
+                          
+                          {/* Direct WhatsApp Button */}
+                          {cleanPhone && (
+                            <a
+                              href={whatsappUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/40 text-[10px] font-bold flex items-center gap-1 shrink-0 transition-all cursor-pointer shadow-sm shadow-emerald-500/10"
+                              title="Chat directly on WhatsApp"
+                            >
+                              <MessageSquare className="w-3 h-3 text-emerald-400" />
+                              <span className="hidden sm:inline">WhatsApp</span>
+                            </a>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(lead.phone);
+                              setCopiedKey(`phone-${lead.id}`);
+                              setTimeout(() => setCopiedKey(null), 2000);
+                            }}
+                            className="p-1 rounded text-slate-500 hover:text-white"
+                            title="Copy phone number"
+                          >
+                            {copiedKey === `phone-${lead.id}` ? (
+                              <Check className="w-3 h-3 text-emerald-400" />
+                            ) : (
+                              <Copy className="w-3 h-3" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Status Selector */}
+                      <div className="col-span-2 sm:col-span-2 text-center">
+                        <select
+                          value={lead.status}
+                          onChange={(e) => {
+                            const newStatus = e.target.value as 'new' | 'contacted' | 'subscribed';
+                            const updatedLead = { ...lead, status: newStatus };
+                            const updatedList = leadList.map(l => l.id === lead.id ? updatedLead : l);
+                            setLeadList(updatedList);
+                            if (onUpdateLead) onUpdateLead(updatedLead);
+                            try {
+                              localStorage.setItem('hashforge_update_leads', JSON.stringify(updatedList));
+                            } catch {}
+                            setLeadToast(`Updated status for ${lead.name} to ${newStatus}`);
+                          }}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-bold uppercase font-mono outline-none border cursor-pointer ${
+                            lead.status === 'new'
+                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                              : lead.status === 'contacted'
+                              ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40'
+                              : 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                          }`}
+                        >
+                          <option value="new" className="bg-slate-900 text-emerald-300">🟢 New Lead</option>
+                          <option value="contacted" className="bg-slate-900 text-cyan-300">🔵 Contacted</option>
+                          <option value="subscribed" className="bg-slate-900 text-purple-300">🟣 Subscribed</option>
+                        </select>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="col-span-1 sm:col-span-1 text-right flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm(`Delete lead record for ${lead.name}?`)) {
+                              const updated = leadList.filter(l => l.id !== lead.id);
+                              setLeadList(updated);
+                              if (onDeleteLead) onDeleteLead(lead.id);
+                              try {
+                                localStorage.setItem('hashforge_update_leads', JSON.stringify(updated));
+                              } catch {}
+                              setLeadToast(`Deleted lead record for ${lead.name}`);
+                            }
+                          }}
+                          className="p-1.5 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                          title="Delete Lead"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+              {leadList.length === 0 && (
+                <div className="p-12 text-center space-y-3">
+                  <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                    <BellRing className="w-7 h-7" />
+                  </div>
+                  <h4 className="text-sm font-bold text-white">No Update Leads Collected Yet</h4>
+                  <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                    When visitors open your mining platform, the VIP Update popup will prompt them for their Name, Email, and Phone Number. All submitted data will be securely listed here.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddLeadModal(true)}
+                    className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs cursor-pointer shadow-lg shadow-amber-500/10 inline-flex items-center gap-2"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add Manual Lead Now</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Manual Add Lead Modal */}
+          {showAddLeadModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+              <div className="w-full max-w-md bg-[#0c1220] border border-emerald-500/40 rounded-3xl p-6 shadow-2xl space-y-4">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Plus className="w-4 h-4 text-emerald-400" />
+                    <h3 className="text-sm font-black text-white">Add Manual Lead / VIP Client</h3>
+                  </div>
+                  <button
+                    onClick={() => setShowAddLeadModal(false)}
+                    className="p-1 rounded-full hover:bg-slate-800 text-slate-400"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!manualLeadName.trim() || !manualLeadEmail.trim() || !manualLeadPhone.trim()) {
+                      alert('Please provide Name, Email, and Phone.');
+                      return;
+                    }
+
+                    const newManualLead: LeadSubscriber = {
+                      id: `lead-${Date.now()}`,
+                      name: manualLeadName.trim(),
+                      email: manualLeadEmail.trim(),
+                      phone: manualLeadPhone.trim(),
+                      notes: manualLeadNotes.trim() || undefined,
+                      status: 'new',
+                      createdAt: new Date().toISOString()
+                    };
+
+                    const updated = [newManualLead, ...leadList];
+                    setLeadList(updated);
+                    if (onAddManualLead) {
+                      onAddManualLead({
+                        name: newManualLead.name,
+                        email: newManualLead.email,
+                        phone: newManualLead.phone,
+                        notes: newManualLead.notes
+                      });
+                    }
+                    try {
+                      localStorage.setItem('hashforge_update_leads', JSON.stringify(updated));
+                    } catch {}
+
+                    setManualLeadName('');
+                    setManualLeadEmail('');
+                    setManualLeadPhone('');
+                    setManualLeadNotes('');
+                    setShowAddLeadModal(false);
+                    setLeadToast(`✅ Added ${newManualLead.name} to Leads Directory!`);
+                  }}
+                  className="space-y-3"
+                >
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-300">Client Name *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Tariq Mehmood"
+                      value={manualLeadName}
+                      onChange={(e) => setManualLeadName(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-300">Email Address *</label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="client@example.com"
+                      value={manualLeadEmail}
+                      onChange={(e) => setManualLeadEmail(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-300">Phone Number / WhatsApp *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="+92 300 1234567"
+                      value={manualLeadPhone}
+                      onChange={(e) => setManualLeadPhone(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-300">Initial Notes (Optional)</label>
+                    <textarea
+                      rows={2}
+                      placeholder="Interested in 48h flash packages, contacted via WhatsApp..."
+                      value={manualLeadNotes}
+                      onChange={(e) => setManualLeadNotes(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div className="pt-2 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddLeadModal(false)}
+                      className="px-3 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs cursor-pointer shadow-lg shadow-emerald-500/20"
+                    >
+                      Save Lead
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

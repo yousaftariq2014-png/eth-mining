@@ -471,3 +471,27 @@ export interface AutoReinvestConfig {
   lastReinvestedAt?: string;
 }
 
+// -------------------------------------------------------------
+// 6. Lead Capture & VIP Update Subscription Types
+// -------------------------------------------------------------
+export interface LeadSubscriber {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  countryCode?: string;
+  status: 'new' | 'contacted' | 'subscribed' | 'unsubscribed';
+  createdAt: string;
+  notes?: string;
+}
+
+export interface LeadPopupConfig {
+  isEnabled: boolean;
+  title: string;
+  subtitle: string;
+  badgeText: string;
+  buttonText: string;
+  delaySeconds: number;
+}
+
+

@@ -17,6 +17,7 @@ import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { ProofOfReservesModal } from './components/ProofOfReservesModal';
 import { GlobalAnnouncementBar } from './components/GlobalAnnouncementBar';
 import { LiveGlobalPayoutTicker } from './components/LiveGlobalPayoutTicker';
+import { LeadSubscriptionModal } from './components/LeadSubscriptionModal';
 
 import { 
   UserProfile, 
@@ -27,7 +28,9 @@ import {
   GlobalAnnouncement,
   KYCSubmission,
   BonusAdjustment,
-  PromoCode
+  PromoCode,
+  LeadSubscriber,
+  LeadPopupConfig
 } from './types';
 import { MINING_PACKAGES, INITIAL_WITHDRAWAL_RECORDS } from './data/packagesData';
 import { 
@@ -634,6 +637,122 @@ export default function App() {
       localStorage.setItem('hashforge_bonus_history', JSON.stringify(bonusHistory));
     } catch {}
   }, [bonusHistory]);
+
+  // 14. VIP Update Leads & Popup Config State
+  const [leads, setLeads] = useState<LeadSubscriber[]>(() => {
+    try {
+      const saved = localStorage.getItem('hashforge_update_leads');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [
+      {
+        id: 'lead-init-1',
+        name: 'Alexander Sterling',
+        email: 'alex.sterling.vip@proton.me',
+        phone: '+44 7700 900123',
+        status: 'new',
+        notes: 'Requested VIP daily production notifications',
+        createdAt: new Date(Date.now() - 3600000 * 4).toISOString()
+      },
+      {
+        id: 'lead-init-2',
+        name: 'Elena Rostova',
+        email: 'elena.rostova@crypto-funds.io',
+        phone: '+971 50 123 4567',
+        status: 'contacted',
+        notes: 'Interested in institutional 15,000 GH/s package updates',
+        createdAt: new Date(Date.now() - 3600000 * 18).toISOString()
+      }
+    ];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('hashforge_update_leads', JSON.stringify(leads));
+    } catch {}
+  }, [leads]);
+
+  const [leadConfig, setLeadConfig] = useState<LeadPopupConfig>(() => {
+    try {
+      const saved = localStorage.getItem('hashforge_lead_config');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {
+      isEnabled: true,
+      title: 'Subscribe for VIP Mining & Production Updates',
+      subtitle: 'Get instant real-time notifications for daily ETH yield rates, pool difficulty adjustments, exclusive VIP bonuses, and network announcements.',
+      badgeText: '⚡ REAL-TIME UPDATES',
+      buttonText: 'Subscribe for VIP Updates',
+      delaySeconds: 1.2
+    };
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('hashforge_lead_config', JSON.stringify(leadConfig));
+    } catch {}
+  }, [leadConfig]);
+
+  const [isLeadModalOpen, setIsLeadModalOpen] = useState<boolean>(false);
+
+  // Auto-trigger Lead capture popup when visitor opens the website
+  useEffect(() => {
+    if (!leadConfig.isEnabled) return;
+    if (typeof window === 'undefined') return;
+
+    // Do not show popup if in admin mode, recovering password, or viewing auth
+    if (
+      currentTab === 'admin' ||
+      window.location.hash === '#admin' ||
+      window.location.hash.includes('admin') ||
+      isResetPasswordOpen ||
+      isAuthOpen
+    ) {
+      return;
+    }
+
+    try {
+      const hasSubscribed = localStorage.getItem('hashforge_lead_subscribed') === 'true';
+      const hasDismissed = sessionStorage.getItem('hashforge_lead_dismissed') === 'true';
+      if (hasSubscribed || hasDismissed) {
+        return;
+      }
+    } catch {}
+
+    const timer = setTimeout(() => {
+      setIsLeadModalOpen(true);
+    }, (leadConfig.delaySeconds || 1.2) * 1000);
+
+    return () => clearTimeout(timer);
+  }, [leadConfig.isEnabled, leadConfig.delaySeconds, currentTab, isResetPasswordOpen, isAuthOpen]);
+
+  const handleSubscribeLead = (leadData: { name: string; email: string; phone: string }) => {
+    const newLead: LeadSubscriber = {
+      id: `lead-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      name: leadData.name,
+      email: leadData.email,
+      phone: leadData.phone,
+      status: 'new',
+      createdAt: new Date().toISOString()
+    };
+
+    setLeads(prev => [newLead, ...prev]);
+    try {
+      localStorage.setItem('hashforge_lead_subscribed', 'true');
+    } catch {}
+
+    // Add alert to notification center
+    const newNotice: AppNotification = {
+      id: `notif-${Date.now()}`,
+      userId: 'admin',
+      title: '🔔 New VIP Update Lead Subscribed',
+      message: `${leadData.name} (${leadData.email} | ${leadData.phone}) subscribed for VIP production updates.`,
+      category: 'vip',
+      timestamp: new Date().toISOString(),
+      isRead: false
+    };
+    setNotifications(prev => [newNotice, ...prev]);
+  };
 
   // Handlers for KYC Approval / Rejection
   const handleAdminApproveKYC = (submissionId: string, level: 1 | 2 = 1) => {
@@ -1266,6 +1385,49 @@ export default function App() {
             onSavePromoCodes={handleSavePromoCodes}
             onInjectBonus={handleInjectBonus}
             bonusHistory={bonusHistory}
+            leads={leads}
+            onUpdateLead={(updated) => {
+              setLeads(prev => {
+                const next = prev.map(l => l.id === updated.id ? updated : l);
+                try { localStorage.setItem('hashforge_update_leads', JSON.stringify(next)); } catch {}
+                return next;
+              });
+            }}
+            onDeleteLead={(leadId) => {
+              setLeads(prev => {
+                const next = prev.filter(l => l.id !== leadId);
+                try { localStorage.setItem('hashforge_update_leads', JSON.stringify(next)); } catch {}
+                return next;
+              });
+            }}
+            onClearAllLeads={() => {
+              setLeads([]);
+              try { localStorage.setItem('hashforge_update_leads', JSON.stringify([])); } catch {}
+            }}
+            onAddManualLead={(data) => {
+              const newLead: LeadSubscriber = {
+                id: `lead-${Date.now()}`,
+                name: data.name,
+                email: data.email,
+                phone: data.phone,
+                notes: data.notes,
+                status: 'new',
+                createdAt: new Date().toISOString()
+              };
+              setLeads(prev => {
+                const next = [newLead, ...prev];
+                try { localStorage.setItem('hashforge_update_leads', JSON.stringify(next)); } catch {}
+                return next;
+              });
+            }}
+            leadConfig={leadConfig}
+            onSaveLeadConfig={(newCfg) => {
+              setLeadConfig(newCfg);
+              try { localStorage.setItem('hashforge_lead_config', JSON.stringify(newCfg)); } catch {}
+            }}
+            onPreviewLeadPopup={() => {
+              setIsLeadModalOpen(true);
+            }}
           />
         )}
 
@@ -1342,6 +1504,19 @@ export default function App() {
       <ProofOfReservesModal
         isOpen={isPoROpen}
         onClose={() => setIsPoROpen(false)}
+      />
+
+      {/* VIP Update Lead Capture Modal */}
+      <LeadSubscriptionModal
+        isOpen={isLeadModalOpen}
+        onClose={() => {
+          setIsLeadModalOpen(false);
+          try {
+            sessionStorage.setItem('hashforge_lead_dismissed', 'true');
+          } catch {}
+        }}
+        onSubscribe={handleSubscribeLead}
+        config={leadConfig}
       />
 
     </div>

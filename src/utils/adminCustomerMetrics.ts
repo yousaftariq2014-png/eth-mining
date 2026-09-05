@@ -67,19 +67,23 @@ function formatCountdown(ms: number): string {
 }
 
 export function matchUserToDeposit(user: UserProfile, dep: DepositRequest): boolean {
-  if (dep.userId && user.id && dep.userId.toLowerCase() === user.id.toLowerCase()) return true;
+  if (dep.userId && user.id && dep.userId.trim().toLowerCase() === user.id.trim().toLowerCase()) return true;
+  if (dep.userEmail && user.email && dep.userEmail.trim().toLowerCase() === user.email.trim().toLowerCase()) return true;
   if (dep.userName && user.email && dep.userName.trim().toLowerCase() === user.email.trim().toLowerCase()) return true;
-  if (dep.userName && !dep.userName.includes('@') && user.name && dep.userName.trim().toLowerCase() === user.name.trim().toLowerCase()) {
-    if (!dep.userId || dep.userId === user.id) return true;
+  if (dep.userId && user.email && dep.userId.trim().toLowerCase() === user.email.trim().toLowerCase()) return true;
+  if (dep.userName && user.name && dep.userName.trim().toLowerCase() === user.name.trim().toLowerCase()) {
+    if (!dep.userId || dep.userId.trim().toLowerCase() === user.id.trim().toLowerCase()) return true;
   }
   return false;
 }
 
 export function matchUserToWithdrawal(user: UserProfile, w: WithdrawalRecordItem): boolean {
-  if (w.userId && user.id && w.userId.toLowerCase() === user.id.toLowerCase()) return true;
+  if (w.userId && user.id && w.userId.trim().toLowerCase() === user.id.trim().toLowerCase()) return true;
+  if (w.userEmail && user.email && w.userEmail.trim().toLowerCase() === user.email.trim().toLowerCase()) return true;
   if (w.userName && user.email && w.userName.trim().toLowerCase() === user.email.trim().toLowerCase()) return true;
-  if (w.userName && !w.userName.includes('@') && user.name && w.userName.trim().toLowerCase() === user.name.trim().toLowerCase()) {
-    if (!w.userId || w.userId === user.id) return true;
+  if (w.userId && user.email && w.userId.trim().toLowerCase() === user.email.trim().toLowerCase()) return true;
+  if (w.userName && user.name && w.userName.trim().toLowerCase() === user.name.trim().toLowerCase()) {
+    if (!w.userId || w.userId.trim().toLowerCase() === user.id.trim().toLowerCase()) return true;
   }
   return false;
 }

@@ -155,13 +155,17 @@ export interface WithdrawalRecordItem {
   id: string;
   userId?: string;
   userName?: string;
+  userEmail?: string;
   currency: string;
   type: string;
   amount: number;
   walletAddress?: string;
-  status: 'Pending' | 'Withdrawal successfully' | 'Failed';
+  status: 'Pending' | 'Withdrawal successfully' | 'Failed' | 'Approved' | 'Completed' | 'Rejected';
   time: string;
   txHash?: string;
+  serverSignature?: string;
+  kycTier?: number;
+  rejectionReason?: string;
 }
 
 export interface MiningStats {

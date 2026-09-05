@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   Zap,
   Wallet,
@@ -178,12 +178,29 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     return [];
   });
 
+  // Comprehensive identity matcher for client records
+  const isMatchForUser = useCallback((item: any) => {
+    if (!item) return false;
+    const uid = String(user?.id || '').trim().toLowerCase();
+    const uemail = String(user?.email || '').trim().toLowerCase();
+    const uname = String(user?.name || '').trim().toLowerCase();
+
+    const iUserId = String(item.userId || item.user_id || '').trim().toLowerCase();
+    const iEmail = String(item.userEmail || item.user_email || '').trim().toLowerCase();
+    const iName = String(item.userName || item.user_name || '').trim().toLowerCase();
+
+    if (iUserId && (iUserId === uid || iUserId === uemail)) return true;
+    if (iEmail && (iEmail === uemail || iEmail === uid)) return true;
+    if (iName && (iName === uname || iName === uemail || iName === uid)) return true;
+    return false;
+  }, [user?.id, user?.email, user?.name]);
+
   const [pendingDeposits, setPendingDeposits] = useState<DepositRequest[]>(() => {
     try {
       const saved = localStorage.getItem('hashforge_deposits');
       if (saved) {
         const parsed = JSON.parse(saved);
-        return parsed.filter((d: any) => (d.userId === user.id || d.userName === user.name) && d.status === 'pending');
+        return parsed.filter((d: any) => isMatchForUser(d) && d.status === 'pending');
       }
     } catch {}
     return [];
@@ -191,13 +208,16 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
 
   const [withdrawalRecords, setWithdrawalRecords] = useState<WithdrawalRecordItem[]>(() => {
     if (externalWithdrawals && externalWithdrawals.length > 0) {
-      return externalWithdrawals.filter((w: any) => w.userId === user.id || w.userName === user.name);
+      const matched = externalWithdrawals.filter(isMatchForUser);
+      if (matched.length > 0) return matched;
     }
     try {
       const saved = localStorage.getItem('hashforge_withdrawals');
       if (saved) {
         const parsed = JSON.parse(saved);
-        return parsed.filter((w: any) => w.userId === user.id || w.userName === user.name);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(isMatchForUser);
+        }
       }
     } catch {}
     return [];
@@ -205,10 +225,62 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
 
   // Keep withdrawal records in sync whenever external withdrawals change (e.g. admin approves or rejects)
   useEffect(() => {
-    if (externalWithdrawals) {
-      setWithdrawalRecords(externalWithdrawals.filter((w: any) => w.userId === user.id || w.userName === user.name));
+    if (externalWithdrawals && Array.isArray(externalWithdrawals)) {
+      setWithdrawalRecords(externalWithdrawals.filter(isMatchForUser));
     }
-  }, [externalWithdrawals, user.id, user.name]);
+  }, [externalWithdrawals, isMatchForUser]);
+
+  // Listen to multi-layer real-time updates for withdrawals
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'hashforge_withdrawals' && e.newValue) {
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (Array.isArray(parsed)) {
+            setWithdrawalRecords(parsed.filter(isMatchForUser));
+          }
+        } catch {}
+      }
+    };
+
+    const handleCreated = (e: any) => {
+      if (e.detail && isMatchForUser(e.detail)) {
+        setWithdrawalRecords(prev => {
+          const filtered = prev.filter(w => w.id !== e.detail.id);
+          return [e.detail, ...filtered];
+        });
+      }
+    };
+
+    const handleUpdated = (e: any) => {
+      if (e.detail) {
+        setWithdrawalRecords(prev =>
+          prev.map(w =>
+            w.id === e.detail.id
+              ? { ...w, status: e.detail.status, txHash: e.detail.txHash || w.txHash, rejectionReason: e.detail.rejectionReason || w.rejectionReason }
+              : w
+          )
+        );
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('hashforge_withdrawal_created', handleCreated as EventListener);
+    window.addEventListener('hashforge_withdrawal_updated', handleUpdated as EventListener);
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('hashforge_withdrawal_created', handleCreated as EventListener);
+      window.removeEventListener('hashforge_withdrawal_updated', handleUpdated as EventListener);
+    };
+  }, [isMatchForUser]);
+
+  const userPendingWithdrawal = useMemo(() => {
+    return withdrawalRecords.find(w => String(w.status || '').toLowerCase() === 'pending');
+  }, [withdrawalRecords]);
+
+  const pendingWithdrawalsCount = useMemo(() => {
+    return withdrawalRecords.filter(w => String(w.status || '').toLowerCase() === 'pending').length;
+  }, [withdrawalRecords]);
 
   const [exchangeRecords, setExchangeRecords] = useState<ExchangeRecordItem[]>(() => {
     try {
@@ -1122,6 +1194,45 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
         </div>
       )}
 
+      {/* Pending Withdrawal Notification Banner */}
+      {userPendingWithdrawal && (
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-950/40 via-[#0e1628] to-amber-950/30 border border-amber-500/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xl shadow-amber-500/10 animate-in fade-in duration-200">
+          <div className="flex items-center gap-3 text-xs sm:text-sm text-amber-200">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+              <Clock className="w-5 h-5 animate-spin" style={{ animationDuration: '8s' }} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-black text-white text-sm">
+                  Pending Withdrawal: ${Math.abs(Number(userPendingWithdrawal.amount)).toFixed(2)} USDT
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                  {userPendingWithdrawal.type}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 font-mono mt-0.5">
+                Destination: <span className="text-amber-200 font-bold">{userPendingWithdrawal.walletAddress || 'Your Saved Wallet'}</span> • Submitted: {userPendingWithdrawal.time}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+            <span className="px-3 py-1.5 rounded-xl bg-amber-500/20 text-amber-300 text-xs font-mono font-black uppercase border border-amber-500/40 animate-pulse">
+              Awaiting Admin Approval
+            </span>
+            <button
+              onClick={() => {
+                setActionTab('history');
+                const walletCard = document.getElementById('wallet-cashout-card');
+                if (walletCard) walletCard.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-mono font-bold cursor-pointer transition-colors"
+            >
+              Open History
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Real-time Stratum V2 Hashrate & Hardware Pulse Stream */}
       <LiveHashratePulseGraph
         baseHashrateMh={totalHashrateTh > 0 ? totalHashrateTh * 10 : 650}
@@ -1350,7 +1461,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
         <div className="lg:col-span-5 space-y-4">
           
           {/* WALLET HUB CARD */}
-          <div className="rounded-3xl bg-[#0b101c] border border-slate-800/90 p-5 sm:p-6 space-y-4 shadow-xl">
+          <div id="wallet-cashout-card" className="rounded-3xl bg-[#0b101c] border border-slate-800/90 p-5 sm:p-6 space-y-4 shadow-xl">
             
             {/* Header with 4 Action Tabs */}
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
@@ -1380,12 +1491,17 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                 </button>
                 <button
                   onClick={() => setActionTab('history')}
-                  className={`px-2 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
                     actionTab === 'history' || actionTab === 'swap_history' ? 'bg-slate-800 text-white' : 'text-slate-500 hover:text-slate-300'
                   }`}
                   title="Transaction Records"
                 >
-                  History
+                  <span>History</span>
+                  {pendingWithdrawalsCount > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-amber-500 text-slate-950 font-black animate-pulse">
+                      {pendingWithdrawalsCount}
+                    </span>
+                  )}
                 </button>
               </div>
             </div>
@@ -1693,38 +1809,81 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                 {/* Withdrawals List */}
                 {actionTab === 'history' && (
                   withdrawalRecords.length === 0 ? (
-                    <div className="text-center py-4 text-xs text-slate-500 font-mono">No withdrawal requests submitted yet.</div>
+                    <div className="text-center py-6 text-xs text-slate-500 font-mono space-y-1">
+                      <div>No withdrawal requests found for your account.</div>
+                      <div className="text-[10px] text-slate-600">Click &quot;+ New&quot; above to submit a withdrawal to your TRON or ETH wallet.</div>
+                    </div>
                   ) : (
-                    <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
-                      {withdrawalRecords.map((w, idx) => (
-                        <div key={`w-rec-${w.id || 'w'}-${idx}`} className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 text-xs font-mono space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="text-rose-400 font-bold">{w.amount} USDT</span>
-                            <div className="flex items-center gap-1.5">
-                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                                w.status === 'Withdrawal successfully'
-                                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                  : w.status === 'Failed'
-                                  ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                                  : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                              }`}>
-                                {w.status}
-                              </span>
-                              <button
-                                onClick={() => generateReceiptForWithdrawal(w)}
-                                className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white cursor-pointer"
-                                title="View/Print Receipt"
-                              >
-                                <FileText className="w-3 h-3 text-amber-400" />
-                              </button>
+                    <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
+                      {withdrawalRecords.map((w, idx) => {
+                        const isPending = String(w.status || '').toLowerCase() === 'pending';
+                        const isApproved = ['withdrawal successfully', 'approved', 'completed'].includes(String(w.status || '').toLowerCase());
+                        const isRejected = ['failed', 'rejected'].includes(String(w.status || '').toLowerCase());
+
+                        return (
+                          <div
+                            key={`w-rec-${w.id || 'w'}-${idx}`}
+                            className={`p-3 rounded-xl border text-xs font-mono space-y-1.5 transition-all ${
+                              isPending
+                                ? 'bg-amber-950/20 border-amber-500/40 shadow-sm shadow-amber-500/5'
+                                : isApproved
+                                ? 'bg-emerald-950/20 border-emerald-500/30'
+                                : isRejected
+                                ? 'bg-rose-950/20 border-rose-500/30'
+                                : 'bg-slate-950/70 border-slate-800'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-1.5">
+                                <span className={`font-black text-sm ${isPending ? 'text-amber-300' : isApproved ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                  -${Math.abs(Number(w.amount)).toFixed(2)} USDT
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-normal">
+                                  ({w.type || 'USDT-TRC20'})
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                                  isPending
+                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
+                                    : isApproved
+                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                    : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                }`}>
+                                  {isPending ? 'Pending Admin Review' : isApproved ? 'Approved / Paid' : 'Rejected'}
+                                </span>
+                                <button
+                                  onClick={() => generateReceiptForWithdrawal(w)}
+                                  className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white cursor-pointer transition-colors"
+                                  title="View/Print Receipt"
+                                >
+                                  <FileText className="w-3.5 h-3.5 text-amber-400" />
+                                </button>
+                              </div>
                             </div>
+                            
+                            <div className="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
+                              <span className="truncate max-w-[200px] text-slate-300">
+                                📍 {w.walletAddress || 'Saved Wallet'}
+                              </span>
+                              <span className="text-[10px] text-slate-500">{w.time}</span>
+                            </div>
+
+                            {w.txHash && (
+                              <div className="text-[10px] text-slate-400 bg-slate-900/60 p-1.5 rounded border border-slate-800/80 truncate">
+                                <span className="text-slate-500">TXID: </span>
+                                <span className="text-emerald-400 font-mono">{w.txHash}</span>
+                              </div>
+                            )}
+
+                            {w.rejectionReason && (
+                              <div className="text-[10px] text-rose-300 bg-rose-950/40 p-1.5 rounded border border-rose-800/50">
+                                <strong>Reason: </strong>{w.rejectionReason}
+                              </div>
+                            )}
                           </div>
-                          <div className="flex items-center justify-between text-[10px] text-slate-500">
-                            <span className="truncate max-w-[150px]">{w.walletAddress || w.type}</span>
-                            <span>{w.time}</span>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )
                 )}

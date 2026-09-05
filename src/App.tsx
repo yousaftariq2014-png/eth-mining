@@ -446,15 +446,8 @@ export default function App() {
 
         // Sync Withdrawals safely with local merge
         const remoteWithdrawals = await fetchSupabaseWithdrawals();
-        if (remoteWithdrawals !== null) {
-          setWithdrawalRecords(prev => {
-            const map = new Map<string, WithdrawalRecordItem>();
-            prev.forEach(item => map.set(item.id, item));
-            remoteWithdrawals.forEach(item => map.set(item.id, item));
-            return Array.from(map.values()).sort(
-              (a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime()
-            );
-          });
+        if (remoteWithdrawals !== null && remoteWithdrawals.length > 0) {
+          setWithdrawalRecords(remoteWithdrawals);
         }
       } catch (err) {
         console.warn('Supabase initial fetch silent fallback:', err);
@@ -462,6 +455,35 @@ export default function App() {
     }
 
     loadDataFromSupabase();
+
+    // Listen for cross-component withdrawal events
+    const handleCreated = (e: any) => {
+      if (e.detail && e.detail.id) {
+        setWithdrawalRecords(prev => {
+          const filtered = prev.filter(w => w.id !== e.detail.id);
+          return [e.detail, ...filtered];
+        });
+      }
+    };
+
+    const handleUpdated = (e: any) => {
+      if (e.detail && e.detail.id) {
+        setWithdrawalRecords(prev =>
+          prev.map(w =>
+            w.id === e.detail.id
+              ? { ...w, status: e.detail.status, txHash: e.detail.txHash || w.txHash, rejectionReason: e.detail.rejectionReason || w.rejectionReason }
+              : w
+          )
+        );
+      }
+    };
+
+    window.addEventListener('hashforge_withdrawal_created', handleCreated as EventListener);
+    window.addEventListener('hashforge_withdrawal_updated', handleUpdated as EventListener);
+    return () => {
+      window.removeEventListener('hashforge_withdrawal_created', handleCreated as EventListener);
+      window.removeEventListener('hashforge_withdrawal_updated', handleUpdated as EventListener);
+    };
   }, []);
 
   // Automated Notifications list with local persistence
@@ -1249,15 +1271,8 @@ export default function App() {
       setDeposits(remoteDeposits);
     }
     const remoteWithdrawals = await fetchSupabaseWithdrawals();
-    if (remoteWithdrawals !== null) {
-      setWithdrawalRecords(prev => {
-        const map = new Map<string, WithdrawalRecordItem>();
-        prev.forEach(item => map.set(item.id, item));
-        remoteWithdrawals.forEach(item => map.set(item.id, item));
-        return Array.from(map.values()).sort(
-          (a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime()
-        );
-      });
+    if (remoteWithdrawals !== null && remoteWithdrawals.length > 0) {
+      setWithdrawalRecords(remoteWithdrawals);
     }
   };
 

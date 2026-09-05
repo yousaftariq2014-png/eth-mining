@@ -1342,66 +1342,190 @@ export async function updateSupabaseDepositStatus(
 }
 
 // ----------------------------------------------------
-// WITHDRAWALS SYNC
+// WITHDRAWALS SYNC (Multi-layer: Supabase + Server Ledger + Local Storage)
 // ----------------------------------------------------
 export async function fetchSupabaseWithdrawals(): Promise<WithdrawalRecordItem[] | null> {
+  const mergedMap = new Map<string, WithdrawalRecordItem>();
+
+  // 1. Read from LocalStorage first for instant baseline
   try {
-    // Attempt query with fallback
-    let { data, error } = await supabase
+    const localSaved = localStorage.getItem('hashforge_withdrawals');
+    if (localSaved) {
+      const parsed = JSON.parse(localSaved);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((w: any) => {
+          if (w && w.id) mergedMap.set(String(w.id), w);
+        });
+      }
+    }
+  } catch {}
+
+  // 2. Query Server-side persistent ledger
+  try {
+    const res = await fetch('/api/financial/withdrawals');
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.records)) {
+        json.records.forEach((r: any) => {
+          if (r && r.id) {
+            mergedMap.set(String(r.id), {
+              id: String(r.id),
+              userId: r.userId || r.user_id,
+              userName: r.userName || r.user_name,
+              userEmail: r.userEmail || r.user_email,
+              currency: r.currency || 'USDT',
+              type: r.type || 'USDT-TRC20',
+              amount: Number(r.amount),
+              walletAddress: r.walletAddress || r.wallet_address,
+              status: r.status || 'Pending',
+              time: r.time || new Date().toISOString(),
+              txHash: r.txHash || r.tx_hash,
+              serverSignature: r.serverSignature || r.server_signature,
+              kycTier: r.kycTier,
+              rejectionReason: r.rejectionReason,
+            });
+          }
+        });
+      }
+    }
+  } catch (serverErr) {
+    // Silent fallback
+  }
+
+  // 3. Query Supabase Remote Table with Client Enrichment
+  try {
+    // Fetch clients map for joining user_id -> name, email
+    const clientMap = new Map<string, { name: string; email: string }>();
+    try {
+      const { data: clientsData } = await supabase.from('clients').select('id, name, email');
+      if (clientsData && Array.isArray(clientsData)) {
+        clientsData.forEach((c: any) => {
+          if (c && c.id) clientMap.set(String(c.id).toLowerCase(), { name: c.name, email: c.email });
+          if (c && c.email) clientMap.set(String(c.email).toLowerCase(), { name: c.name, email: c.email });
+        });
+      }
+    } catch {}
+
+    const { data, error } = await supabase
       .from('withdrawals')
       .select('*');
 
     if (error) {
-      console.warn('Supabase fetch withdrawals query warning:', error.message);
-      return null;
+      console.warn('Supabase fetch withdrawals query notice:', error.message);
+    } else if (data && data.length > 0) {
+      data.forEach(item => {
+        const uId = String(item.user_id || '').toLowerCase();
+        const clientInfo = clientMap.get(uId);
+
+        let parsedType = item.type || 'USDT-TRC20';
+        let parsedWallet = item.wallet_address || undefined;
+
+        // Parse embedded wallet if stored in type format "NETWORK::WALLET"
+        if (parsedType.includes('::')) {
+          const parts = parsedType.split('::');
+          parsedType = parts[0];
+          if (!parsedWallet && parts[1]) parsedWallet = parts[1];
+        }
+
+        const mapped: WithdrawalRecordItem = {
+          id: String(item.id),
+          userId: item.user_id || undefined,
+          userName: item.user_name || clientInfo?.name || undefined,
+          userEmail: item.user_email || clientInfo?.email || (item.user_id?.includes('@') ? item.user_id : undefined),
+          currency: item.currency || 'USDT',
+          type: parsedType,
+          amount: Number(item.amount),
+          walletAddress: parsedWallet,
+          status: item.status as any,
+          time: item.time || item.created_at || new Date().toISOString(),
+          txHash: item.tx_hash || undefined,
+          serverSignature: item.server_signature || undefined,
+          rejectionReason: item.rejection_reason || undefined,
+        };
+        mergedMap.set(String(item.id), mapped);
+      });
     }
-    if (!data || data.length === 0) return [];
-
-    const mapped: WithdrawalRecordItem[] = data.map(item => ({
-      id: String(item.id),
-      userId: item.user_id || undefined,
-      userName: item.user_name || undefined,
-      currency: item.currency || 'USDT',
-      type: item.type || 'USDT-TRC20',
-      amount: Number(item.amount),
-      walletAddress: item.wallet_address || undefined,
-      status: item.status as any,
-      time: item.time || item.created_at || new Date().toISOString(),
-      txHash: item.tx_hash || undefined,
-    }));
-
-    // Robust in-memory chronological sort (newest first)
-    mapped.sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
-    return mapped;
   } catch (err) {
     console.warn('Supabase fetch withdrawals exception:', err);
-    return null;
   }
+
+  const result = Array.from(mergedMap.values());
+  // Sort newest first
+  result.sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
+
+  // Update localStorage cache with full consolidated list
+  try {
+    localStorage.setItem('hashforge_withdrawals', JSON.stringify(result));
+  } catch {}
+
+  return result;
 }
 
 export async function insertSupabaseWithdrawal(record: WithdrawalRecordItem): Promise<boolean> {
+  // 1. Instantly update LocalStorage
   try {
-    const payload: any = {
+    const raw = localStorage.getItem('hashforge_withdrawals');
+    const existing: WithdrawalRecordItem[] = raw ? JSON.parse(raw) : [];
+    const filtered = existing.filter(x => x.id !== record.id);
+    const updated = [record, ...filtered];
+    localStorage.setItem('hashforge_withdrawals', JSON.stringify(updated));
+    window.dispatchEvent(new CustomEvent('hashforge_withdrawal_created', { detail: record }));
+  } catch {}
+
+  // 2. Sync to Server-Side Ledger
+  try {
+    await fetch('/api/financial/withdrawals/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ records: [record] })
+    });
+  } catch (err) {
+    console.warn('Server withdrawal sync warning:', err);
+  }
+
+  // 3. Sync to Supabase Remote Table with column-compatibility fallback
+  try {
+    // Attempt full schema payload first
+    const fullPayload: any = {
       id: String(record.id),
       user_id: record.userId || null,
       user_name: record.userName || null,
+      user_email: record.userEmail || null,
       currency: record.currency || 'USDT',
-      type: record.type || 'USDT-TRC20',
+      type: record.walletAddress ? `${record.type || 'USDT-TRC20'}::${record.walletAddress}` : (record.type || 'USDT-TRC20'),
       amount: Number(record.amount),
       wallet_address: record.walletAddress || null,
       status: record.status || 'Pending',
       time: record.time || new Date().toISOString().replace('T', ' ').substring(0, 19),
       tx_hash: record.txHash || null,
+      server_signature: record.serverSignature || null,
+      rejection_reason: record.rejectionReason || null,
     };
 
-    const { error } = await supabase.from('withdrawals').upsert(payload, { onConflict: 'id' });
+    const { error } = await supabase.from('withdrawals').upsert(fullPayload, { onConflict: 'id' });
 
     if (error) {
-      console.warn('Supabase upsert withdrawal warning, trying direct insert:', error.message);
-      const { error: insertErr } = await supabase.from('withdrawals').insert(payload);
-      if (insertErr) {
-        console.warn('Supabase direct insert withdrawal error:', insertErr.message);
-        return false;
+      console.warn('Supabase full upsert withdrawal warning, falling back to core schema columns:', error.message);
+      // Safe fallback using core columns confirmed in Supabase table
+      const safePayload: any = {
+        id: String(record.id),
+        user_id: record.userId || null,
+        currency: record.currency || 'USDT',
+        type: record.walletAddress ? `${record.type || 'USDT-TRC20'}::${record.walletAddress}` : (record.type || 'USDT-TRC20'),
+        amount: Number(record.amount),
+        status: record.status || 'Pending',
+        time: record.time || new Date().toISOString().replace('T', ' ').substring(0, 19),
+        tx_hash: record.txHash || null,
+      };
+
+      const { error: safeErr } = await supabase.from('withdrawals').upsert(safePayload, { onConflict: 'id' });
+      if (safeErr) {
+        console.warn('Supabase safe upsert error, trying insert:', safeErr.message);
+        const { error: insertErr } = await supabase.from('withdrawals').insert(safePayload);
+        if (insertErr) {
+          console.warn('Supabase direct insert error:', insertErr.message);
+          return false;
+        }
       }
     }
     return true;
@@ -1413,13 +1537,52 @@ export async function insertSupabaseWithdrawal(record: WithdrawalRecordItem): Pr
 
 export async function updateSupabaseWithdrawalStatus(
   withdrawalId: string,
-  status: 'Pending' | 'Withdrawal successfully' | 'Failed',
-  txHash?: string
+  status: 'Pending' | 'Withdrawal successfully' | 'Failed' | 'Approved' | 'Completed' | 'Rejected',
+  txHash?: string,
+  rejectionReason?: string
 ): Promise<boolean> {
+  // 1. Update LocalStorage
+  try {
+    const raw = localStorage.getItem('hashforge_withdrawals');
+    if (raw) {
+      const list: WithdrawalRecordItem[] = JSON.parse(raw);
+      const updated = list.map(item => {
+        if (item.id === withdrawalId) {
+          return {
+            ...item,
+            status,
+            txHash: txHash || item.txHash,
+            rejectionReason: rejectionReason || item.rejectionReason,
+          };
+        }
+        return item;
+      });
+      localStorage.setItem('hashforge_withdrawals', JSON.stringify(updated));
+      window.dispatchEvent(new CustomEvent('hashforge_withdrawal_updated', {
+        detail: { id: withdrawalId, status, txHash, rejectionReason }
+      }));
+    }
+  } catch {}
+
+  // 2. Update Server-side persistent ledger
+  try {
+    await fetch(`/api/financial/withdrawals/${withdrawalId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, txHash, rejectionReason })
+    });
+  } catch (err) {
+    console.warn('Server withdrawal status update warning:', err);
+  }
+
+  // 3. Update Supabase Remote Table
   try {
     const payload: any = { status };
     if (txHash) {
       payload.tx_hash = txHash;
+    }
+    if (rejectionReason) {
+      payload.rejection_reason = rejectionReason;
     }
 
     const { error } = await supabase

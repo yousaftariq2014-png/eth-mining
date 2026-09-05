@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
@@ -9,6 +10,45 @@ dotenv.config();
 
 const app = express();
 const PORT = 3000;
+
+// Persistent file-backed withdrawal ledger
+const WITHDRAWALS_DATA_FILE = path.join(process.cwd(), "data", "withdrawals.json");
+const serverWithdrawalsStore = new Map<string, any>();
+
+function loadPersistedWithdrawals() {
+  try {
+    const dataDir = path.dirname(WITHDRAWALS_DATA_FILE);
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    if (fs.existsSync(WITHDRAWALS_DATA_FILE)) {
+      const raw = fs.readFileSync(WITHDRAWALS_DATA_FILE, "utf-8");
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        list.forEach((item) => {
+          if (item && item.id) serverWithdrawalsStore.set(item.id, item);
+        });
+      }
+    }
+  } catch (err) {
+    console.warn("Could not load persisted withdrawals:", err);
+  }
+}
+
+function savePersistedWithdrawals() {
+  try {
+    const dataDir = path.dirname(WITHDRAWALS_DATA_FILE);
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    const arr = Array.from(serverWithdrawalsStore.values());
+    fs.writeFileSync(WITHDRAWALS_DATA_FILE, JSON.stringify(arr, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("Could not save persisted withdrawals:", err);
+  }
+}
+
+loadPersistedWithdrawals();
 
 // Enable JSON parsing with generous payload limit for secure base64 KYC documents
 app.use(express.json({ limit: "25mb" }));
@@ -204,26 +244,31 @@ app.post("/api/financial/verify-and-submit-withdrawal", (req, res) => {
     }
 
     // Rule 2: Balance Check
-    const serverVerifiedBalance = Number(availableUsdtBalance) || 0;
-    if (amountNum > serverVerifiedBalance + 0.01) {
+    const serverVerifiedBalance = Number(availableUsdtBalance);
+    if (!isNaN(serverVerifiedBalance) && serverVerifiedBalance > 0 && amountNum > serverVerifiedBalance + 1.0) {
       return res.status(400).json({
         error: `Insufficient available USDT balance. Requested: $${amountNum.toFixed(2)}, Available: $${serverVerifiedBalance.toFixed(2)}.`,
       });
     }
 
     // Rule 3: Destination Address Validation
-    const cleanAddress = (destinationAddress || "").trim();
+    const cleanAddress = (
+      destinationAddress ||
+      (req.body as any).walletAddress ||
+      (req.body as any).address ||
+      ""
+    ).trim();
     if (!cleanAddress) {
       return res.status(400).json({ error: "Destination wallet address is required." });
     }
 
-    if (network === "USDT-TRC20" && (!cleanAddress.startsWith("T") || cleanAddress.length !== 34)) {
+    if (network === "USDT-TRC20" && (!cleanAddress.startsWith("T") || cleanAddress.length < 26 || cleanAddress.length > 45)) {
       return res.status(400).json({
-        error: "Invalid TRC-20 address format. TRON USDT addresses must start with 'T' and be 34 characters long.",
+        error: "Invalid TRC-20 address format. TRON USDT addresses must start with 'T' (e.g. TGgfnPVkq3P3L7ZXGR74ikNwxmPCm8SxT1).",
       });
     }
 
-    if ((network === "USDT-ERC20" || network === "USDT-POLYGON") && (!cleanAddress.startsWith("0x") || cleanAddress.length !== 42)) {
+    if ((network === "USDT-ERC20" || network === "USDT-POLYGON") && (!cleanAddress.startsWith("0x") || cleanAddress.length < 38 || cleanAddress.length > 46)) {
       return res.status(400).json({
         error: "Invalid Ethereum/Polygon address format. Must begin with '0x' and be 42 characters long.",
       });
@@ -253,7 +298,7 @@ app.post("/api/financial/verify-and-submit-withdrawal", (req, res) => {
     const onChainTxHash = "0x" + crypto.createHash("sha256").update(payloadToSign + Math.random()).digest("hex");
 
     const validatedRecord = {
-      id: `w-${Date.now()}`,
+      id: (req.body as any).id || `w-${Date.now()}`,
       userId,
       userEmail,
       userName,
@@ -269,6 +314,9 @@ app.post("/api/financial/verify-and-submit-withdrawal", (req, res) => {
       isServerVerified: true,
     };
 
+    serverWithdrawalsStore.set(validatedRecord.id, validatedRecord);
+    savePersistedWithdrawals();
+
     res.json({
       success: true,
       message: `Withdrawal of $${amountNum.toFixed(2)} USDT cryptographically verified and queued for admin execution.`,
@@ -276,6 +324,63 @@ app.post("/api/financial/verify-and-submit-withdrawal", (req, res) => {
     });
   } catch (error: any) {
     res.status(500).json({ error: "Withdrawal validation failed", details: error?.message });
+  }
+});
+
+// GET all stored withdrawals from server persistence
+app.get("/api/financial/withdrawals", (req, res) => {
+  try {
+    const list = Array.from(serverWithdrawalsStore.values());
+    res.json({ success: true, records: list });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to fetch withdrawals", details: err?.message });
+  }
+});
+
+// Bulk sync / save withdrawals into server persistence
+app.post("/api/financial/withdrawals/sync", (req, res) => {
+  try {
+    const { records } = req.body;
+    if (Array.isArray(records)) {
+      records.forEach((r) => {
+        if (r && r.id) {
+          serverWithdrawalsStore.set(r.id, r);
+        }
+      });
+      savePersistedWithdrawals();
+    }
+    res.json({ success: true, count: serverWithdrawalsStore.size });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to sync withdrawals", details: err?.message });
+  }
+});
+
+// Update withdrawal status (e.g. Approved / Rejected / txHash)
+app.patch("/api/financial/withdrawals/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, txHash, rejectionReason } = req.body;
+    let existing = serverWithdrawalsStore.get(id);
+    if (existing) {
+      if (status) existing.status = status;
+      if (txHash) existing.txHash = txHash;
+      if (rejectionReason) existing.rejectionReason = rejectionReason;
+      serverWithdrawalsStore.set(id, existing);
+    } else {
+      existing = {
+        id,
+        status: status || "Pending",
+        txHash: txHash || "",
+        rejectionReason: rejectionReason || "",
+        time: new Date().toISOString().replace("T", " ").substring(0, 19),
+        ...req.body,
+      };
+      serverWithdrawalsStore.set(id, existing);
+    }
+    savePersistedWithdrawals();
+    res.json({ success: true, record: existing });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to update withdrawal", details: err?.message });
   }
 });
 

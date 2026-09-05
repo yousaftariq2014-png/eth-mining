@@ -35,7 +35,11 @@ import {
   Lock,
   Unlock,
   Repeat,
-  Sliders
+  Sliders,
+  ExternalLink,
+  Maximize2,
+  Search,
+  Filter
 } from 'lucide-react';
 import { 
   UserProfile, 
@@ -56,6 +60,7 @@ import { InvoiceReceiptModal } from './InvoiceReceiptModal';
 import { WalletWhitelistingModal } from './WalletWhitelistingModal';
 import { LiveHashratePulseGraph } from './LiveHashratePulseGraph';
 import { CustomPackageBuilder } from './CustomPackageBuilder';
+import { WithdrawalHistoryModal } from './WithdrawalHistoryModal';
 
 interface ClientSmartDashboardProps {
   user: UserProfile;
@@ -204,6 +209,9 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   // Action tabs: 'exchange' | 'withdraw' | 'history' | 'swap_history'
   const [actionTab, setActionTab] = useState<'exchange' | 'withdraw' | 'history' | 'swap_history'>('exchange');
   const [isSwapModalOpen, setIsSwapModalOpen] = useState<boolean>(false);
+  const [isWithdrawalLedgerModalOpen, setIsWithdrawalLedgerModalOpen] = useState<boolean>(false);
+  const [inlineWithdrawalFilter, setInlineWithdrawalFilter] = useState<'all' | 'pending' | 'completed' | 'rejected'>('all');
+  const [inlineWithdrawalSearch, setInlineWithdrawalSearch] = useState<string>('');
   const [withdrawalFilter, setWithdrawalFilter] = useState<'All' | 'Pending' | 'Withdrawal successfully' | 'Failed'>('All');
   const [dashCategory, setDashCategory] = useState<PackageType>('daily');
 
@@ -674,12 +682,11 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     // Yield accrual rule
     let accruedYieldUsd = 0;
     if (isFlash) {
+      // 48h Flash Package gives fixed one-time settlement upon 48-hour completion
       if (isExpired) {
         accruedYieldUsd = estTotalYieldUsd;
       } else {
-        const elapsedDays = totalElapsedMs / (24 * 60 * 60 * 1000);
-        const flashProfitOnly = estTotalYieldUsd - amountUsd;
-        accruedYieldUsd = Math.min(flashProfitOnly, (flashProfitOnly / 2) * elapsedDays);
+        accruedYieldUsd = 0; // Held in 48-hour maturation lockup until countdown reaches 0
       }
     } else {
       const elapsedDays = Math.min(matchedPkg?.durationDays || 365, totalElapsedMs / (24 * 60 * 60 * 1000));
@@ -978,6 +985,52 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 3500);
   };
+
+  const [copiedInlineKey, setCopiedInlineKey] = useState<string | null>(null);
+  const handleCopyInline = (text: string, key: string) => {
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    setCopiedInlineKey(key);
+    setTimeout(() => setCopiedInlineKey(null), 2000);
+  };
+
+  const getExplorerLink = (txHash?: string, network?: string) => {
+    if (!txHash) return null;
+    const cleanHash = txHash.trim();
+    const net = (network || '').toUpperCase();
+    if (net.includes('TRC') || net.includes('TRON')) {
+      return `https://tronscan.org/#/transaction/${cleanHash}`;
+    }
+    if (net.includes('BEP') || net.includes('BSC')) {
+      return `https://bscscan.com/tx/${cleanHash}`;
+    }
+    return `https://etherscan.io/tx/${cleanHash}`;
+  };
+
+  const inlineFilteredWithdrawals = useMemo(() => {
+    return withdrawalRecords.filter(w => {
+      const st = String(w.status || '').toLowerCase();
+      const isPending = st === 'pending';
+      const isApproved = ['withdrawal successfully', 'approved', 'completed'].includes(st);
+      const isRejected = ['failed', 'rejected'].includes(st);
+
+      if (inlineWithdrawalFilter === 'pending' && !isPending) return false;
+      if (inlineWithdrawalFilter === 'completed' && !isApproved) return false;
+      if (inlineWithdrawalFilter === 'rejected' && !isRejected) return false;
+
+      if (inlineWithdrawalSearch.trim()) {
+        const q = inlineWithdrawalSearch.toLowerCase().trim();
+        return (
+          (w.walletAddress || '').toLowerCase().includes(q) ||
+          (w.txHash || '').toLowerCase().includes(q) ||
+          (w.type || '').toLowerCase().includes(q) ||
+          (w.time || '').toLowerCase().includes(q) ||
+          String(w.amount).includes(q)
+        );
+      }
+      return true;
+    });
+  }, [withdrawalRecords, inlineWithdrawalFilter, inlineWithdrawalSearch]);
 
   const filteredWithdrawals = withdrawalRecords.filter(r => {
     if (withdrawalFilter === 'All') return true;
@@ -1295,6 +1348,14 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
             >
               Open History
             </button>
+            <button
+              onClick={() => setIsWithdrawalLedgerModalOpen(true)}
+              className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-mono font-bold border border-amber-500/40 cursor-pointer transition-colors flex items-center gap-1.5 shadow-sm"
+              title="Open Official Withdrawal Ledger & Statement"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Full Ledger</span>
+            </button>
           </div>
         </div>
       )}
@@ -1460,28 +1521,66 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                   </div>
                 </div>
 
-                {/* DETAILED SPECIFICATIONS GRID (WITH ETH PRODUCTION METRICS) */}
+                {/* 48H FLASH PROTOCOL STATUS BANNER */}
+                {contract.isFlash && (
+                  <div className={`p-3 rounded-2xl border text-xs font-mono flex items-center justify-between gap-3 relative z-10 ${
+                    contract.isExpired
+                      ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                      : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                  }`}>
+                    <div className="flex items-center gap-2.5">
+                      {contract.isExpired ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                      ) : (
+                        <Clock className="w-4 h-4 text-amber-400 shrink-0 animate-spin" />
+                      )}
+                      <div>
+                        <span className="font-bold">
+                          {contract.isExpired 
+                            ? '48H Flash Node Matured & Settled!' 
+                            : '48H Flash Protocol Active (Fixed Lockup Settlement):'}
+                        </span>
+                        <span className="block text-[11px] opacity-90 mt-0.5">
+                          {contract.isExpired
+                            ? `Full payout of $${contract.estTotalYieldUsd.toFixed(2)} USDT (Principal + Profit) has been settled and credited to your available balance.`
+                            : `Fixed yield settlement of $${contract.estTotalYieldUsd.toFixed(2)} USDT (Principal + Profit) unlocks automatically when the 48-hour countdown reaches 0.`}
+                        </span>
+                      </div>
+                    </div>
+                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold shrink-0 border uppercase tracking-wider ${
+                      contract.isExpired 
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' 
+                        : 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse'
+                    }`}>
+                      {contract.isExpired ? 'Settled' : 'In 48H Lockup'}
+                    </span>
+                  </div>
+                )}
+
+                {/* DETAILED SPECIFICATIONS GRID (DIFFERENTIATED FOR 48H FLASH VS DAILY MINING) */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs font-mono">
                   <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
-                    <span className="text-[10px] text-slate-400 block">Stratum Hashrate</span>
+                    <span className="text-[10px] text-slate-400 block">{contract.isFlash ? 'Flash Boost Power' : 'Stratum Hashrate'}</span>
                     <div className="text-xs font-bold text-white mt-0.5 truncate">
-                      {pkg?.hashrate ? `${pkg.hashrate} ${pkg.hashrateUnit}` : 'Stratum Pro'}
+                      {pkg?.hashrate ? `${pkg.hashrate} ${pkg.hashrateUnit}` : 'Stratum Boost'}
                     </div>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
-                    <span className="text-[10px] text-slate-400 block">Daily ETH Output</span>
-                    <div className="text-xs font-bold text-cyan-300 mt-0.5 truncate">
-                      {contractDailyEth.toFixed(6)} ETH
+                    <span className="text-[10px] text-slate-400 block">{contract.isFlash ? '48H Fixed Profit' : 'Daily ETH Output'}</span>
+                    <div className={`text-xs font-bold mt-0.5 truncate ${contract.isFlash ? 'text-emerald-400' : 'text-cyan-300'}`}>
+                      {contract.isFlash 
+                        ? `+$${(contract.estTotalYieldUsd - amountPaid).toFixed(2)} USDT`
+                        : `${contractDailyEth.toFixed(6)} ETH`}
                     </div>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
-                    <span className="text-[10px] text-slate-400 block">{contract.isFlash ? 'Flash Return Rate' : 'Daily Yield (USDT)'}</span>
+                    <span className="text-[10px] text-slate-400 block">{contract.isFlash ? 'Fixed Return Rate' : 'Daily Yield (USDT)'}</span>
                     <div className="text-xs font-bold text-emerald-400 mt-0.5">
                       {contract.isFlash ? `+${pkg?.profitPercent || (amountPaid >= 10000 ? 25 : amountPaid >= 5000 ? 20 : amountPaid >= 1000 ? 14 : amountPaid >= 500 ? 12 : 10)}% in 48h` : `$${contract.dailyYieldUsd.toFixed(2)}`}
                     </div>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
-                    <span className="text-[10px] text-slate-400 block">{contract.isFlash ? 'Total Payout (48h)' : 'Cycle Total Return'}</span>
+                    <span className="text-[10px] text-slate-400 block">{contract.isFlash ? '48H Settlement Payout' : 'Cycle Total Return'}</span>
                     <div className="text-xs font-bold text-amber-300 mt-0.5 truncate">
                       ${contract.estTotalYieldUsd.toFixed(2)} USDT
                     </div>
@@ -1847,118 +1946,295 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                   <span>Submit USDT Withdrawal for Review</span>
                 </button>
 
+                <div className="flex items-center justify-between text-[11px] font-mono pt-1 text-slate-400">
+                  <span>Track your requests:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActionTab('history');
+                      setIsWithdrawalLedgerModalOpen(true);
+                    }}
+                    className="text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <span>Withdrawal History ({withdrawalRecords.length})</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
               </div>
             )}
 
             {/* TAB 3 & 4: TRANSACTION RECORDS (SWAP HISTORY & WITHDRAWAL HISTORY) */}
             {(actionTab === 'history' || actionTab === 'swap_history') && (
-              <div className="p-4 rounded-2xl bg-[#0e1628] border border-slate-800 space-y-3 animate-fadeIn">
+              <div className="p-4 rounded-2xl bg-[#0e1628] border border-slate-800 space-y-3.5 animate-fadeIn">
                 
-                <div className="flex items-center justify-between border-b border-slate-800/80 pb-2">
-                  <div className="flex items-center gap-2 text-xs font-bold">
+                {/* Header Navigation with Full Statement Button */}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
+                  <div className="flex items-center gap-2 text-xs font-bold font-mono">
                     <button
                       onClick={() => setActionTab('history')}
-                      className={`pb-0.5 font-mono cursor-pointer ${actionTab === 'history' ? 'text-amber-400 border-b-2 border-amber-400 font-bold' : 'text-slate-400 hover:text-white'}`}
+                      className={`pb-1 cursor-pointer transition-colors flex items-center gap-1.5 ${
+                        actionTab === 'history' 
+                          ? 'text-amber-400 border-b-2 border-amber-400 font-bold' 
+                          : 'text-slate-400 hover:text-white'
+                      }`}
                     >
-                      Withdrawals ({withdrawalRecords.length})
+                      <span>Withdrawals</span>
+                      <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-800 text-slate-300 font-bold">
+                        {withdrawalRecords.length}
+                      </span>
                     </button>
                     <span className="text-slate-600">|</span>
                     <button
                       onClick={() => setActionTab('swap_history')}
-                      className={`pb-0.5 font-mono cursor-pointer ${actionTab === 'swap_history' ? 'text-cyan-400 border-b-2 border-cyan-400 font-bold' : 'text-slate-400 hover:text-white'}`}
+                      className={`pb-1 cursor-pointer transition-colors flex items-center gap-1.5 ${
+                        actionTab === 'swap_history' 
+                          ? 'text-cyan-400 border-b-2 border-cyan-400 font-bold' 
+                          : 'text-slate-400 hover:text-white'
+                      }`}
                     >
-                      Swaps ({exchangeRecords.length})
+                      <span>Swaps</span>
+                      <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-800 text-slate-300 font-bold">
+                        {exchangeRecords.length}
+                      </span>
                     </button>
                   </div>
 
-                  <button
-                    onClick={() => setActionTab('withdraw')}
-                    className="text-[10px] text-amber-400 hover:underline cursor-pointer"
-                  >
-                    + New
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {actionTab === 'history' && (
+                      <button
+                        onClick={() => setIsWithdrawalLedgerModalOpen(true)}
+                        className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px] font-mono font-bold flex items-center gap-1 cursor-pointer transition-all shadow-sm"
+                        title="Open Full Screen Cryptographic Statement"
+                      >
+                        <Maximize2 className="w-3 h-3" />
+                        <span>Full Statement</span>
+                      </button>
+                    )}
+
+                    <button
+                      onClick={() => setActionTab('withdraw')}
+                      className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 text-[11px] font-mono font-bold cursor-pointer transition-colors"
+                    >
+                      + New
+                    </button>
+                  </div>
                 </div>
 
-                {/* Withdrawals List */}
+                {/* Withdrawals Section */}
                 {actionTab === 'history' && (
-                  withdrawalRecords.length === 0 ? (
-                    <div className="text-center py-6 text-xs text-slate-500 font-mono space-y-1">
-                      <div>No withdrawal requests found for your account.</div>
-                      <div className="text-[10px] text-slate-600">Click &quot;+ New&quot; above to submit a withdrawal to your TRON or ETH wallet.</div>
+                  <div className="space-y-3">
+                    
+                    {/* Compact Filter & Search Toolbar */}
+                    <div className="flex flex-col sm:flex-row gap-2 items-center justify-between">
+                      <div className="flex items-center gap-1 text-[11px] font-mono bg-slate-950 p-1 rounded-xl border border-slate-800/80 w-full sm:w-auto">
+                        <button
+                          type="button"
+                          onClick={() => setInlineWithdrawalFilter('all')}
+                          className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                            inlineWithdrawalFilter === 'all' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          All ({withdrawalRecords.length})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setInlineWithdrawalFilter('pending')}
+                          className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                            inlineWithdrawalFilter === 'pending' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Pending ({pendingWithdrawalsCount})
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setInlineWithdrawalFilter('completed')}
+                          className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                            inlineWithdrawalFilter === 'completed' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Approved
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setInlineWithdrawalFilter('rejected')}
+                          className={`px-2.5 py-1 rounded-lg font-bold transition-all cursor-pointer ${
+                            inlineWithdrawalFilter === 'rejected' ? 'bg-rose-500 text-white shadow' : 'text-slate-400 hover:text-white'
+                          }`}
+                        >
+                          Rejected
+                        </button>
+                      </div>
+
+                      {/* Search Bar */}
+                      <div className="relative w-full sm:w-44">
+                        <Search className="w-3 h-3 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input
+                          type="text"
+                          placeholder="Search records..."
+                          value={inlineWithdrawalSearch}
+                          onChange={(e) => setInlineWithdrawalSearch(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-8 pr-2.5 py-1 text-[11px] text-white placeholder:text-slate-600 font-mono focus:outline-none focus:border-amber-500/60"
+                        />
+                      </div>
                     </div>
-                  ) : (
-                    <div className="space-y-2.5 max-h-60 overflow-y-auto pr-1">
-                      {withdrawalRecords.map((w, idx) => {
-                        const isPending = String(w.status || '').toLowerCase() === 'pending';
-                        const isApproved = ['withdrawal successfully', 'approved', 'completed'].includes(String(w.status || '').toLowerCase());
-                        const isRejected = ['failed', 'rejected'].includes(String(w.status || '').toLowerCase());
 
-                        return (
-                          <div
-                            key={`w-rec-${w.id || 'w'}-${idx}`}
-                            className={`p-3 rounded-xl border text-xs font-mono space-y-1.5 transition-all ${
-                              isPending
-                                ? 'bg-amber-950/20 border-amber-500/40 shadow-sm shadow-amber-500/5'
-                                : isApproved
-                                ? 'bg-emerald-950/20 border-emerald-500/30'
-                                : isRejected
-                                ? 'bg-rose-950/20 border-rose-500/30'
-                                : 'bg-slate-950/70 border-slate-800'
-                            }`}
-                          >
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-1.5">
-                                <span className={`font-black text-sm ${isPending ? 'text-amber-300' : isApproved ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                  -${Math.abs(Number(w.amount)).toFixed(2)} USDT
-                                </span>
-                                <span className="text-[10px] text-slate-400 font-normal">
-                                  ({w.type || 'USDT-TRC20'})
+                    {/* Records List */}
+                    {inlineFilteredWithdrawals.length === 0 ? (
+                      <div className="text-center py-8 text-xs text-slate-500 font-mono space-y-2 bg-slate-950/40 rounded-xl border border-slate-800/60">
+                        <div className="w-8 h-8 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto text-slate-600">
+                          <Wallet className="w-4 h-4" />
+                        </div>
+                        <div>No matching withdrawal records.</div>
+                        <div className="text-[10px] text-slate-600">
+                          Submit a withdrawal to your TRON or ETH wallet using the &quot;+ New&quot; button.
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5 max-h-72 overflow-y-auto pr-1">
+                        {inlineFilteredWithdrawals.map((w, idx) => {
+                          const st = String(w.status || '').toLowerCase();
+                          const isPending = st === 'pending';
+                          const isApproved = ['withdrawal successfully', 'approved', 'completed'].includes(st);
+                          const isRejected = ['failed', 'rejected'].includes(st);
+                          const copyWalletKey = `in-w-${idx}`;
+                          const copyTxKey = `in-tx-${idx}`;
+                          const explorerUrl = getExplorerLink(w.txHash, w.type);
+
+                          return (
+                            <div
+                              key={`w-rec-${w.id || 'w'}-${idx}`}
+                              className={`p-3.5 rounded-xl border text-xs font-mono space-y-2 transition-all ${
+                                isPending
+                                  ? 'bg-amber-950/20 border-amber-500/40 shadow-sm shadow-amber-500/5'
+                                  : isApproved
+                                  ? 'bg-emerald-950/20 border-emerald-500/30'
+                                  : isRejected
+                                  ? 'bg-rose-950/20 border-rose-500/30'
+                                  : 'bg-slate-950/70 border-slate-800'
+                              }`}
+                            >
+                              {/* Top Row: Amount, Type, Status & Receipt */}
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className={`font-black text-sm sm:text-base ${
+                                    isPending ? 'text-amber-300' : isApproved ? 'text-emerald-400' : 'text-rose-400'
+                                  }`}>
+                                    -${Math.abs(Number(w.amount)).toFixed(2)} USDT
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800 font-bold">
+                                    {w.type || 'USDT-TRC20'}
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center gap-1.5">
+                                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider flex items-center gap-1 ${
+                                    isPending
+                                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
+                                      : isApproved
+                                      ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                      : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                                  }`}>
+                                    {isPending && <Clock className="w-2.5 h-2.5 text-amber-400" />}
+                                    {isApproved && <CheckCircle2 className="w-2.5 h-2.5 text-emerald-400" />}
+                                    {isRejected && <AlertCircle className="w-2.5 h-2.5 text-rose-400" />}
+                                    <span>
+                                      {isPending ? 'Under Review' : isApproved ? 'Approved & Paid' : 'Rejected'}
+                                    </span>
+                                  </span>
+
+                                  <button
+                                    onClick={() => generateReceiptForWithdrawal(w)}
+                                    className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 hover:text-amber-300 cursor-pointer transition-colors border border-slate-700"
+                                    title="View / Print Tax Receipt"
+                                  >
+                                    <FileText className="w-3.5 h-3.5 text-amber-400" />
+                                  </button>
+                                </div>
+                              </div>
+                              
+                              {/* Destination Address with 1-click copy */}
+                              <div className="flex items-center justify-between text-[11px] bg-slate-950/60 p-2 rounded-lg border border-slate-800/80">
+                                <div className="min-w-0 pr-2 truncate">
+                                  <span className="text-slate-500 text-[10px] block">Destination:</span>
+                                  <span className="text-slate-300 font-mono select-all">
+                                    {w.walletAddress || 'Saved Account Wallet'}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  {w.walletAddress && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyInline(w.walletAddress!, copyWalletKey)}
+                                      className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer transition-colors"
+                                      title="Copy Address"
+                                    >
+                                      {copiedInlineKey === copyWalletKey ? (
+                                        <Check className="w-3 h-3 text-emerald-400" />
+                                      ) : (
+                                        <Copy className="w-3 h-3" />
+                                      )}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Blockchain TXID with Explorer Link */}
+                              {w.txHash && (
+                                <div className="flex items-center justify-between text-[10px] text-slate-400 bg-[#080d1a] p-2 rounded-lg border border-slate-800">
+                                  <div className="min-w-0 pr-2 truncate">
+                                    <span className="text-slate-500">TXID: </span>
+                                    <span className="text-emerald-400 font-mono select-all">{w.txHash}</span>
+                                  </div>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCopyInline(w.txHash!, copyTxKey)}
+                                      className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer transition-colors"
+                                      title="Copy TXID"
+                                    >
+                                      {copiedInlineKey === copyTxKey ? (
+                                        <Check className="w-3 h-3 text-emerald-400" />
+                                      ) : (
+                                        <Copy className="w-3 h-3" />
+                                      )}
+                                    </button>
+                                    {explorerUrl && (
+                                      <a
+                                        href={explorerUrl}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="p-1 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 cursor-pointer transition-colors"
+                                        title="View on Blockchain Explorer"
+                                      >
+                                        <ExternalLink className="w-3 h-3" />
+                                      </a>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Timestamp and Multi-sig seal */}
+                              <div className="flex items-center justify-between text-[10px] text-slate-500 pt-0.5">
+                                <span>{w.time || 'Logged in database'}</span>
+                                <span className={isApproved ? 'text-emerald-400 font-bold' : isPending ? 'text-amber-400 font-bold' : 'text-slate-500'}>
+                                  {isApproved ? '✓ Treasury Signed' : isPending ? '⏳ Treasury Verification' : '✗ Denied'}
                                 </span>
                               </div>
-                              <div className="flex items-center gap-1.5">
-                                <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
-                                  isPending
-                                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
-                                    : isApproved
-                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                    : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                                }`}>
-                                  {isPending ? 'Pending Admin Review' : isApproved ? 'Approved / Paid' : 'Rejected'}
-                                </span>
-                                <button
-                                  onClick={() => generateReceiptForWithdrawal(w)}
-                                  className="p-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white cursor-pointer transition-colors"
-                                  title="View/Print Receipt"
-                                >
-                                  <FileText className="w-3.5 h-3.5 text-amber-400" />
-                                </button>
-                              </div>
+
+                              {/* Rejection Note */}
+                              {w.rejectionReason && (
+                                <div className="text-[11px] text-rose-300 bg-rose-950/40 p-2 rounded-lg border border-rose-800/50">
+                                  <strong>Reason: </strong>{w.rejectionReason}
+                                </div>
+                              )}
                             </div>
-                            
-                            <div className="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
-                              <span className="truncate max-w-[200px] text-slate-300">
-                                📍 {w.walletAddress || 'Saved Wallet'}
-                              </span>
-                              <span className="text-[10px] text-slate-500">{w.time}</span>
-                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
 
-                            {w.txHash && (
-                              <div className="text-[10px] text-slate-400 bg-slate-900/60 p-1.5 rounded border border-slate-800/80 truncate">
-                                <span className="text-slate-500">TXID: </span>
-                                <span className="text-emerald-400 font-mono">{w.txHash}</span>
-                              </div>
-                            )}
-
-                            {w.rejectionReason && (
-                              <div className="text-[10px] text-rose-300 bg-rose-950/40 p-1.5 rounded border border-rose-800/50">
-                                <strong>Reason: </strong>{w.rejectionReason}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )
+                  </div>
                 )}
 
                 {/* Swaps List */}
@@ -2219,6 +2495,21 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       <InvoiceReceiptModal
         receipt={activeInvoiceReceipt}
         onClose={() => setActiveInvoiceReceipt(null)}
+      />
+
+      {/* Professional Withdrawal History & Ledger Modal */}
+      <WithdrawalHistoryModal
+        isOpen={isWithdrawalLedgerModalOpen}
+        onClose={() => setIsWithdrawalLedgerModalOpen(false)}
+        withdrawals={withdrawalRecords}
+        onViewReceipt={generateReceiptForWithdrawal}
+        onNewWithdrawal={() => {
+          setActionTab('withdraw');
+          const walletCard = document.getElementById('wallet-cashout-card');
+          if (walletCard) walletCard.scrollIntoView({ behavior: 'smooth' });
+        }}
+        userEmail={user.email}
+        userName={user.name}
       />
 
       {/* Wallet Address Whitelist Management Modal */}

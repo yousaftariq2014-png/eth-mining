@@ -136,6 +136,8 @@ export interface UserProfile {
   joinedDate: string;
   isLoggedIn?: boolean;
   hasClaimedFreeBonus?: boolean;
+  phone?: string;
+  phoneNumber?: string;
   onchainKey?: string;
   kycStatus?: KYCStatus;
   kycLevel?: KYCLevel;

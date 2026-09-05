@@ -327,12 +327,11 @@ export function calculateCustomerAggregation(
 
       let accruedYieldUsd = 0;
       if (isFlash) {
+        // 48h Flash Package gives fixed one-time settlement upon 48-hour completion
         if (isExpired) {
           accruedYieldUsd = estTotalYieldUsd;
         } else {
-          const elapsedDays = totalElapsedMs / (24 * 60 * 60 * 1000);
-          const flashProfitOnly = estTotalYieldUsd - amountUsd;
-          accruedYieldUsd = Math.min(flashProfitOnly, (flashProfitOnly / 2) * elapsedDays);
+          accruedYieldUsd = 0; // Held in 48-hour maturation lockup until countdown reaches 0
         }
       } else {
         const elapsedDays = Math.min(matchedPkg?.durationDays || 365, totalElapsedMs / (24 * 60 * 60 * 1000));

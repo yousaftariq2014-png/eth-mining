@@ -1346,6 +1346,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           )}
                         </div>
                         <div className="text-[11px] text-slate-400 font-mono truncate">{cust.user.email}</div>
+                        {cust.user.phone && (
+                          <div className="text-[10px] text-cyan-400 font-mono flex items-center gap-1 mt-0.5">
+                            <span>📞 {cust.user.phone}</span>
+                          </div>
+                        )}
                         <div className="text-[10px] text-slate-500 mt-0.5">Joined: {cust.user.joinedDate || 'Recent'}</div>
                       </div>
 

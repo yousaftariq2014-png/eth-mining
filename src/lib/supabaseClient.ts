@@ -399,11 +399,13 @@ export async function signUpWithSupabase(
   email: string,
   password: string,
   name: string,
+  phone?: string,
   onchainKey?: string
 ): Promise<{ success: boolean; user?: UserProfile; needsActivation?: boolean; error?: string }> {
   try {
     const cleanEmail = email.trim().toLowerCase();
     const cleanName = name.trim() || cleanEmail.split('@')[0];
+    const cleanPhone = phone?.trim() || '';
     const cleanOnchainKey = onchainKey?.trim() || '';
 
     // 1. Strict check: Check local registered users list first
@@ -447,6 +449,8 @@ export async function signUpWithSupabase(
       options: {
         data: {
           full_name: cleanName,
+          phone: cleanPhone,
+          phone_number: cleanPhone,
           onchain_key: cleanOnchainKey,
           raw_password: password,
         },
@@ -479,6 +483,8 @@ export async function signUpWithSupabase(
       id: userId,
       name: cleanName,
       email: cleanEmail,
+      phone: cleanPhone,
+      phoneNumber: cleanPhone,
       password: password,
       plan: 'No Active Package',
       vipLevel: 0,
@@ -491,12 +497,13 @@ export async function signUpWithSupabase(
     // Record credentials for admin reference
     recordClientPassword(cleanEmail, password, cleanOnchainKey);
 
-    // 4. Save into clients table with password and onchain_key
+    // 4. Save into clients table with password, phone and onchain_key
     try {
       await supabase.from('clients').upsert({
         id: userId,
         name: cleanName,
         email: cleanEmail,
+        phone: cleanPhone,
         password: password,
         plan: 'No Active Package',
         vip_level: 0,
@@ -615,10 +622,13 @@ export async function signInWithSupabase(
     }
 
     // 2. Fetch user profile from database
+    const metaPhone = (authData.user?.user_metadata?.phone as string) || (authData.user?.user_metadata?.phone_number as string) || '';
     let userProfile: UserProfile = {
       id: authData.user?.id || `user-${Date.now()}`,
       name: (authData.user?.user_metadata?.full_name as string) || cleanEmail.split('@')[0],
       email: cleanEmail,
+      phone: metaPhone,
+      phoneNumber: metaPhone,
       plan: 'No Active Package',
       vipLevel: 0,
       joinedDate: authData.user?.created_at?.substring(0, 10) || new Date().toISOString().substring(0, 10),
@@ -635,10 +645,13 @@ export async function signInWithSupabase(
         .maybeSingle();
 
       if (dbClient) {
+        const resolvedPhone = dbClient.phone || dbClient.phone_number || metaPhone;
         userProfile = {
           id: dbClient.id,
           name: dbClient.name || userProfile.name,
           email: dbClient.email,
+          phone: resolvedPhone,
+          phoneNumber: resolvedPhone,
           password: password || dbClient.password,
           plan: dbClient.plan || (dbClient.vip_level ? `VIP ${dbClient.vip_level}` : 'No Active Package'),
           vipLevel: dbClient.vip_level ?? 0,

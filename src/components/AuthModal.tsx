@@ -15,7 +15,8 @@ import {
   HelpCircle as HelpCircleIcon,
   RefreshCw as RefreshCwIcon,
   Send as SendIcon,
-  KeyRound as KeyRoundIcon
+  KeyRound as KeyRoundIcon,
+  Phone as PhoneIcon
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { Language, UserProfile } from '../types';
@@ -51,7 +52,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [onchainKey, setOnchainKey] = useState('');
+  const [phone, setPhone] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
   const [agreeTerms, setAgreeTerms] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
@@ -125,8 +126,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setErrorMsg('Please enter your full name.');
         return;
       }
-      if (!onchainKey.trim()) {
-        setErrorMsg('Onchain Key is required. Please provide your Onchain Key to complete signup.');
+      if (!phone.trim()) {
+        setErrorMsg('Please enter your phone number.');
         return;
       }
       if (!agreeTerms) {
@@ -139,7 +140,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
 
       setIsLoading(true);
-      const res = await signUpWithSupabase(cleanEmail, cleanPassword, name.trim(), onchainKey.trim());
+      const res = await signUpWithSupabase(cleanEmail, cleanPassword, name.trim(), phone.trim());
       setIsLoading(false);
 
       if (!res.success) {
@@ -626,31 +627,31 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     )}
                   </div>
 
-                  {/* Onchain Key (Mandatory for Signup) */}
+                  {/* Phone Number (Sign Up only) */}
                   {mode === 'signup' && (
                     <div className="space-y-1">
                       <div className="flex items-center justify-between">
-                        <label htmlFor="auth-onchain-key-input" className="block text-[11px] font-semibold text-amber-400">
-                          Onchain Key <span className="text-rose-400 font-bold">*</span>
+                        <label htmlFor="auth-phone-input" className="block text-[11px] font-semibold text-slate-300">
+                          Phone Number <span className="text-rose-400 font-bold">*</span>
                         </label>
-                        <span className="text-[10px] text-amber-500/80 font-mono font-bold uppercase tracking-wider">Required</span>
+                        <span className="text-[10px] text-amber-400 font-mono font-bold uppercase tracking-wider">USA (+1)</span>
                       </div>
                       <div className="relative">
-                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-amber-500/70">
-                          <KeyRoundIcon className="w-4 h-4" />
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-400">
+                          <PhoneIcon className="w-4 h-4" />
                         </div>
                         <input
-                          id="auth-onchain-key-input"
-                          type="text"
+                          id="auth-phone-input"
+                          type="tel"
                           required
-                          placeholder="Enter your Onchain Key (e.g. ONC-9821-ETH2)"
-                          value={onchainKey}
-                          onChange={(e) => setOnchainKey(e.target.value)}
-                          className="w-full bg-[#080c16] border border-amber-500/30 focus:border-amber-500 rounded-xl pl-9 pr-3.5 py-2.5 text-xs text-slate-100 placeholder:text-slate-600 font-mono focus:outline-none focus:ring-1 focus:ring-amber-500/40 transition-all shadow-inner"
+                          placeholder="+1 (555) 234-5678"
+                          value={phone}
+                          onChange={(e) => setPhone(e.target.value)}
+                          className="w-full bg-[#080c16] border border-slate-700 focus:border-amber-500 rounded-xl pl-9 pr-3.5 py-2.5 text-xs text-slate-100 placeholder:text-slate-600 font-mono focus:outline-none focus:ring-1 focus:ring-amber-500/40 transition-all shadow-inner"
                         />
                       </div>
                       <p className="text-[10px] text-slate-500">
-                        Cryptographic node verification key required for mining allocation and account activation.
+                        Example: <span className="text-slate-300 font-mono">+1 (555) 234-5678</span> or <span className="text-slate-300 font-mono">+1 202-555-0143</span>
                       </p>
                     </div>
                   )}

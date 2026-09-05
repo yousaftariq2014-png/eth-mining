@@ -96,13 +96,54 @@ function parseTimestamp(ts?: string): Date {
   return d;
 }
 
-function getContractDurationMs(dep: DepositRequest, matchedPkg: MiningPackage | null): { durationMs: number; durationLabel: string; isFlash: boolean } {
+function normalizeDeposit(item: any): DepositRequest {
+  const packageId = String(item.packageId || item.package_id || '');
+  const packageName = String(item.packageName || item.package_name || '');
   const isFlash = 
-    dep.planType === 'flash_48h' ||
+    item.planType === 'flash_48h' ||
+    item.plan_type === 'flash_48h' ||
+    packageId.toLowerCase().includes('flash') ||
+    packageName.toLowerCase().includes('flash') ||
+    packageName.toLowerCase().includes('48h');
+
+  const isCustom = !isFlash && (
+    item.planType === 'custom_pool' ||
+    item.plan_type === 'custom_pool' ||
+    packageId.toLowerCase().includes('custom') ||
+    packageName.toLowerCase().includes('custom')
+  );
+
+  return {
+    id: String(item.id),
+    userId: String(item.userId || item.user_id || ''),
+    userName: String(item.userName || item.user_name || ''),
+    packageId,
+    packageName,
+    planType: isFlash ? 'flash_48h' : isCustom ? 'custom_pool' : (item.planType || item.plan_type || 'daily'),
+    vipLevel: Number(item.vipLevel ?? item.vip_level ?? 1),
+    amountUsd: Number(item.amountUsd ?? item.amount_usd ?? 0),
+    network: item.network,
+    depositAddress: item.depositAddress || item.deposit_address,
+    senderTxid: item.senderTxid || item.sender_txid,
+    status: item.status,
+    createdAt: item.createdAt || item.created_at,
+    approvedAt: item.approvedAt || item.approved_at,
+    explorerConfirmed: !!(item.explorerConfirmed ?? item.explorer_confirmed ?? true)
+  };
+}
+
+function getContractDurationMs(dep: DepositRequest, matchedPkg: MiningPackage | null): { durationMs: number; durationLabel: string; isFlash: boolean } {
+  const pkgId = String(dep.packageId || (dep as any).package_id || '').toLowerCase();
+  const pkgName = String(dep.packageName || (dep as any).package_name || '').toLowerCase();
+  const planType = String(dep.planType || (dep as any).plan_type || '').toLowerCase();
+
+  const isFlash = 
+    planType === 'flash_48h' ||
     matchedPkg?.planType === 'flash_48h' ||
     matchedPkg?.durationHours === 48 ||
-    (dep.packageName && dep.packageName.toLowerCase().includes('48h')) ||
-    (dep.packageName && dep.packageName.toLowerCase().includes('flash'));
+    pkgId.includes('flash') ||
+    pkgName.includes('flash') ||
+    pkgName.includes('48h');
 
   if (isFlash) {
     return {
@@ -172,7 +213,9 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       const saved = localStorage.getItem('hashforge_deposits');
       if (saved) {
         const parsed = JSON.parse(saved);
-        return parsed.filter((d: any) => (d.userId === user.id || d.userName === user.name) && d.status === 'approved' && (d.explorer_confirmed ?? true));
+        return parsed
+          .filter((d: any) => (d.userId === user.id || d.user_id === user.id || d.userName === user.name || d.user_name === user.name) && d.status === 'approved' && (d.explorer_confirmed ?? d.explorerConfirmed ?? true))
+          .map(normalizeDeposit);
       }
     } catch {}
     return [];
@@ -200,7 +243,9 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       const saved = localStorage.getItem('hashforge_deposits');
       if (saved) {
         const parsed = JSON.parse(saved);
-        return parsed.filter((d: any) => isMatchForUser(d) && d.status === 'pending');
+        return parsed
+          .filter((d: any) => isMatchForUser(d) && d.status === 'pending')
+          .map(normalizeDeposit);
       }
     } catch {}
     return [];
@@ -524,30 +569,32 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
         if (depErr) console.warn('Silent Supabase deposits warning:', depErr.message);
         if (wErr) console.warn('Silent Supabase withdrawals warning:', wErr.message);
 
-        let allDeposits = deposits || [];
+        let rawDeposits: any[] = deposits || [];
 
         // Fallback/merge with local storage deposits if available
-        if (allDeposits.length === 0) {
+        if (rawDeposits.length === 0) {
           try {
             const saved = localStorage.getItem('hashforge_deposits');
             if (saved) {
               const parsed = JSON.parse(saved);
-              allDeposits = parsed.filter((d: any) => d.userId === user.id || d.userName === user.name);
+              rawDeposits = parsed.filter((d: any) => d.userId === user.id || d.user_id === user.id || d.userName === user.name || d.user_name === user.name);
             }
           } catch {}
         }
 
         // Merge any externally passed pendingDeposits
         if (externalPendingDeposits && externalPendingDeposits.length > 0) {
-          const userExternal = externalPendingDeposits.filter(d => d.userId === user.id || d.userName === user.name);
+          const userExternal = externalPendingDeposits.filter(d => d.userId === user.id || (d as any).user_id === user.id || d.userName === user.name || (d as any).user_name === user.name);
           for (const ext of userExternal) {
-            if (!allDeposits.some((d: any) => d.id === ext.id)) {
-              allDeposits.push(ext);
+            if (!rawDeposits.some((d: any) => d.id === ext.id)) {
+              rawDeposits.push(ext);
             }
           }
         }
 
-        setApprovedDeposits(allDeposits.filter(d => d.status === 'approved' && (d.explorer_confirmed ?? true)));
+        const allDeposits: DepositRequest[] = rawDeposits.map(normalizeDeposit);
+
+        setApprovedDeposits(allDeposits.filter(d => d.status === 'approved' && (d.explorerConfirmed ?? true)));
         setPendingDeposits(allDeposits.filter(d => d.status === 'pending'));
         if (withdrawals && withdrawals.length > 0) {
           setWithdrawalRecords(withdrawals as WithdrawalRecordItem[]);
@@ -574,23 +621,30 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
 
   // Process all approved deposits with real-time countdown, accrual and expiration calculations
   const processedContracts: ProcessedContract[] = approvedDeposits.map(dep => {
+    const pkgId = String(dep.packageId || (dep as any).package_id || '');
+    const pkgName = String(dep.packageName || (dep as any).package_name || '');
+    const planType = String(dep.planType || (dep as any).plan_type || '');
+    const amountUsd = Number(dep.amountUsd ?? (dep as any).amount_usd ?? 0);
+    const vipLevel = Number(dep.vipLevel ?? (dep as any).vip_level ?? 1);
+
     const isDepositFlash = 
-      dep.planType === 'flash_48h' ||
-      (dep.packageId && dep.packageId.toLowerCase().includes('flash')) ||
-      (dep.packageName && (dep.packageName.toLowerCase().includes('48h') || dep.packageName.toLowerCase().includes('flash')));
+      planType === 'flash_48h' ||
+      pkgId.toLowerCase().includes('flash') ||
+      pkgName.toLowerCase().includes('48h') ||
+      pkgName.toLowerCase().includes('flash');
 
     const matchedPkg = isDepositFlash
-      ? (FLASH_48H_PACKAGES.find(p => p.id === dep.packageId)
-         || FLASH_48H_PACKAGES.find(p => p.name.toLowerCase() === (dep.packageName || '').toLowerCase())
-         || FLASH_48H_PACKAGES.find(p => p.vipLevel === dep.vipLevel && p.priceUsd === Number(dep.amountUsd))
-         || FLASH_48H_PACKAGES.find(p => p.priceUsd === Number(dep.amountUsd))
-         || packages.find(p => p.id === dep.packageId)
+      ? (FLASH_48H_PACKAGES.find(p => p.id === pkgId)
+         || FLASH_48H_PACKAGES.find(p => p.name.toLowerCase() === pkgName.toLowerCase())
+         || FLASH_48H_PACKAGES.find(p => p.priceUsd === amountUsd)
+         || FLASH_48H_PACKAGES.find(p => p.vipLevel === vipLevel)
+         || packages.find(p => p.id === pkgId)
          || null)
-      : (packages.find(p => p.id === dep.packageId) 
-         || packages.find(p => p.name.toLowerCase() === (dep.packageName || '').toLowerCase())
-         || packages.find(p => p.vipLevel === dep.vipLevel && p.priceUsd === Number(dep.amountUsd))
-         || MINING_PACKAGES.find(p => p.id === dep.packageId || p.name === dep.packageName || (p.vipLevel === dep.vipLevel && p.priceUsd === Number(dep.amountUsd)))
-         || DAILY_PACKAGES.find(p => p.vipLevel === dep.vipLevel)
+      : (packages.find(p => p.id === pkgId) 
+         || packages.find(p => p.name.toLowerCase() === pkgName.toLowerCase())
+         || packages.find(p => p.vipLevel === vipLevel && p.priceUsd === amountUsd)
+         || MINING_PACKAGES.find(p => p.id === pkgId || p.name === pkgName || (p.vipLevel === vipLevel && p.priceUsd === amountUsd))
+         || DAILY_PACKAGES.find(p => p.vipLevel === vipLevel)
          || null);
 
     const { durationMs, durationLabel, isFlash } = getContractDurationMs(dep, matchedPkg);
@@ -605,7 +659,6 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     const totalElapsedMs = Math.max(0, currentTime.getTime() - activationDate.getTime());
     const progressPercent = Math.min(100, Math.max(0, (totalElapsedMs / durationMs) * 100));
 
-    const amountUsd = Number(dep.amountUsd ?? (dep as any).amount_usd ?? 0);
     const flashDetails = getFlashProfitDetails(amountUsd);
     
     const dailyRatePercent = getTierDailyRatePercent(amountUsd, matchedPkg?.dailyReturnPercent);

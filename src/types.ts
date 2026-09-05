@@ -59,6 +59,8 @@ export interface DepositRequest {
   status: 'pending' | 'approved' | 'rejected';
   createdAt: string;
   approvedAt?: string;
+  explorer_confirmed?: boolean;
+  explorerConfirmed?: boolean;
 }
 
 export type KYCStatus = 'unverified' | 'pending' | 'verified' | 'rejected';

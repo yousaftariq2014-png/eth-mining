@@ -1346,50 +1346,67 @@ export async function updateSupabaseDepositStatus(
 // ----------------------------------------------------
 export async function fetchSupabaseWithdrawals(): Promise<WithdrawalRecordItem[] | null> {
   try {
-    const { data, error } = await supabase
+    // Attempt query with fallback
+    let { data, error } = await supabase
       .from('withdrawals')
-      .select('*')
-      .order('inserted_at', { ascending: false });
+      .select('*');
 
-    if (error) return null;
-    if (!data) return [];
-    if (data.length === 0) return [];
+    if (error) {
+      console.warn('Supabase fetch withdrawals query warning:', error.message);
+      return null;
+    }
+    if (!data || data.length === 0) return [];
 
-    return data.map(item => ({
-      id: item.id,
+    const mapped: WithdrawalRecordItem[] = data.map(item => ({
+      id: String(item.id),
       userId: item.user_id || undefined,
       userName: item.user_name || undefined,
-      currency: item.currency,
-      type: item.type,
+      currency: item.currency || 'USDT',
+      type: item.type || 'USDT-TRC20',
       amount: Number(item.amount),
       walletAddress: item.wallet_address || undefined,
       status: item.status as any,
-      time: item.time,
+      time: item.time || item.created_at || new Date().toISOString(),
       txHash: item.tx_hash || undefined,
     }));
+
+    // Robust in-memory chronological sort (newest first)
+    mapped.sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
+    return mapped;
   } catch (err) {
+    console.warn('Supabase fetch withdrawals exception:', err);
     return null;
   }
 }
 
 export async function insertSupabaseWithdrawal(record: WithdrawalRecordItem): Promise<boolean> {
   try {
-    const { error } = await supabase.from('withdrawals').upsert({
-      id: record.id,
+    const payload: any = {
+      id: String(record.id),
       user_id: record.userId || null,
       user_name: record.userName || null,
-      currency: record.currency,
-      type: record.type,
-      amount: record.amount,
+      currency: record.currency || 'USDT',
+      type: record.type || 'USDT-TRC20',
+      amount: Number(record.amount),
       wallet_address: record.walletAddress || null,
-      status: record.status,
-      time: record.time,
+      status: record.status || 'Pending',
+      time: record.time || new Date().toISOString().replace('T', ' ').substring(0, 19),
       tx_hash: record.txHash || null,
-    });
+    };
 
-    if (error) return false;
+    const { error } = await supabase.from('withdrawals').upsert(payload, { onConflict: 'id' });
+
+    if (error) {
+      console.warn('Supabase upsert withdrawal warning, trying direct insert:', error.message);
+      const { error: insertErr } = await supabase.from('withdrawals').insert(payload);
+      if (insertErr) {
+        console.warn('Supabase direct insert withdrawal error:', insertErr.message);
+        return false;
+      }
+    }
     return true;
   } catch (err) {
+    console.warn('Supabase insert withdrawal exception:', err);
     return false;
   }
 }

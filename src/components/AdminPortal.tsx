@@ -379,8 +379,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     checkExistingSession();
   }, []);
 
-  // AUTOMATIC REAL-TIME SYNC WITH SUPABASE:
-  // Listens to live database mutations & performs automated 5s heartbeats so admin dashboard always stays in sync
+  // AUTOMATIC REAL-TIME SYNC WITH SUPABASE & LOCALSTORAGE:
+  // Listens to live database mutations, window storage events & performs automated heartbeats so admin dashboard always stays in sync
   useEffect(() => {
     if (!isAdminLoggedIn) return;
 
@@ -390,6 +390,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         onRefreshData();
       }
     }, 6000);
+
+    // Cross-tab and local client storage event listener for instantaneous UI updates
+    const handleImmediateSync = () => {
+      if (onRefreshData) onRefreshData();
+    };
+    window.addEventListener('storage', handleImmediateSync);
+    window.addEventListener('hashforge_withdrawal_created', handleImmediateSync);
 
     // Supabase Realtime channel subscription for instant auto-sync
     const channel = supabase
@@ -407,6 +414,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
     return () => {
       clearInterval(interval);
+      window.removeEventListener('storage', handleImmediateSync);
+      window.removeEventListener('hashforge_withdrawal_created', handleImmediateSync);
       supabase.removeChannel(channel);
     };
   }, [isAdminLoggedIn, onRefreshData]);
@@ -492,8 +501,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const totalDepositVolume = approvedDeposits.reduce((acc, curr) => acc + Number(curr.amountUsd || 0), 0);
   const pendingDepositVolume = pendingDeposits.reduce((acc, curr) => acc + Number(curr.amountUsd || 0), 0);
 
-  const pendingWithdrawals = withdrawalRecords.filter(w => w.status === 'Pending');
-  const approvedWithdrawals = withdrawalRecords.filter(w => w.status === 'Withdrawal successfully');
+  const pendingWithdrawals = withdrawalRecords.filter(w => (w.status || '').toLowerCase() === 'pending');
+  const approvedWithdrawals = withdrawalRecords.filter(w => {
+    const s = (w.status || '').toLowerCase();
+    return s === 'withdrawal successfully' || s === 'approved' || s === 'completed';
+  });
   const totalWithdrawnVolume = approvedWithdrawals.reduce((acc, curr) => acc + Math.abs(Number(curr.amount || 0)), 0);
   const pendingWithdrawalVolume = pendingWithdrawals.reduce((acc, curr) => acc + Math.abs(Number(curr.amount || 0)), 0);
 
@@ -545,11 +557,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   // Filtered Withdrawals
   const filteredWithdrawals = useMemo(() => {
     return withdrawalRecords.filter((w) => {
+      const s = (w.status || '').toLowerCase();
       const matchesFilter = 
         withdrawalFilter === 'all' ? true :
-        withdrawalFilter === 'pending' ? w.status === 'Pending' :
-        withdrawalFilter === 'approved' ? w.status === 'Withdrawal successfully' :
-        w.status === 'Failed';
+        withdrawalFilter === 'pending' ? (s === 'pending') :
+        withdrawalFilter === 'approved' ? (s === 'withdrawal successfully' || s === 'approved' || s === 'completed') :
+        (s === 'failed' || s === 'rejected' || s === 'declined');
       if (!matchesFilter) return false;
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
@@ -557,7 +570,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         w.currency?.toLowerCase().includes(q) ||
         w.type?.toLowerCase().includes(q) ||
         w.userName?.toLowerCase().includes(q) ||
-        w.walletAddress?.toLowerCase().includes(q)
+        w.walletAddress?.toLowerCase().includes(q) ||
+        w.id?.toLowerCase().includes(q)
       );
     });
   }, [withdrawalRecords, withdrawalFilter, searchQuery]);
@@ -1739,9 +1753,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 <div
                   key={`w-${w.id || 'w'}-${idx}`}
                   className={`p-4 sm:p-5 rounded-2xl bg-[#0f172a] border ${
-                    w.status === 'Pending'
+                    (w.status || '').toLowerCase() === 'pending'
                       ? 'border-amber-500/40 shadow-lg shadow-amber-500/5'
-                      : w.status === 'Withdrawal successfully'
+                      : (w.status || '').toLowerCase().includes('success') || (w.status || '').toLowerCase() === 'approved' || (w.status || '').toLowerCase() === 'completed'
                       ? 'border-emerald-500/30 opacity-95'
                       : 'border-rose-900/40 opacity-75'
                   }`}
@@ -1757,6 +1771,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           {w.type}
                         </span>
                         <span className="text-[11px] text-slate-400 font-mono">{w.time}</span>
+                        {w.id && (
+                          <span className="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] text-slate-500 font-mono">
+                            ID: {w.id}
+                          </span>
+                        )}
                       </div>
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
@@ -1774,7 +1793,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             <button
                               type="button"
                               onClick={() => copyToClipboard(w.walletAddress!, `w-addr-${w.id}`)}
-                              className="text-slate-400 hover:text-white"
+                              className="text-slate-400 hover:text-white cursor-pointer"
                             >
                               {copiedKey === `w-addr-${w.id}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                             </button>
@@ -1789,7 +1808,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0 pt-2 lg:pt-0">
-                      {w.status === 'Pending' ? (
+                      {(w.status || '').toLowerCase() === 'pending' ? (
                         <>
                           <button
                             onClick={() => onApproveWithdrawal && onApproveWithdrawal(w.id)}
@@ -1808,7 +1827,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             <span>Decline / Reject</span>
                           </button>
                         </>
-                      ) : w.status === 'Withdrawal successfully' ? (
+                      ) : (w.status || '').toLowerCase().includes('success') || (w.status || '').toLowerCase() === 'approved' || (w.status || '').toLowerCase() === 'completed' ? (
                         <div className="flex items-center gap-1.5 text-xs font-mono text-emerald-400 font-bold bg-emerald-500/10 px-4 py-2 rounded-xl border border-emerald-500/30">
                           <CheckCircle2 className="w-4 h-4" />
                           <span>Approved & Completed</span>

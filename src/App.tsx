@@ -444,10 +444,17 @@ export default function App() {
           setDeposits(remoteDeposits);
         }
 
-        // Sync Withdrawals
+        // Sync Withdrawals safely with local merge
         const remoteWithdrawals = await fetchSupabaseWithdrawals();
         if (remoteWithdrawals !== null) {
-          setWithdrawalRecords(remoteWithdrawals);
+          setWithdrawalRecords(prev => {
+            const map = new Map<string, WithdrawalRecordItem>();
+            prev.forEach(item => map.set(item.id, item));
+            remoteWithdrawals.forEach(item => map.set(item.id, item));
+            return Array.from(map.values()).sort(
+              (a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime()
+            );
+          });
         }
       } catch (err) {
         console.warn('Supabase initial fetch silent fallback:', err);
@@ -1133,9 +1140,14 @@ export default function App() {
       return;
     }
 
-    setWithdrawalRecords(prev =>
-      prev.map(w => (w.id === withdrawalId ? { ...w, status: 'Withdrawal successfully' } : w))
-    );
+    setWithdrawalRecords(prev => {
+      const updated = prev.map(w => (w.id === withdrawalId ? { ...w, status: 'Withdrawal successfully' as const } : w));
+      try {
+        localStorage.setItem('hashforge_withdrawals', JSON.stringify(updated));
+        window.dispatchEvent(new Event('storage'));
+      } catch {}
+      return updated;
+    });
     // Sync approval to Supabase
     updateSupabaseWithdrawalStatus(withdrawalId, 'Withdrawal successfully');
   };
@@ -1149,9 +1161,14 @@ export default function App() {
       return;
     }
 
-    setWithdrawalRecords(prev =>
-      prev.map(w => (w.id === withdrawalId ? { ...w, status: 'Failed' } : w))
-    );
+    setWithdrawalRecords(prev => {
+      const updated = prev.map(w => (w.id === withdrawalId ? { ...w, status: 'Failed' as const } : w));
+      try {
+        localStorage.setItem('hashforge_withdrawals', JSON.stringify(updated));
+        window.dispatchEvent(new Event('storage'));
+      } catch {}
+      return updated;
+    });
     // Sync rejection to Supabase
     updateSupabaseWithdrawalStatus(withdrawalId, 'Failed');
   };
@@ -1233,8 +1250,35 @@ export default function App() {
     }
     const remoteWithdrawals = await fetchSupabaseWithdrawals();
     if (remoteWithdrawals !== null) {
-      setWithdrawalRecords(remoteWithdrawals);
+      setWithdrawalRecords(prev => {
+        const map = new Map<string, WithdrawalRecordItem>();
+        prev.forEach(item => map.set(item.id, item));
+        remoteWithdrawals.forEach(item => map.set(item.id, item));
+        return Array.from(map.values()).sort(
+          (a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime()
+        );
+      });
     }
+  };
+
+  // Client submits a new withdrawal from ClientSmartDashboard
+  const handleClientSubmitWithdrawal = (record: WithdrawalRecordItem) => {
+    setWithdrawalRecords(prev => {
+      const filtered = prev.filter(w => w.id !== record.id);
+      return [record, ...filtered];
+    });
+    setNotifications(prev => [
+      {
+        id: `notif-with-${Date.now()}`,
+        title: 'New Withdrawal Request',
+        message: `${record.userName || 'Client'} requested payout of $${Math.abs(Number(record.amount))} USDT (${record.type})`,
+        timestamp: 'Just now',
+        read: false,
+        type: 'system',
+        category: 'Finance'
+      },
+      ...prev
+    ]);
   };
 
   // Periodic Cloud Auto-Sync in background every 10s
@@ -1342,6 +1386,8 @@ export default function App() {
                 pendingDeposits={deposits}
                 onClearUserPackages={handleClearUserPackages}
                 onOpenPoR={() => setIsPoROpen(true)}
+                withdrawalRecords={withdrawalRecords}
+                onSubmitWithdrawal={handleClientSubmitWithdrawal}
               />
             </div>
           ) : (

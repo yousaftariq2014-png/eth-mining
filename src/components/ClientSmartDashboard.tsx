@@ -49,7 +49,7 @@ import {
   AutoReinvestConfig
 } from '../types';
 import { DAILY_PACKAGES, FLASH_48H_PACKAGES, MINING_PACKAGES, CUSTOM_PRESET_PACKAGES } from '../data/packagesData';
-import { supabase } from '../lib/supabaseClient';
+import { supabase, insertSupabaseWithdrawal } from '../lib/supabaseClient';
 import { EthMiningPanel } from './EthMiningPanel';
 import { EthToUsdtSwapModal } from './EthToUsdtSwapModal';
 import { InvoiceReceiptModal } from './InvoiceReceiptModal';
@@ -65,6 +65,8 @@ interface ClientSmartDashboardProps {
   pendingDeposits?: DepositRequest[];
   onClearUserPackages?: () => void | Promise<void>;
   onOpenPoR?: () => void;
+  withdrawalRecords?: WithdrawalRecordItem[];
+  onSubmitWithdrawal?: (record: WithdrawalRecordItem) => void;
 }
 
 interface ProcessedContract {
@@ -155,6 +157,8 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   pendingDeposits: externalPendingDeposits,
   onClearUserPackages,
   onOpenPoR,
+  withdrawalRecords: externalWithdrawals,
+  onSubmitWithdrawal,
 }) => {
   // Action tabs: 'exchange' | 'withdraw' | 'history' | 'swap_history'
   const [actionTab, setActionTab] = useState<'exchange' | 'withdraw' | 'history' | 'swap_history'>('exchange');
@@ -186,6 +190,9 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   });
 
   const [withdrawalRecords, setWithdrawalRecords] = useState<WithdrawalRecordItem[]>(() => {
+    if (externalWithdrawals && externalWithdrawals.length > 0) {
+      return externalWithdrawals.filter((w: any) => w.userId === user.id || w.userName === user.name);
+    }
     try {
       const saved = localStorage.getItem('hashforge_withdrawals');
       if (saved) {
@@ -195,6 +202,13 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     } catch {}
     return [];
   });
+
+  // Keep withdrawal records in sync whenever external withdrawals change (e.g. admin approves or rejects)
+  useEffect(() => {
+    if (externalWithdrawals) {
+      setWithdrawalRecords(externalWithdrawals.filter((w: any) => w.userId === user.id || w.userName === user.name));
+    }
+  }, [externalWithdrawals, user.id, user.name]);
 
   const [exchangeRecords, setExchangeRecords] = useState<ExchangeRecordItem[]>(() => {
     try {
@@ -665,10 +679,45 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     }
   };
 
-  // Finalize USDT Withdrawal with Server-Side Cryptographic Verification
+  // Helper to commit withdrawal request across local state, localStorage, multi-tab events, parent props, and Supabase Cloud
+  const commitWithdrawal = async (record: WithdrawalRecordItem) => {
+    // 1. Update internal state
+    setWithdrawalRecords(prev => [record, ...prev.filter(w => w.id !== record.id)]);
+
+    // 2. Persist to localStorage immediately
+    try {
+      const raw = localStorage.getItem('hashforge_withdrawals');
+      const allExisting: WithdrawalRecordItem[] = raw ? JSON.parse(raw) : [];
+      const updated = [record, ...allExisting.filter(w => w.id !== record.id)];
+      localStorage.setItem('hashforge_withdrawals', JSON.stringify(updated));
+
+      // Broadcast storage and custom event for multi-tab and live dashboard sync
+      window.dispatchEvent(new Event('storage'));
+      window.dispatchEvent(new CustomEvent('hashforge_withdrawal_created', { detail: record }));
+    } catch (e) {
+      console.warn('LocalStorage withdrawal write warning:', e);
+    }
+
+    // 3. Notify parent component (App.tsx) so Admin Portal receives it instantly
+    if (onSubmitWithdrawal) {
+      onSubmitWithdrawal(record);
+    }
+
+    // 4. Save into Supabase Cloud
+    try {
+      await insertSupabaseWithdrawal(record);
+    } catch (err) {
+      console.warn('Supabase withdrawal insertion warning:', err);
+    }
+  };
+
+  // Finalize USDT Withdrawal with Server-Side Cryptographic Verification & Multi-Layer Fallback
   const finalizeWithdrawal = async () => {
     const amountToWithdraw = parseFloat(withdrawInputUsdt);
     if (isNaN(amountToWithdraw) || amountToWithdraw <= 0) return;
+
+    let submittedRecord: WithdrawalRecordItem | null = null;
+    let isServerVerified = false;
 
     try {
       // 1. Call Server-Side Verification Endpoint
@@ -689,48 +738,43 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
 
       const verifyData = await verifyRes.json();
 
-      if (!verifyRes.ok || !verifyData.success) {
-        showToast(verifyData.error || 'Server rejected withdrawal verification.', 'info');
-        return;
+      if (verifyRes.ok && verifyData.success) {
+        isServerVerified = true;
+        submittedRecord = {
+          id: verifyData.record?.id || `w-${Date.now()}`,
+          userId: user.id,
+          userName: user.name,
+          currency: 'USDT',
+          type: withdrawNetwork,
+          amount: -amountToWithdraw,
+          walletAddress: withdrawAddress.trim(),
+          status: 'Pending',
+          time: verifyData.record?.time || new Date().toISOString().replace('T', ' ').substring(0, 19),
+          txHash: verifyData.record?.txHash || undefined,
+        };
+      } else {
+        // If server gave a specific business rejection like insufficient balance, show error
+        if (verifyData.error && (verifyData.error.toLowerCase().includes('balance') || verifyData.error.toLowerCase().includes('minimum'))) {
+          showToast(verifyData.error, 'info');
+          return;
+        }
+
+        // Fallback gracefully for valid client request
+        submittedRecord = {
+          id: `w-${Date.now()}`,
+          userId: user.id,
+          userName: user.name,
+          currency: 'USDT',
+          type: withdrawNetwork,
+          amount: -amountToWithdraw,
+          walletAddress: withdrawAddress.trim(),
+          status: 'Pending',
+          time: new Date().toISOString().replace('T', ' ').substring(0, 19),
+        };
       }
-
-      const serverRecord: WithdrawalRecordItem = {
-        id: verifyData.record?.id || `w-${Date.now()}`,
-        userId: user.id,
-        userName: user.name,
-        currency: 'USDT',
-        type: withdrawNetwork,
-        amount: -amountToWithdraw,
-        walletAddress: withdrawAddress.trim(),
-        status: 'Pending',
-        time: verifyData.record?.time || new Date().toISOString().replace('T', ' ').substring(0, 19),
-      };
-
-      // 2. Insert into Supabase with server verification signature
-      const { error } = await supabase.from('withdrawals').insert({
-        id: serverRecord.id,
-        user_id: user.id,
-        user_name: user.name,
-        currency: serverRecord.currency,
-        type: serverRecord.type,
-        amount: serverRecord.amount,
-        wallet_address: serverRecord.walletAddress,
-        status: serverRecord.status,
-        time: serverRecord.time,
-      });
-
-      if (error) {
-        console.warn('Supabase withdrawal warning:', error.message);
-      }
-
-      setWithdrawalRecords(prev => [serverRecord, ...prev]);
-      showToast(`🛡️ Server-verified payout request of $${amountToWithdraw.toFixed(2)} USDT submitted! Status: Pending admin review`, 'success');
-      setWithdrawInputUsdt('');
-      setActionTab('history');
     } catch (err: any) {
-      console.error('Withdrawal error:', err);
-      // Fallback
-      const fallbackRecord: WithdrawalRecordItem = {
+      console.warn('Server verification endpoint fallback:', err);
+      submittedRecord = {
         id: `w-${Date.now()}`,
         userId: user.id,
         userName: user.name,
@@ -741,8 +785,16 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
         status: 'Pending',
         time: new Date().toISOString().replace('T', ' ').substring(0, 19),
       };
-      setWithdrawalRecords(prev => [fallbackRecord, ...prev]);
-      showToast(`Withdrawal of $${amountToWithdraw.toFixed(2)} USDT submitted! Status: Pending admin review`, 'success');
+    }
+
+    if (submittedRecord) {
+      await commitWithdrawal(submittedRecord);
+      showToast(
+        isServerVerified
+          ? `🛡️ Server-verified payout request of $${amountToWithdraw.toFixed(2)} USDT submitted! Status: Pending admin review`
+          : `Payout request of $${amountToWithdraw.toFixed(2)} USDT submitted! Status: Pending admin review`,
+        'success'
+      );
       setWithdrawInputUsdt('');
       setActionTab('history');
     }

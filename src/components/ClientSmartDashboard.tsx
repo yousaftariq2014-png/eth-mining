@@ -48,7 +48,7 @@ import {
   WhitelistedWalletAddress,
   AutoReinvestConfig
 } from '../types';
-import { DAILY_PACKAGES, FLASH_48H_PACKAGES, MINING_PACKAGES, CUSTOM_PRESET_PACKAGES } from '../data/packagesData';
+import { DAILY_PACKAGES, FLASH_48H_PACKAGES, MINING_PACKAGES, CUSTOM_PRESET_PACKAGES, getFlashProfitDetails } from '../data/packagesData';
 import { supabase, insertSupabaseWithdrawal } from '../lib/supabaseClient';
 import { EthMiningPanel } from './EthMiningPanel';
 import { EthToUsdtSwapModal } from './EthToUsdtSwapModal';
@@ -574,12 +574,24 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
 
   // Process all approved deposits with real-time countdown, accrual and expiration calculations
   const processedContracts: ProcessedContract[] = approvedDeposits.map(dep => {
-    const matchedPkg = packages.find(p => p.id === dep.packageId) 
-      || packages.find(p => p.name.toLowerCase() === (dep.packageName || '').toLowerCase())
-      || packages.find(p => p.vipLevel === dep.vipLevel && p.priceUsd === Number(dep.amountUsd))
-      || MINING_PACKAGES.find(p => p.id === dep.packageId || p.name === dep.packageName || (p.vipLevel === dep.vipLevel && p.priceUsd === Number(dep.amountUsd)))
-      || DAILY_PACKAGES.find(p => p.vipLevel === dep.vipLevel)
-      || null;
+    const isDepositFlash = 
+      dep.planType === 'flash_48h' ||
+      (dep.packageId && dep.packageId.toLowerCase().includes('flash')) ||
+      (dep.packageName && (dep.packageName.toLowerCase().includes('48h') || dep.packageName.toLowerCase().includes('flash')));
+
+    const matchedPkg = isDepositFlash
+      ? (FLASH_48H_PACKAGES.find(p => p.id === dep.packageId)
+         || FLASH_48H_PACKAGES.find(p => p.name.toLowerCase() === (dep.packageName || '').toLowerCase())
+         || FLASH_48H_PACKAGES.find(p => p.vipLevel === dep.vipLevel && p.priceUsd === Number(dep.amountUsd))
+         || FLASH_48H_PACKAGES.find(p => p.priceUsd === Number(dep.amountUsd))
+         || packages.find(p => p.id === dep.packageId)
+         || null)
+      : (packages.find(p => p.id === dep.packageId) 
+         || packages.find(p => p.name.toLowerCase() === (dep.packageName || '').toLowerCase())
+         || packages.find(p => p.vipLevel === dep.vipLevel && p.priceUsd === Number(dep.amountUsd))
+         || MINING_PACKAGES.find(p => p.id === dep.packageId || p.name === dep.packageName || (p.vipLevel === dep.vipLevel && p.priceUsd === Number(dep.amountUsd)))
+         || DAILY_PACKAGES.find(p => p.vipLevel === dep.vipLevel)
+         || null);
 
     const { durationMs, durationLabel, isFlash } = getContractDurationMs(dep, matchedPkg);
     const rawActivation = dep.approvedAt || (dep as any).approved_at || dep.createdAt || (dep as any).created_at;
@@ -594,15 +606,16 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     const progressPercent = Math.min(100, Math.max(0, (totalElapsedMs / durationMs) * 100));
 
     const amountUsd = Number(dep.amountUsd ?? (dep as any).amount_usd ?? 0);
+    const flashDetails = getFlashProfitDetails(amountUsd);
     
     const dailyRatePercent = getTierDailyRatePercent(amountUsd, matchedPkg?.dailyReturnPercent);
 
     const dailyYieldUsd = isFlash
-      ? (matchedPkg?.dailyReturnUsd || (amountUsd * 0.05))
+      ? (matchedPkg?.dailyReturnUsd || (amountUsd * (flashDetails.dailyReturnPercent / 100)))
       : (matchedPkg?.dailyReturnUsd || (amountUsd * (dailyRatePercent / 100)));
 
     const estTotalYieldUsd = isFlash 
-      ? (matchedPkg?.totalPayoutUsd || (amountUsd * (1 + (matchedPkg?.profitPercent || 10) / 100)))
+      ? (matchedPkg?.totalPayoutUsd || (amountUsd * flashDetails.multiplier))
       : (dailyYieldUsd * (matchedPkg?.durationDays || 365));
 
     // Yield accrual rule
@@ -1311,9 +1324,16 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                       <span className="text-lg sm:text-xl font-black text-white">
                         {packageName}
                       </span>
-                      <span className="px-2.5 py-0.5 rounded-lg bg-cyan-500/20 text-cyan-300 text-xs font-mono font-bold border border-cyan-500/30">
-                        VIP {dep.vipLevel}
-                      </span>
+                      {contract.isFlash ? (
+                        <span className="px-2.5 py-0.5 rounded-lg bg-rose-500/20 text-rose-300 text-xs font-mono font-bold border border-rose-500/30 flex items-center gap-1">
+                          <Zap className="w-3 h-3 text-rose-400" />
+                          48H FLASH ({pkg?.profitPercent || (amountPaid >= 10000 ? 25 : amountPaid >= 5000 ? 20 : amountPaid >= 1000 ? 14 : amountPaid >= 500 ? 12 : 10)}%)
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-0.5 rounded-lg bg-cyan-500/20 text-cyan-300 text-xs font-mono font-bold border border-cyan-500/30">
+                          VIP {dep.vipLevel}
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs text-slate-400 mt-1 flex items-center gap-1.5">
                       <Activity className="w-3.5 h-3.5 text-cyan-400" />
@@ -1402,13 +1422,13 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
                     </div>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
-                    <span className="text-[10px] text-slate-400 block">Daily Yield (USDT)</span>
+                    <span className="text-[10px] text-slate-400 block">{contract.isFlash ? 'Flash Return Rate' : 'Daily Yield (USDT)'}</span>
                     <div className="text-xs font-bold text-emerald-400 mt-0.5">
-                      ${contract.dailyYieldUsd.toFixed(2)}
+                      {contract.isFlash ? `+${pkg?.profitPercent || (amountPaid >= 10000 ? 25 : amountPaid >= 5000 ? 20 : amountPaid >= 1000 ? 14 : amountPaid >= 500 ? 12 : 10)}% in 48h` : `$${contract.dailyYieldUsd.toFixed(2)}`}
                     </div>
                   </div>
                   <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800/80">
-                    <span className="text-[10px] text-slate-400 block">Cycle Total Return</span>
+                    <span className="text-[10px] text-slate-400 block">{contract.isFlash ? 'Total Payout (48h)' : 'Cycle Total Return'}</span>
                     <div className="text-xs font-bold text-amber-300 mt-0.5 truncate">
                       ${contract.estTotalYieldUsd.toFixed(2)} USDT
                     </div>

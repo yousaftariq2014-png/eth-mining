@@ -1243,22 +1243,40 @@ export async function fetchSupabaseDeposits(): Promise<DepositRequest[] | null> 
     if (!data) return [];
     if (data.length === 0) return [];
 
-    return data.map(item => ({
-      id: item.id,
-      userId: item.user_id,
-      userName: item.user_name,
-      packageId: item.package_id,
-      packageName: item.package_name,
-      vipLevel: item.vip_level,
-      amountUsd: Number(item.amount_usd),
-      network: item.network as any,
-      depositAddress: item.deposit_address,
-      senderTxid: item.sender_txid,
-      status: item.status as any,
-      createdAt: item.created_at,
-      approvedAt: item.approved_at || undefined,
-      explorerConfirmed: !!item.explorer_confirmed,
-    }));
+    return data.map(item => {
+      const isFlash = 
+        (item.package_id && item.package_id.toLowerCase().includes('flash')) ||
+        (item.package_name && (item.package_name.toLowerCase().includes('flash') || item.package_name.toLowerCase().includes('48h')));
+      const isCustom = 
+        !isFlash && (
+          (item.package_id && item.package_id.toLowerCase().includes('custom')) ||
+          (item.package_name && item.package_name.toLowerCase().includes('custom'))
+        );
+
+      const derivedPlanType: 'daily' | 'flash_48h' | 'custom_pool' = isFlash 
+        ? 'flash_48h' 
+        : isCustom 
+        ? 'custom_pool' 
+        : 'daily';
+
+      return {
+        id: item.id,
+        userId: item.user_id,
+        userName: item.user_name,
+        packageId: item.package_id,
+        packageName: item.package_name,
+        planType: derivedPlanType,
+        vipLevel: item.vip_level,
+        amountUsd: Number(item.amount_usd),
+        network: item.network as any,
+        depositAddress: item.deposit_address,
+        senderTxid: item.sender_txid,
+        status: item.status as any,
+        createdAt: item.created_at,
+        approvedAt: item.approved_at || undefined,
+        explorerConfirmed: !!item.explorer_confirmed,
+      };
+    });
   } catch (err) {
     console.warn('Supabase deposits fetch error:', err);
     return null;

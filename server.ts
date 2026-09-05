@@ -139,12 +139,18 @@ app.post("/api/financial/calculate-yield", (req, res) => {
       const totalElapsedMs = Math.max(0, now - activationTime);
       const isExpired = totalElapsedMs >= durationMs;
 
-      const dailyRatePct = calculateTierDailyRate(amountUsd);
-      const dailyYieldUsd = isFlash ? amountUsd * 0.05 : amountUsd * (dailyRatePct / 100);
+      let flashProfitRate = 0.10;
+      if (amountUsd >= 10000) flashProfitRate = 0.25;
+      else if (amountUsd >= 5000) flashProfitRate = 0.20;
+      else if (amountUsd >= 1000) flashProfitRate = 0.14;
+      else if (amountUsd >= 500) flashProfitRate = 0.12;
+
+      const dailyRatePct = isFlash ? (flashProfitRate * 100) / 2 : calculateTierDailyRate(amountUsd);
+      const dailyYieldUsd = amountUsd * (dailyRatePct / 100);
 
       let accruedYieldUsd = 0;
       if (isFlash) {
-        const estTotalYield = amountUsd * 1.10; // 10% flash yield
+        const estTotalYield = amountUsd * (1 + flashProfitRate);
         if (isExpired) {
           accruedYieldUsd = estTotalYield;
         } else {

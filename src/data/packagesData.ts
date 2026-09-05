@@ -183,6 +183,31 @@ export const DAILY_PACKAGES: MiningPackage[] = [
 // $1,000 -> 14% ($140 profit -> $1,140 total)
 // $5,000 -> 20% ($1,000 profit -> $6,000 total)
 // $10,000 -> 25% ($2,500 profit -> $12,500 total)
+
+export function getFlashProfitDetails(amountUsd: number): {
+  profitPercent: number;
+  dailyReturnPercent: number;
+  multiplier: number;
+  profitUsd: number;
+  totalPayoutUsd: number;
+} {
+  let profitPercent = 10.0;
+  if (amountUsd >= 10000) profitPercent = 25.0;
+  else if (amountUsd >= 5000) profitPercent = 20.0;
+  else if (amountUsd >= 1000) profitPercent = 14.0;
+  else if (amountUsd >= 500) profitPercent = 12.0;
+  else profitPercent = 10.0;
+
+  const profitUsd = amountUsd * (profitPercent / 100);
+  return {
+    profitPercent,
+    dailyReturnPercent: profitPercent / 2, // 2 days (48 hours)
+    multiplier: 1 + profitPercent / 100,
+    profitUsd,
+    totalPayoutUsd: amountUsd + profitUsd
+  };
+}
+
 export const FLASH_48H_PACKAGES: MiningPackage[] = [
   {
     id: 'pkg-flash-100',

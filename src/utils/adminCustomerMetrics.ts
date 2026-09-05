@@ -1,5 +1,5 @@
 import { UserProfile, DepositRequest, MiningPackage, WithdrawalRecordItem } from '../types';
-import { DAILY_PACKAGES, FLASH_48H_PACKAGES, MINING_PACKAGES } from '../data/packagesData';
+import { DAILY_PACKAGES, FLASH_48H_PACKAGES, MINING_PACKAGES, getFlashProfitDetails } from '../data/packagesData';
 import { getClientCredentials, ensureCustomerCredentials } from '../lib/supabaseClient';
 
 export interface CustomerMiningContract {
@@ -275,17 +275,26 @@ export function calculateCustomerAggregation(
 
     // Process Contracts
     const allContracts: CustomerMiningContract[] = approvedDeposits.map(dep => {
-      const matchedPkg = allAvailablePackages.find(p => p.id === dep.packageId)
-        || allAvailablePackages.find(p => p.name.toLowerCase() === (dep.packageName || '').toLowerCase())
-        || allAvailablePackages.find(p => p.vipLevel === dep.vipLevel && p.priceUsd === Number(dep.amountUsd))
-        || null;
-
-      const isFlash = 
+      const isDepositFlash = 
         dep.planType === 'flash_48h' ||
+        (dep.packageId && dep.packageId.toLowerCase().includes('flash')) ||
+        (dep.packageName && (dep.packageName.toLowerCase().includes('48h') || dep.packageName.toLowerCase().includes('flash')));
+
+      const matchedPkg = isDepositFlash
+        ? (FLASH_48H_PACKAGES.find(p => p.id === dep.packageId)
+           || FLASH_48H_PACKAGES.find(p => p.name.toLowerCase() === (dep.packageName || '').toLowerCase())
+           || FLASH_48H_PACKAGES.find(p => p.vipLevel === dep.vipLevel && p.priceUsd === Number(dep.amountUsd))
+           || FLASH_48H_PACKAGES.find(p => p.priceUsd === Number(dep.amountUsd))
+           || allAvailablePackages.find(p => p.id === dep.packageId)
+           || null)
+        : (allAvailablePackages.find(p => p.id === dep.packageId)
+           || allAvailablePackages.find(p => p.name.toLowerCase() === (dep.packageName || '').toLowerCase())
+           || allAvailablePackages.find(p => p.vipLevel === dep.vipLevel && p.priceUsd === Number(dep.amountUsd))
+           || null);
+
+      const isFlash = isDepositFlash ||
         matchedPkg?.planType === 'flash_48h' ||
-        matchedPkg?.durationHours === 48 ||
-        (dep.packageName && dep.packageName.toLowerCase().includes('48h')) ||
-        (dep.packageName && dep.packageName.toLowerCase().includes('flash'));
+        matchedPkg?.durationHours === 48;
 
       const durationMs = isFlash ? 48 * 60 * 60 * 1000 : (matchedPkg?.durationDays || 365) * 24 * 60 * 60 * 1000;
       const durationLabel = isFlash ? '48 Hours Flash' : `${matchedPkg?.durationDays || 365} Days Daily`;
@@ -302,17 +311,18 @@ export function calculateCustomerAggregation(
       const progressPercent = Math.min(100, Math.max(0, (totalElapsedMs / durationMs) * 100));
 
       const amountUsd = Number(dep.amountUsd || 0);
-      const isCustomPool = dep.planType === 'custom_pool' || (amountUsd >= 10000 && !matchedPkg);
+      const flashDetails = getFlashProfitDetails(amountUsd);
+      const isCustomPool = !isFlash && (dep.planType === 'custom_pool' || (amountUsd >= 10000 && !matchedPkg));
       const tierDailyRate = isCustomPool ? getCustomTierRate(amountUsd) : (matchedPkg?.dailyReturnPercent || (dep.vipLevel >= 5 ? 2.5 : 2.0));
 
       const estTotalYieldUsd = isFlash
-        ? (matchedPkg?.totalPayoutUsd || (amountUsd * (1 + (matchedPkg?.profitPercent || 10) / 100)))
+        ? (matchedPkg?.totalPayoutUsd || (amountUsd * flashDetails.multiplier))
         : (matchedPkg?.dailyReturnUsd 
             ? matchedPkg.dailyReturnUsd * (matchedPkg.durationDays || 365) 
             : amountUsd * (tierDailyRate / 100) * (matchedPkg?.durationDays || 365));
 
       const dailyYieldUsd = isFlash
-        ? (matchedPkg?.dailyReturnUsd || (amountUsd * 0.05))
+        ? (matchedPkg?.dailyReturnUsd || (amountUsd * (flashDetails.dailyReturnPercent / 100)))
         : (matchedPkg?.dailyReturnUsd || (amountUsd * (tierDailyRate / 100)));
 
       let accruedYieldUsd = 0;

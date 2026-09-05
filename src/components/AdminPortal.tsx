@@ -1578,22 +1578,36 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-bold text-white">{dep.userName}</span>
-                          {dep.planType === 'custom_pool' || dep.amountUsd >= 10000 ? (
-                            <span className="px-2.5 py-0.5 rounded-lg bg-cyan-500/15 text-cyan-300 border border-cyan-500/40 text-xs font-mono font-bold flex items-center gap-1">
-                              <Sparkles className="w-3 h-3 text-cyan-400" />
-                              <span>Custom Institutional Rig (${dep.amountUsd.toLocaleString()})</span>
-                            </span>
-                          ) : dep.planType === 'flash_48h' || dep.packageName.toLowerCase().includes('flash') ? (
-                            <span className="px-2.5 py-0.5 rounded-lg bg-rose-500/15 text-rose-300 border border-rose-500/40 text-xs font-mono font-bold flex items-center gap-1">
-                              <Zap className="w-3 h-3 text-rose-400" />
-                              <span>48H Flash Node</span>
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-300 border border-amber-500/30 text-xs font-mono font-bold">
-                              {dep.packageName} (VIP {dep.vipLevel})
-                            </span>
-                          )}
-                          <span className="px-2 py-0.5 rounded-lg bg-slate-800 text-slate-300 text-xs font-mono">
+                          {(() => {
+                            const isFlash = dep.planType === 'flash_48h' || 
+                              (dep.packageId && dep.packageId.toLowerCase().includes('flash')) ||
+                              (dep.packageName && (dep.packageName.toLowerCase().includes('flash') || dep.packageName.toLowerCase().includes('48h')));
+                            const isCustom = !isFlash && (dep.planType === 'custom_pool' || (dep.amountUsd >= 10000 && !dep.packageName.toLowerCase().includes('flash')));
+
+                            if (isFlash) {
+                              const flashPct = dep.amountUsd >= 10000 ? 25 : dep.amountUsd >= 5000 ? 20 : dep.amountUsd >= 1000 ? 14 : dep.amountUsd >= 500 ? 12 : 10;
+                              return (
+                                <span className="px-2.5 py-0.5 rounded-lg bg-rose-500/15 text-rose-300 border border-rose-500/40 text-xs font-mono font-bold flex items-center gap-1">
+                                  <Zap className="w-3 h-3 text-rose-400" />
+                                  <span>48H Flash Node (+{flashPct}%)</span>
+                                </span>
+                              );
+                            }
+                            if (isCustom) {
+                              return (
+                                <span className="px-2.5 py-0.5 rounded-lg bg-cyan-500/15 text-cyan-300 border border-cyan-500/40 text-xs font-mono font-bold flex items-center gap-1">
+                                  <Sparkles className="w-3 h-3 text-cyan-400" />
+                                  <span>Custom Institutional Rig (${dep.amountUsd.toLocaleString()})</span>
+                                </span>
+                              );
+                            }
+                            return (
+                              <span className="px-2 py-0.5 rounded-lg bg-amber-500/10 text-amber-300 border border-amber-500/30 text-xs font-mono font-bold">
+                                {dep.packageName} (VIP {dep.vipLevel})
+                              </span>
+                            );
+                          })()}
+                          <span className="px-2.5 py-0.5 rounded-lg bg-slate-800 text-slate-300 text-xs font-mono">
                             {dep.network}
                           </span>
                           <span className="text-[11px] text-slate-400 font-mono">{dep.createdAt}</span>
@@ -1606,11 +1620,30 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                                 ${dep.amountUsd.toLocaleString()} USDT
                               </span>
                             </div>
-                            {(dep.planType === 'custom_pool' || dep.amountUsd >= 10000) && (
-                              <span className="text-xs font-mono text-cyan-300 bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-800/40">
-                                Rate: {dep.amountUsd >= 100000 ? '3.20%' : dep.amountUsd >= 50000 ? '3.00%' : dep.amountUsd >= 30000 ? '2.80%' : '2.60%'} Daily (~${(dep.amountUsd * (dep.amountUsd >= 100000 ? 0.032 : dep.amountUsd >= 50000 ? 0.03 : dep.amountUsd >= 30000 ? 0.028 : 0.026)).toFixed(2)}/day)
-                              </span>
-                            )}
+                            {(() => {
+                              const isFlash = dep.planType === 'flash_48h' || 
+                                (dep.packageId && dep.packageId.toLowerCase().includes('flash')) ||
+                                (dep.packageName && (dep.packageName.toLowerCase().includes('flash') || dep.packageName.toLowerCase().includes('48h')));
+                              if (isFlash) {
+                                const flashPct = dep.amountUsd >= 10000 ? 25 : dep.amountUsd >= 5000 ? 20 : dep.amountUsd >= 1000 ? 14 : dep.amountUsd >= 500 ? 12 : 10;
+                                const profitUsd = dep.amountUsd * (flashPct / 100);
+                                const totalUsd = dep.amountUsd + profitUsd;
+                                return (
+                                  <span className="text-xs font-mono text-rose-300 bg-rose-950/40 px-2 py-0.5 rounded border border-rose-800/40">
+                                    48H Flash: +{flashPct}% profit (+${profitUsd.toLocaleString()} → Total payout ${totalUsd.toLocaleString()} USDT)
+                                  </span>
+                                );
+                              }
+                              const isCustom = dep.planType === 'custom_pool' || dep.amountUsd >= 10000;
+                              if (isCustom) {
+                                return (
+                                  <span className="text-xs font-mono text-cyan-300 bg-cyan-950/40 px-2 py-0.5 rounded border border-cyan-800/40">
+                                    Rate: {dep.amountUsd >= 100000 ? '3.20%' : dep.amountUsd >= 50000 ? '3.00%' : dep.amountUsd >= 30000 ? '2.80%' : '2.60%'} Daily (~${(dep.amountUsd * (dep.amountUsd >= 100000 ? 0.032 : dep.amountUsd >= 50000 ? 0.03 : dep.amountUsd >= 30000 ? 0.028 : 0.026)).toFixed(2)}/day)
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()}
                           </div>
                           <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
                             <span className="text-slate-500">Sender TXID:</span>

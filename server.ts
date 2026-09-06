@@ -15,6 +15,10 @@ const PORT = 3000;
 const WITHDRAWALS_DATA_FILE = path.join(process.cwd(), "data", "withdrawals.json");
 const serverWithdrawalsStore = new Map<string, any>();
 
+// Persistent file-backed exchanges / swaps ledger
+const EXCHANGES_DATA_FILE = path.join(process.cwd(), "data", "exchanges.json");
+const serverExchangesStore = new Map<string, any>();
+
 function loadPersistedWithdrawals() {
   try {
     const dataDir = path.dirname(WITHDRAWALS_DATA_FILE);
@@ -48,7 +52,41 @@ function savePersistedWithdrawals() {
   }
 }
 
+function loadPersistedExchanges() {
+  try {
+    const dataDir = path.dirname(EXCHANGES_DATA_FILE);
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    if (fs.existsSync(EXCHANGES_DATA_FILE)) {
+      const raw = fs.readFileSync(EXCHANGES_DATA_FILE, "utf-8");
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        list.forEach((item) => {
+          if (item && item.id) serverExchangesStore.set(item.id, item);
+        });
+      }
+    }
+  } catch (err) {
+    console.warn("Could not load persisted exchanges:", err);
+  }
+}
+
+function savePersistedExchanges() {
+  try {
+    const dataDir = path.dirname(EXCHANGES_DATA_FILE);
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    const arr = Array.from(serverExchangesStore.values());
+    fs.writeFileSync(EXCHANGES_DATA_FILE, JSON.stringify(arr, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("Could not save persisted exchanges:", err);
+  }
+}
+
 loadPersistedWithdrawals();
+loadPersistedExchanges();
 
 // Enable JSON parsing with generous payload limit for secure base64 KYC documents
 app.use(express.json({ limit: "25mb" }));
@@ -387,6 +425,49 @@ app.patch("/api/financial/withdrawals/:id", (req, res) => {
     res.json({ success: true, record: existing });
   } catch (err: any) {
     res.status(500).json({ error: "Failed to update withdrawal", details: err?.message });
+  }
+});
+
+// GET all stored exchanges from server persistence
+app.get("/api/financial/exchanges", (req, res) => {
+  try {
+    const list = Array.from(serverExchangesStore.values());
+    res.json({ success: true, records: list });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to fetch exchanges", details: err?.message });
+  }
+});
+
+// Bulk sync / save exchanges into server persistence
+app.post("/api/financial/exchanges/sync", (req, res) => {
+  try {
+    const { records } = req.body;
+    if (Array.isArray(records)) {
+      records.forEach((r) => {
+        if (r && r.id) {
+          serverExchangesStore.set(r.id, r);
+        }
+      });
+      savePersistedExchanges();
+    }
+    res.json({ success: true, count: serverExchangesStore.size });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to sync exchanges", details: err?.message });
+  }
+});
+
+// Single record exchange endpoint
+app.post("/api/financial/record-exchange", (req, res) => {
+  try {
+    const record = req.body;
+    if (!record || !record.id) {
+      return res.status(400).json({ error: "Missing exchange record." });
+    }
+    serverExchangesStore.set(record.id, record);
+    savePersistedExchanges();
+    res.json({ success: true, record });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to record exchange", details: err?.message });
   }
 });
 

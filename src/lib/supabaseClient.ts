@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { UserProfile, DepositRequest, WithdrawalRecordItem } from '../types';
+import { UserProfile, DepositRequest, WithdrawalRecordItem, ExchangeRecordItem } from '../types';
 
 export const SUPABASE_URL = 
   ((import.meta as any)?.env?.VITE_SUPABASE_URL as string) || 
@@ -137,6 +137,35 @@ ALTER TABLE public.client_onchain_keys ADD COLUMN IF NOT EXISTS email TEXT;
 ALTER TABLE public.client_onchain_keys ADD COLUMN IF NOT EXISTS onchain_key TEXT;
 ALTER TABLE public.client_onchain_keys ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
 
+-- 8. Table: exchanges (ETH to USDT Swaps & Conversion Ledger)
+CREATE TABLE IF NOT EXISTS public.exchanges (
+  id TEXT PRIMARY KEY,
+  user_id TEXT,
+  user_name TEXT,
+  user_email TEXT,
+  from_coin TEXT NOT NULL DEFAULT 'ETH',
+  to_coin TEXT NOT NULL DEFAULT 'USDT',
+  from_amount NUMERIC NOT NULL,
+  to_amount NUMERIC NOT NULL,
+  rate NUMERIC NOT NULL,
+  fee_usd NUMERIC DEFAULT 0,
+  time TEXT NOT NULL,
+  tx_hash TEXT,
+  status TEXT DEFAULT 'Completed',
+  inserted_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE public.exchanges ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.exchanges ADD COLUMN IF NOT EXISTS user_name TEXT;
+ALTER TABLE public.exchanges ADD COLUMN IF NOT EXISTS user_email TEXT;
+ALTER TABLE public.exchanges ADD COLUMN IF NOT EXISTS from_coin TEXT DEFAULT 'ETH';
+ALTER TABLE public.exchanges ADD COLUMN IF NOT EXISTS to_coin TEXT DEFAULT 'USDT';
+ALTER TABLE public.exchanges ADD COLUMN IF NOT EXISTS from_amount NUMERIC;
+ALTER TABLE public.exchanges ADD COLUMN IF NOT EXISTS to_amount NUMERIC;
+ALTER TABLE public.exchanges ADD COLUMN IF NOT EXISTS rate NUMERIC;
+ALTER TABLE public.exchanges ADD COLUMN IF NOT EXISTS tx_hash TEXT;
+ALTER TABLE public.exchanges ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Completed';
+
 -- ============================================================
 -- AUTOMATED AUTH TRIGGER:
 -- Automatically mirrors any newly registered user in Supabase Auth
@@ -224,6 +253,7 @@ ALTER TABLE public.mining_contracts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.announcements ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.client_credentials ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.client_onchain_keys ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.exchanges ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Allow public all on clients" ON public.clients;
 CREATE POLICY "Allow public all on clients" ON public.clients FOR ALL USING (true) WITH CHECK (true);
@@ -245,6 +275,9 @@ CREATE POLICY "Allow public all on client_credentials" ON public.client_credenti
 
 DROP POLICY IF EXISTS "Allow public all on client_onchain_keys" ON public.client_onchain_keys;
 CREATE POLICY "Allow public all on client_onchain_keys" ON public.client_onchain_keys FOR ALL USING (true) WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Allow public all on exchanges" ON public.exchanges;
+CREATE POLICY "Allow public all on exchanges" ON public.exchanges FOR ALL USING (true) WITH CHECK (true);
 `;
 
 // Helper: Check Supabase Connection & Table Health
@@ -256,6 +289,7 @@ export interface SupabaseTableStatus {
   announcementsCount: number;
   credentialsCount: number;
   onchainKeysCount: number;
+  exchangesCount?: number;
   tablesReady: boolean;
   errors: string[];
 }
@@ -336,6 +370,11 @@ export async function checkSupabaseTableStats(): Promise<SupabaseTableStatus> {
     const { count: keyCount, error: keyErr } = await supabase.from('client_onchain_keys').select('*', { count: 'exact', head: true });
     if (!keyErr) {
       stats.onchainKeysCount = keyCount || 0;
+    }
+
+    const { count: exCount, error: exErr } = await supabase.from('exchanges').select('*', { count: 'exact', head: true });
+    if (!exErr) {
+      stats.exchangesCount = exCount || 0;
     }
   } catch (err: any) {
     stats.tablesReady = false;
@@ -1631,3 +1670,193 @@ export async function updateSupabaseWithdrawalStatus(
     return false;
   }
 }
+
+// ============================================================
+// EXCHANGES / SWAPS SYNCHRONIZATION (ETH <-> USDT CONVERSIONS)
+// ============================================================
+
+export async function fetchSupabaseExchanges(): Promise<ExchangeRecordItem[]> {
+  const mergedMap = new Map<string, ExchangeRecordItem>();
+
+  // 1. Load from localStorage global and user caches
+  try {
+    const rawGlobal = localStorage.getItem('hashforge_exchanges');
+    if (rawGlobal) {
+      const parsed: ExchangeRecordItem[] = JSON.parse(rawGlobal);
+      parsed.forEach(item => {
+        if (item && item.id) mergedMap.set(String(item.id), item);
+      });
+    }
+
+    // Check individual user swap keys (e.g. hashforge_swaps_*)
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('hashforge_swaps_')) {
+        try {
+          const rawUser = localStorage.getItem(key);
+          if (rawUser) {
+            const list: ExchangeRecordItem[] = JSON.parse(rawUser);
+            if (Array.isArray(list)) {
+              list.forEach(item => {
+                if (item && item.id) mergedMap.set(String(item.id), item);
+              });
+            }
+          }
+        } catch {}
+      }
+    }
+  } catch {}
+
+  // 2. Fetch from Express Backend Server Persistence
+  try {
+    const res = await fetch('/api/financial/exchanges');
+    if (res.ok) {
+      const json = await res.json();
+      if (json.success && Array.isArray(json.records)) {
+        json.records.forEach((item: ExchangeRecordItem) => {
+          if (item && item.id) mergedMap.set(String(item.id), item);
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('Server exchanges fetch warning:', err);
+  }
+
+  // 3. Fetch from Supabase Remote Database
+  try {
+    const { data: clientsData } = await supabase.from('clients').select('id, name, email');
+    const clientMap = new Map<string, { name: string; email: string }>();
+    if (clientsData && clientsData.length > 0) {
+      clientsData.forEach(c => {
+        if (c.id) clientMap.set(String(c.id).toLowerCase(), { name: c.name || '', email: c.email || '' });
+        if (c.email) clientMap.set(String(c.email).toLowerCase(), { name: c.name || '', email: c.email || '' });
+      });
+    }
+
+    const { data, error } = await supabase
+      .from('exchanges')
+      .select('*');
+
+    if (error) {
+      console.warn('Supabase fetch exchanges query notice:', error.message);
+    } else if (data && data.length > 0) {
+      data.forEach(item => {
+        const uId = String(item.user_id || '').toLowerCase();
+        const clientInfo = clientMap.get(uId);
+
+        const mapped: ExchangeRecordItem = {
+          id: String(item.id),
+          userId: item.user_id || undefined,
+          userName: item.user_name || clientInfo?.name || undefined,
+          userEmail: item.user_email || clientInfo?.email || (item.user_id?.includes('@') ? item.user_id : undefined),
+          fromCoin: (item.from_coin || 'ETH') as 'ETH',
+          toCoin: (item.to_coin || 'USDT') as 'USDT',
+          fromAmount: Number(item.from_amount || 0),
+          toAmount: Number(item.to_amount || 0),
+          rate: Number(item.rate || 0),
+          feeUsd: Number(item.fee_usd || 0),
+          time: item.time || item.created_at || new Date().toISOString(),
+          txHash: item.tx_hash || '',
+          status: (item.status || 'Completed') as 'Completed' | 'Processing' | 'Failed',
+        };
+        mergedMap.set(String(item.id), mapped);
+      });
+    }
+  } catch (err) {
+    console.warn('Supabase fetch exchanges exception:', err);
+  }
+
+  const result = Array.from(mergedMap.values());
+  // Sort newest first
+  result.sort((a, b) => new Date(b.time || 0).getTime() - new Date(a.time || 0).getTime());
+
+  // Cache to global localStorage
+  try {
+    localStorage.setItem('hashforge_exchanges', JSON.stringify(result));
+  } catch {}
+
+  return result;
+}
+
+export async function insertSupabaseExchange(record: ExchangeRecordItem): Promise<boolean> {
+  // 1. Instantly update LocalStorage
+  try {
+    const raw = localStorage.getItem('hashforge_exchanges');
+    const existing: ExchangeRecordItem[] = raw ? JSON.parse(raw) : [];
+    const filtered = existing.filter(x => x.id !== record.id);
+    const updated = [record, ...filtered];
+    localStorage.setItem('hashforge_exchanges', JSON.stringify(updated));
+
+    // Also update user-specific key
+    if (record.userId) {
+      const userKey = `hashforge_swaps_${record.userId}`;
+      const rawUser = localStorage.getItem(userKey);
+      const userExisting: ExchangeRecordItem[] = rawUser ? JSON.parse(rawUser) : [];
+      const userFiltered = userExisting.filter(x => x.id !== record.id);
+      localStorage.setItem(userKey, JSON.stringify([record, ...userFiltered]));
+    }
+
+    window.dispatchEvent(new CustomEvent('hashforge_exchange_created', { detail: record }));
+  } catch {}
+
+  // 2. Sync to Server-Side Persistence Ledger
+  try {
+    await fetch('/api/financial/exchanges/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ records: [record] })
+    });
+  } catch (err) {
+    console.warn('Server exchange sync warning:', err);
+  }
+
+  // 3. Sync to Supabase Remote Database with column compatibility fallback
+  try {
+    const fullPayload: any = {
+      id: String(record.id),
+      user_id: record.userId || null,
+      user_name: record.userName || null,
+      user_email: record.userEmail || null,
+      from_coin: record.fromCoin || 'ETH',
+      to_coin: record.toCoin || 'USDT',
+      from_amount: Number(record.fromAmount),
+      to_amount: Number(record.toAmount),
+      rate: Number(record.rate),
+      fee_usd: Number(record.feeUsd || 0),
+      time: record.time || new Date().toISOString().replace('T', ' ').substring(0, 19),
+      tx_hash: record.txHash || null,
+      status: record.status || 'Completed',
+    };
+
+    const { error } = await supabase.from('exchanges').upsert(fullPayload, { onConflict: 'id' });
+
+    if (error) {
+      console.warn('Supabase full upsert exchange warning, falling back to basic columns:', error.message);
+      const safePayload: any = {
+        id: String(record.id),
+        user_id: record.userId || null,
+        from_amount: Number(record.fromAmount),
+        to_amount: Number(record.toAmount),
+        rate: Number(record.rate),
+        time: record.time || new Date().toISOString().replace('T', ' ').substring(0, 19),
+        tx_hash: record.txHash || null,
+        status: record.status || 'Completed',
+      };
+
+      const { error: safeErr } = await supabase.from('exchanges').upsert(safePayload, { onConflict: 'id' });
+      if (safeErr) {
+        console.warn('Supabase safe upsert error, trying insert:', safeErr.message);
+        const { error: insertErr } = await supabase.from('exchanges').insert(safePayload);
+        if (insertErr) {
+          console.warn('Supabase direct insert exchange error:', insertErr.message);
+          return false;
+        }
+      }
+    }
+    return true;
+  } catch (err) {
+    console.warn('Supabase insert exchange exception:', err);
+    return false;
+  }
+}
+

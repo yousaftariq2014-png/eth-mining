@@ -29,6 +29,7 @@ import {
   Flame,
   ArrowDownLeft,
   ArrowUpRight,
+  ArrowLeftRight,
   RefreshCw,
   Cpu,
   PlusCircle,
@@ -76,7 +77,7 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
   onUpdateAccountStatus,
 }) => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'contracts' | 'deposits' | 'withdrawals'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'contracts' | 'deposits' | 'withdrawals' | 'exchanges'>('overview');
   
   // Credentials management - guaranteed active credentials
   const initialCreds = ensureCustomerCredentials(
@@ -492,6 +493,17 @@ export const CustomerDetailModal: React.FC<CustomerDetailModalProps> = ({
                   {customer.pendingWithdrawals.length}
                 </span>
               )}
+            </button>
+            <button
+              onClick={() => setActiveTab('exchanges')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeTab === 'exchanges'
+                  ? 'bg-amber-500 text-slate-950 font-black'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <ArrowLeftRight className="w-3.5 h-3.5" />
+              <span>Swaps ({customer.exchanges?.length || 0})</span>
             </button>
           </div>
 
@@ -1339,6 +1351,95 @@ Primary Wallet: ${customer.primaryWalletAddress}`;
                     )}
                   </div>
                 ))
+              )}
+            </div>
+          )}
+
+          {/* TAB 5: ETH ➔ USDT EXCHANGES & SWAPS */}
+          {activeTab === 'exchanges' && (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3.5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/20">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+                    <ArrowLeftRight className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black text-white">ETH ➔ USDT Swaps & Conversions</h4>
+                    <p className="text-[11px] text-slate-400">On-chain yield exchange history stored in Supabase</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 font-mono text-xs">
+                  <div className="px-2.5 py-1 rounded-lg bg-[#0c1220] border border-slate-800">
+                    <span className="text-slate-500 text-[10px] block font-sans">Total ETH Swapped</span>
+                    <span className="text-amber-300 font-bold">{(customer.totalSwappedEth || 0).toFixed(6)} ETH</span>
+                  </div>
+                  <div className="px-2.5 py-1 rounded-lg bg-[#0c1220] border border-slate-800">
+                    <span className="text-slate-500 text-[10px] block font-sans">Total USDT Received</span>
+                    <span className="text-emerald-400 font-bold">${(customer.totalSwappedUsdt || 0).toFixed(2)} USDT</span>
+                  </div>
+                </div>
+              </div>
+
+              {(!customer.exchanges || customer.exchanges.length === 0) ? (
+                <div className="p-12 text-center bg-[#0c1220] rounded-2xl border border-slate-800/80 space-y-2">
+                  <ArrowLeftRight className="w-8 h-8 text-slate-600 mx-auto" />
+                  <div className="text-xs font-bold text-slate-400">No Exchange Records Found</div>
+                  <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
+                    This client has not converted mined ETH into USDT yet. Any future swaps will automatically sync and persist to Supabase in real-time.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {customer.exchanges.map((ex, idx) => (
+                    <div
+                      key={`cex-${ex.id || idx}`}
+                      className="p-3.5 rounded-2xl bg-[#0c1220] border border-slate-800/80 hover:border-slate-700 transition-all space-y-2.5"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-amber-300 font-mono text-xs font-bold">
+                            {Number(ex.fromAmount).toFixed(6)} ETH
+                          </span>
+                          <ArrowLeftRight className="w-3.5 h-3.5 text-slate-500" />
+                          <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-mono text-xs font-bold">
+                            ${Number(ex.toAmount).toFixed(2)} USDT
+                          </span>
+                        </div>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                          {ex.status || 'Completed'}
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-800/60 text-[11px] text-slate-400">
+                        <div>
+                          <span className="text-slate-500 block text-[10px]">Exchange Rate</span>
+                          <span className="font-mono text-slate-200 font-bold">
+                            ${Number(ex.rate || 0).toLocaleString()} / ETH
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500 block text-[10px]">Timestamp</span>
+                          <span className="font-mono text-slate-300">{ex.time}</span>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="text-slate-500 block text-[10px]">Protocol Reference / TXID</span>
+                          <div className="font-mono text-slate-400 truncate flex items-center justify-between gap-1 bg-slate-900/50 px-2 py-0.5 rounded border border-slate-800">
+                            <span className="truncate">{ex.txHash || 'Internal Exchange Protocol'}</span>
+                            {ex.txHash && (
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(ex.txHash!, `tx-${ex.id}`)}
+                                className="text-slate-400 hover:text-white shrink-0"
+                              >
+                                {copiedKey === `tx-${ex.id}` ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           )}

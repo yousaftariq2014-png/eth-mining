@@ -43,6 +43,7 @@ import {
   Gift,
   Tag,
   FileText,
+  ArrowRightLeft,
   Camera,
   Award,
   BellRing,
@@ -51,7 +52,8 @@ import {
   MessageSquare,
   Plus,
   CheckSquare,
-  User
+  User,
+  ArrowLeftRight
 } from 'lucide-react';
 import { 
   UserProfile, 
@@ -65,13 +67,15 @@ import {
   KYCStatus,
   KYCLevel,
   LeadSubscriber,
-  LeadPopupConfig
+  LeadPopupConfig,
+  ExchangeRecordItem
 } from '../types';
 import { 
   supabase, 
   fetchSupabaseUsers, 
   fetchSupabaseDeposits,
   fetchSupabaseWithdrawals,
+  fetchSupabaseExchanges,
   purgeAllTestData,
   checkSupabaseTableStats,
   fetchSupabaseCredentialsVault,
@@ -109,6 +113,7 @@ interface AdminPortalProps {
   registeredUsers: UserProfile[];
   packages: MiningPackage[];
   withdrawalRecords: WithdrawalRecordItem[];
+  exchangeRecords?: ExchangeRecordItem[];
   onApproveWithdrawal?: (withdrawalId: string) => void;
   onRejectWithdrawal?: (withdrawalId: string) => void;
   onPurgeAllData?: () => void;
@@ -143,6 +148,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   registeredUsers,
   packages,
   withdrawalRecords,
+  exchangeRecords: propExchanges = [],
   onApproveWithdrawal,
   onRejectWithdrawal,
   onPurgeAllData,
@@ -184,13 +190,23 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [syncToast, setSyncToast] = useState<string>('');
 
-  const [activeTab, setActiveTab] = useState<'clients' | 'deposits' | 'withdrawals' | 'kyc' | 'bonuses' | 'announcements' | 'email_config' | 'leads'>('clients');
+  const [activeTab, setActiveTab] = useState<'clients' | 'deposits' | 'withdrawals' | 'exchanges' | 'kyc' | 'bonuses' | 'announcements' | 'email_config' | 'leads'>('clients');
   const [clientFilter, setClientFilter] = useState<'all' | 'active_miners' | 'pending_deposits' | 'pending_withdrawals' | 'pending_status' | 'blocked' | 'inactive'>('all');
   const [depositFilter, setDepositFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('pending');
   const [withdrawalFilter, setWithdrawalFilter] = useState<'all' | 'pending' | 'approved' | 'failed'>('pending');
   const [kycFilter, setKycFilter] = useState<'all' | 'pending' | 'verified' | 'rejected'>('pending');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // ETH to USDT Exchanges Store
+  const [exchanges, setExchanges] = useState<ExchangeRecordItem[]>(propExchanges);
+  const [exchangeSearchQuery, setExchangeSearchQuery] = useState<string>('');
+
+  useEffect(() => {
+    if (propExchanges && propExchanges.length > 0) {
+      setExchanges(propExchanges);
+    }
+  }, [propExchanges]);
 
   // VIP Update Leads State
   const [leadList, setLeadList] = useState<LeadSubscriber[]>(() => {
@@ -287,14 +303,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const loadTableStats = async () => {
     setIsLoadingStats(true);
     try {
-      const [stats, creds, keys] = await Promise.all([
+      const [stats, creds, keys, remoteExchanges] = await Promise.all([
         checkSupabaseTableStats(),
         fetchSupabaseCredentialsVault(),
         fetchSupabaseOnchainKeysVault(),
+        fetchSupabaseExchanges()
       ]);
       setTableStats(stats);
       setCredentialsVault(creds);
       setOnchainKeysVault(keys);
+      if (remoteExchanges && remoteExchanges.length > 0) {
+        setExchanges(remoteExchanges);
+      }
     } catch (e) {
       console.warn('Failed to load table stats:', e);
     } finally {
@@ -397,6 +417,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     };
     window.addEventListener('storage', handleImmediateSync);
     window.addEventListener('hashforge_withdrawal_created', handleImmediateSync);
+    window.addEventListener('hashforge_exchange_created', handleImmediateSync);
 
     // Supabase Realtime channel subscription for instant auto-sync
     const channel = supabase
@@ -410,12 +431,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       .on('postgres_changes', { event: '*', schema: 'public', table: 'withdrawals' }, () => {
         if (onRefreshData) onRefreshData();
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'exchanges' }, () => {
+        if (onRefreshData) onRefreshData();
+      })
       .subscribe();
 
     return () => {
       clearInterval(interval);
       window.removeEventListener('storage', handleImmediateSync);
       window.removeEventListener('hashforge_withdrawal_created', handleImmediateSync);
+      window.removeEventListener('hashforge_exchange_created', handleImmediateSync);
       supabase.removeChannel(channel);
     };
   }, [isAdminLoggedIn, onRefreshData]);
@@ -481,9 +506,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       registeredUsers,
       deposits,
       withdrawalRecords,
-      packages
+      packages,
+      new Date(),
+      exchanges
     );
-  }, [registeredUsers, deposits, withdrawalRecords, packages]);
+  }, [registeredUsers, deposits, withdrawalRecords, packages, exchanges]);
 
   // Keep inspected customer synchronized if open
   useEffect(() => {
@@ -1113,6 +1140,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 {pendingWithdrawals.length}
               </span>
             )}
+          </button>
+
+          {/* Tab: Exchanges & Swaps (ETH to USDT) */}
+          <button
+            onClick={() => setActiveTab('exchanges')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-2 transition-all ${
+              activeTab === 'exchanges'
+                ? 'bg-amber-500 text-slate-950 font-black shadow-lg shadow-amber-500/20'
+                : 'bg-[#0f172a] text-slate-300 hover:text-white border border-slate-800'
+            }`}
+          >
+            <ArrowLeftRight className="w-4 h-4" />
+            <span>Exchanges & Swaps ({exchanges.length})</span>
           </button>
 
           {/* Tab 4: KYC & Institutional Compliance Hub */}
@@ -2764,6 +2804,24 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 <div className="pt-1 flex items-center gap-1 text-[9px] text-emerald-400 font-bold">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                   <span>Vault Folder 2</span>
+                </div>
+              </div>
+
+              {/* Table 8: exchanges (ETH to USDT Swaps & Ledger) */}
+              <div className="p-3.5 rounded-2xl bg-[#0a1224] border border-cyan-500/30 space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-bold text-slate-400">
+                  <span className="font-mono text-cyan-400">8. exchanges</span>
+                  <ArrowRightLeft className="w-3.5 h-3.5 text-cyan-400" />
+                </div>
+                <div className="text-xl font-black text-cyan-400 font-mono">
+                  {tableStats?.exchangesCount ?? exchanges.length}
+                </div>
+                <div className="text-[10px] text-slate-400 font-mono leading-tight">
+                  ETH to USDT Swaps & Conversions
+                </div>
+                <div className="pt-1 flex items-center gap-1 text-[9px] text-emerald-400 font-bold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span>Active Ledger</span>
                 </div>
               </div>
             </div>

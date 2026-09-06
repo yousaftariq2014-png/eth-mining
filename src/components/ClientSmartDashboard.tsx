@@ -53,7 +53,7 @@ import {
   AutoReinvestConfig
 } from '../types';
 import { DAILY_PACKAGES, FLASH_48H_PACKAGES, MINING_PACKAGES, CUSTOM_PRESET_PACKAGES, getFlashProfitDetails } from '../data/packagesData';
-import { supabase, insertSupabaseWithdrawal } from '../lib/supabaseClient';
+import { supabase, insertSupabaseWithdrawal, fetchSupabaseExchanges, insertSupabaseExchange } from '../lib/supabaseClient';
 import { EthMiningPanel } from './EthMiningPanel';
 import { EthToUsdtSwapModal } from './EthToUsdtSwapModal';
 import { InvoiceReceiptModal } from './InvoiceReceiptModal';
@@ -93,12 +93,36 @@ interface ProcessedContract {
 
 function parseTimestamp(ts?: string): Date {
   if (!ts) return new Date();
-  const normalized = ts.includes(' ') && !ts.includes('T') ? ts.replace(' ', 'T') : ts;
+  let normalized = String(ts).trim();
+  if (normalized.includes(' ') && !normalized.includes('T')) {
+    normalized = normalized.replace(' ', 'T');
+  }
+  // If no timezone specified (no Z and no +/- offset), treat as UTC
+  if (!normalized.endsWith('Z') && !/[+-]\d{2}(:\d{2})?$/.test(normalized)) {
+    normalized = `${normalized}Z`;
+  }
   const d = new Date(normalized);
   if (isNaN(d.getTime())) {
-    return new Date();
+    const fallback = new Date(ts);
+    return isNaN(fallback.getTime()) ? new Date() : fallback;
   }
   return d;
+}
+
+function matchesUser(item: any, u?: { id?: string; email?: string; name?: string }): boolean {
+  if (!item || !u) return false;
+  const uid = String(u.id || '').trim().toLowerCase();
+  const uemail = String(u.email || '').trim().toLowerCase();
+  const uname = String(u.name || '').trim().toLowerCase();
+
+  const iUserId = String(item.userId || item.user_id || '').trim().toLowerCase();
+  const iEmail = String(item.userEmail || item.user_email || '').trim().toLowerCase();
+  const iName = String(item.userName || item.user_name || '').trim().toLowerCase();
+
+  if (iUserId && (iUserId === uid || iUserId === uemail)) return true;
+  if (iEmail && (iEmail === uemail || iEmail === uid)) return true;
+  if (iName && (iName === uname || iName === uemail || iName === uid)) return true;
+  return false;
 }
 
 function normalizeDeposit(item: any): DepositRequest {
@@ -222,7 +246,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       if (saved) {
         const parsed = JSON.parse(saved);
         return parsed
-          .filter((d: any) => (d.userId === user.id || d.user_id === user.id || d.userName === user.name || d.user_name === user.name) && d.status === 'approved' && (d.explorer_confirmed ?? d.explorerConfirmed ?? true))
+          .filter((d: any) => matchesUser(d, user) && d.status === 'approved' && (d.explorer_confirmed ?? d.explorerConfirmed ?? true))
           .map(normalizeDeposit);
       }
     } catch {}
@@ -560,17 +584,42 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
 
     async function loadRealData() {
       try {
-        const { data: deposits, error: depErr } = await supabase
-          .from('deposits')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false });
+        // Query Supabase for deposits matching user.id, user.name, or user.email
+        const userOrFilter = [
+          user.id ? `user_id.eq.${user.id}` : null,
+          user.name ? `user_name.eq.${user.name}` : null,
+          user.email ? `user_name.eq.${user.email}` : null
+        ].filter(Boolean).join(',');
 
-        const { data: withdrawals, error: wErr } = await supabase
-          .from('withdrawals')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('inserted_at', { ascending: false });
+        let deposits: any[] | null = null;
+        let depErr: any = null;
+
+        if (userOrFilter) {
+          const res = await supabase
+            .from('deposits')
+            .select('*')
+            .or(userOrFilter)
+            .order('created_at', { ascending: false });
+          deposits = res.data;
+          depErr = res.error;
+        } else {
+          const res = await supabase
+            .from('deposits')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: false });
+          deposits = res.data;
+          depErr = res.error;
+        }
+
+        const withdrawOrFilter = [
+          user.id ? `user_id.eq.${user.id}` : null,
+          user.email ? `user_id.eq.${user.email}` : null
+        ].filter(Boolean).join(',');
+
+        const { data: withdrawals, error: wErr } = userOrFilter
+          ? await supabase.from('withdrawals').select('*').or(withdrawOrFilter).order('inserted_at', { ascending: false })
+          : await supabase.from('withdrawals').select('*').eq('user_id', user.id).order('inserted_at', { ascending: false });
 
         if (!isMounted) return;
 
@@ -580,19 +629,22 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
         let rawDeposits: any[] = deposits || [];
 
         // Fallback/merge with local storage deposits if available
-        if (rawDeposits.length === 0) {
-          try {
-            const saved = localStorage.getItem('hashforge_deposits');
-            if (saved) {
-              const parsed = JSON.parse(saved);
-              rawDeposits = parsed.filter((d: any) => d.userId === user.id || d.user_id === user.id || d.userName === user.name || d.user_name === user.name);
+        try {
+          const saved = localStorage.getItem('hashforge_deposits');
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            const localUserDeps = parsed.filter((d: any) => matchesUser(d, user));
+            for (const loc of localUserDeps) {
+              if (!rawDeposits.some((d: any) => d.id === loc.id)) {
+                rawDeposits.push(loc);
+              }
             }
-          } catch {}
-        }
+          }
+        } catch {}
 
         // Merge any externally passed pendingDeposits
         if (externalPendingDeposits && externalPendingDeposits.length > 0) {
-          const userExternal = externalPendingDeposits.filter(d => d.userId === user.id || (d as any).user_id === user.id || d.userName === user.name || (d as any).user_name === user.name);
+          const userExternal = externalPendingDeposits.filter(d => matchesUser(d, user));
           for (const ext of userExternal) {
             if (!rawDeposits.some((d: any) => d.id === ext.id)) {
               rawDeposits.push(ext);
@@ -601,11 +653,36 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
         }
 
         const allDeposits: DepositRequest[] = rawDeposits.map(normalizeDeposit);
+        const approvedOnly = allDeposits.filter(d => d.status === 'approved' && (d.explorerConfirmed ?? true));
 
-        setApprovedDeposits(allDeposits.filter(d => d.status === 'approved' && (d.explorerConfirmed ?? true)));
+        setApprovedDeposits(approvedOnly);
         setPendingDeposits(allDeposits.filter(d => d.status === 'pending'));
+
+        // Cache approved deposits back to localStorage to ensure instant offline & multi-tab persistence
+        try {
+          const existingSaved = localStorage.getItem('hashforge_deposits');
+          const existingList: DepositRequest[] = existingSaved ? JSON.parse(existingSaved) : [];
+          const otherUsersDeposits = existingList.filter(d => !matchesUser(d, user));
+          localStorage.setItem('hashforge_deposits', JSON.stringify([...approvedOnly, ...otherUsersDeposits]));
+        } catch {}
+
         if (withdrawals && withdrawals.length > 0) {
           setWithdrawalRecords(withdrawals as WithdrawalRecordItem[]);
+        }
+
+        // Fetch Supabase Exchanges
+        try {
+          const allExchanges = await fetchSupabaseExchanges();
+          const userExchanges = allExchanges.filter(e => 
+            e.userId === user.id || 
+            (e.userEmail && e.userEmail.toLowerCase() === user.email.toLowerCase()) ||
+            (e.userName && e.userName.toLowerCase() === user.name.toLowerCase())
+          );
+          if (userExchanges.length > 0) {
+            setExchangeRecords(userExchanges);
+          }
+        } catch (exErr) {
+          console.warn('Exchanges background fetch warning:', exErr);
         }
       } catch (err) {
         console.warn('Silent background sync caught:', err);
@@ -679,14 +756,17 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       ? (matchedPkg?.totalPayoutUsd || (amountUsd * flashDetails.multiplier))
       : (dailyYieldUsd * (matchedPkg?.durationDays || 365));
 
-    // Yield accrual rule
+    // Yield accrual rule (continuous background mining output based on actual elapsed time)
     let accruedYieldUsd = 0;
     if (isFlash) {
-      // 48h Flash Package gives fixed one-time settlement upon 48-hour completion
+      // 48h Flash Package: smooth continuous background accrual of profit over 48 hours + full maturity payout upon expiration
+      const flashProfitUsd = Math.max(0, estTotalYieldUsd - amountUsd);
+      const flashProgressFraction = Math.min(1, Math.max(0, totalElapsedMs / durationMs));
       if (isExpired) {
         accruedYieldUsd = estTotalYieldUsd;
       } else {
-        accruedYieldUsd = 0; // Held in 48-hour maturation lockup until countdown reaches 0
+        // Continuous linear real-time background mining output (never resets to 0 upon login)
+        accruedYieldUsd = flashProfitUsd * flashProgressFraction;
       }
     } else {
       const elapsedDays = Math.min(matchedPkg?.durationDays || 365, totalElapsedMs / (24 * 60 * 60 * 1000));
@@ -788,6 +868,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       id: `swap-${Date.now()}`,
       userId: user.id,
       userName: user.name,
+      userEmail: user.email,
       fromCoin: 'ETH',
       toCoin: 'USDT',
       fromAmount: ethAmount,
@@ -802,6 +883,14 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     setExchangeRecords(prev => [newSwapRecord, ...prev]);
     showToast(`Successfully converted ${ethAmount.toFixed(6)} ETH to $${usdtAmount.toFixed(2)} USDT!`, 'success');
     setEmbedSwapEthInput('');
+
+    // Persist to Supabase Cloud, Express Server, and LocalStorage
+    try {
+      await insertSupabaseExchange(newSwapRecord);
+    } catch (e) {
+      console.warn('Supabase exchange insertion warning:', e);
+    }
+
     return newSwapRecord;
   };
 

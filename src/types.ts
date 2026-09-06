@@ -8,6 +8,7 @@ export interface ExchangeRecordItem {
   id: string;
   userId?: string;
   userName?: string;
+  userEmail?: string;
   fromCoin: 'ETH';
   toCoin: 'USDT';
   fromAmount: number;

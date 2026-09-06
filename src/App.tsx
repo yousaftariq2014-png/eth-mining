@@ -24,6 +24,7 @@ import {
   MiningPackage, 
   DepositRequest,
   WithdrawalRecordItem,
+  ExchangeRecordItem,
   AppNotification,
   GlobalAnnouncement,
   KYCSubmission,
@@ -42,6 +43,7 @@ import {
   updateSupabaseDepositStatus,
   fetchSupabaseWithdrawals,
   updateSupabaseWithdrawalStatus,
+  fetchSupabaseExchanges,
   clearUserDeposits,
   clearAllDeposits,
   getClientCredentials
@@ -426,6 +428,21 @@ export default function App() {
     } catch {}
   }, [withdrawalRecords]);
 
+  // 8. Exchanges & Conversions Records (ETH <-> USDT Swaps)
+  const [exchangeRecords, setExchangeRecords] = useState<ExchangeRecordItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('hashforge_exchanges');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('hashforge_exchanges', JSON.stringify(exchangeRecords));
+    } catch {}
+  }, [exchangeRecords]);
+
   // -------------------------------------------------------------------
   // LIVE SUPABASE DATA SYNC ON MOUNT
   // -------------------------------------------------------------------
@@ -448,6 +465,12 @@ export default function App() {
         const remoteWithdrawals = await fetchSupabaseWithdrawals();
         if (remoteWithdrawals !== null && remoteWithdrawals.length > 0) {
           setWithdrawalRecords(remoteWithdrawals);
+        }
+
+        // Sync Exchanges / Swaps from Supabase & Server persistence
+        const remoteExchanges = await fetchSupabaseExchanges();
+        if (remoteExchanges && remoteExchanges.length > 0) {
+          setExchangeRecords(remoteExchanges);
         }
       } catch (err) {
         console.warn('Supabase initial fetch silent fallback:', err);
@@ -478,11 +501,23 @@ export default function App() {
       }
     };
 
+    // Listen for cross-component exchange events
+    const handleExchangeCreated = (e: any) => {
+      if (e.detail && e.detail.id) {
+        setExchangeRecords(prev => {
+          const filtered = prev.filter(x => x.id !== e.detail.id);
+          return [e.detail, ...filtered];
+        });
+      }
+    };
+
     window.addEventListener('hashforge_withdrawal_created', handleCreated as EventListener);
     window.addEventListener('hashforge_withdrawal_updated', handleUpdated as EventListener);
+    window.addEventListener('hashforge_exchange_created', handleExchangeCreated as EventListener);
     return () => {
       window.removeEventListener('hashforge_withdrawal_created', handleCreated as EventListener);
       window.removeEventListener('hashforge_withdrawal_updated', handleUpdated as EventListener);
+      window.removeEventListener('hashforge_exchange_created', handleExchangeCreated as EventListener);
     };
   }, []);
 
@@ -883,6 +918,25 @@ export default function App() {
     // Save to Supabase Cloud
     saveSupabaseUser(loggedInUser);
 
+    // Refresh user's deposits, withdrawals, and exchanges from Supabase Cloud on login
+    fetchSupabaseDeposits().then(remoteDeps => {
+      if (remoteDeps && remoteDeps.length > 0) {
+        setDeposits(remoteDeps);
+      }
+    }).catch(console.warn);
+
+    fetchSupabaseWithdrawals().then(remoteWds => {
+      if (remoteWds && remoteWds.length > 0) {
+        setWithdrawalRecords(remoteWds);
+      }
+    }).catch(console.warn);
+
+    fetchSupabaseExchanges().then(remoteEx => {
+      if (remoteEx && remoteEx.length > 0) {
+        setExchangeRecords(remoteEx);
+      }
+    }).catch(console.warn);
+
     if (selectedPackage) {
       setCurrentTab('deposit');
     } else {
@@ -1274,6 +1328,10 @@ export default function App() {
     if (remoteWithdrawals !== null && remoteWithdrawals.length > 0) {
       setWithdrawalRecords(remoteWithdrawals);
     }
+    const remoteExchanges = await fetchSupabaseExchanges();
+    if (remoteExchanges && remoteExchanges.length > 0) {
+      setExchangeRecords(remoteExchanges);
+    }
   };
 
   // Client submits a new withdrawal from ClientSmartDashboard
@@ -1431,6 +1489,7 @@ export default function App() {
             registeredUsers={registeredUsers}
             packages={packages}
             withdrawalRecords={withdrawalRecords}
+            exchangeRecords={exchangeRecords}
             onApproveWithdrawal={handleAdminApproveWithdrawal}
             onRejectWithdrawal={handleAdminRejectWithdrawal}
             onPurgeAllData={handleAdminPurgeAllData}

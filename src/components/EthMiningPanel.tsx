@@ -90,7 +90,8 @@ export const EthMiningPanel: React.FC<EthMiningPanelProps> = ({
     return () => clearInterval(interval);
   }, [activeContractsCount, dailyEthRate]);
 
-  const effectiveEthBalance = minedEthBalance + liveEthTicks;
+  // Balance is anchored to the true continuous background mining balance, with smooth micro-fluctuations for Stratum activity
+  const effectiveEthBalance = minedEthBalance + (activeContractsCount > 0 ? (liveEthTicks % 0.000001) : 0);
   const ethValueInUsdt = effectiveEthBalance * ethPriceUsd;
 
   return (

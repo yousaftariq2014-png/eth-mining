@@ -1,4 +1,4 @@
-import { UserProfile, DepositRequest, MiningPackage, WithdrawalRecordItem } from '../types';
+import { UserProfile, DepositRequest, MiningPackage, WithdrawalRecordItem, ExchangeRecordItem } from '../types';
 import { DAILY_PACKAGES, FLASH_48H_PACKAGES, MINING_PACKAGES, getFlashProfitDetails } from '../data/packagesData';
 import { getClientCredentials, ensureCustomerCredentials } from '../lib/supabaseClient';
 
@@ -44,6 +44,9 @@ export interface AggregatedCustomerData {
   lastActivityDate: string;
   computedVipLevel: number;
   accountStatus: 'Active Miner' | 'Pending Verification' | 'Pending Withdrawal' | 'Blocked / Suspended' | 'Pending Hold' | 'Inactive / Free';
+  exchanges: ExchangeRecordItem[];
+  totalSwappedEth: number;
+  totalSwappedUsdt: number;
 }
 
 function parseTimestamp(ts?: string): Date {
@@ -103,7 +106,8 @@ export function calculateCustomerAggregation(
   deposits: DepositRequest[],
   withdrawals: WithdrawalRecordItem[],
   packages: MiningPackage[],
-  now: Date = new Date()
+  now: Date = new Date(),
+  exchanges: ExchangeRecordItem[] = []
 ): AggregatedCustomerData[] {
   const unifiedUsers: UserProfile[] = [];
 
@@ -258,6 +262,18 @@ export function calculateCustomerAggregation(
   return sanitizedUsers.map(user => {
     const userDeposits = deposits.filter(d => matchUserToDeposit(user, d));
     const userWithdrawals = withdrawals.filter(w => matchUserToWithdrawal(user, w));
+    const userExchanges = exchanges.filter(e => {
+      const uId = user.id?.toLowerCase();
+      const uEmail = user.email?.toLowerCase();
+      const uName = user.name?.toLowerCase();
+      if (e.userId && uId && e.userId.toLowerCase() === uId) return true;
+      if (e.userEmail && uEmail && e.userEmail.toLowerCase() === uEmail) return true;
+      if (e.userName && uName && e.userName.toLowerCase() === uName) return true;
+      return false;
+    });
+
+    const totalSwappedEth = userExchanges.reduce((sum, e) => sum + Number(e.fromAmount || 0), 0);
+    const totalSwappedUsdt = userExchanges.reduce((sum, e) => sum + Number(e.toAmount || 0), 0);
 
     const approvedDeposits = userDeposits.filter(d => d.status === 'approved');
     const pendingDeposits = userDeposits.filter(d => d.status === 'pending');
@@ -439,7 +455,10 @@ export function calculateCustomerAggregation(
       lastDepositTxid,
       lastActivityDate,
       computedVipLevel,
-      accountStatus
+      accountStatus,
+      exchanges: userExchanges,
+      totalSwappedEth,
+      totalSwappedUsdt
     };
   });
 }

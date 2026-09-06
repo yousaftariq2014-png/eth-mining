@@ -1,23 +1,22 @@
 import React, { useState, useMemo } from 'react';
 import {
+  ArrowLeft,
   X,
   FileText,
   Copy,
   Check,
   ExternalLink,
   Search,
-  Filter,
   ArrowUpRight,
   Clock,
   CheckCircle2,
   AlertCircle,
   ShieldCheck,
-  Download,
   Printer,
-  Sparkles,
+  ChevronDown,
+  ChevronUp,
   Wallet,
-  ArrowDownLeft,
-  ChevronRight
+  Sparkles
 } from 'lucide-react';
 import { WithdrawalRecordItem } from '../types';
 
@@ -31,6 +30,85 @@ interface WithdrawalHistoryModalProps {
   userName?: string;
 }
 
+// Tether USDT Logo component matching mobile DApp
+export const TetherIcon = ({ className = "w-7 h-7" }: { className?: string }) => (
+  <svg viewBox="0 0 32 32" className={className} fill="none">
+    <circle cx="16" cy="16" r="16" fill="#26A17B" />
+    <path
+      d="M17.922 17.383c-.088.006-.275.018-.544.018-.846 0-1.897-.044-2.732-.152l.006 4.954h-2.316l-.006-4.942c-1.341-.186-2.298-.567-2.298-1.026 0-.58 1.523-1.053 3.51-1.127v-1.632h-4.39V11.58h13.696v1.897h-4.39v1.632c1.98.074 3.498.547 3.498 1.127 0 .428-.844.789-2.034.981v1.286l.002-.001zm0-2.45c-.267.012-.663.025-1.11.025-.562 0-1.036-.013-1.345-.025-1.782-.075-3.085-.357-3.085-.694 0-.337 1.303-.619 3.085-.694.309-.012.783-.025 1.345-.025.447 0 .843.013 1.11.025 1.782.075 3.085.357 3.085.694 0 .337-1.303.619-3.085.694z"
+      fill="#FFFFFF"
+    />
+  </svg>
+);
+
+// Formatter for timestamp: MM/DD/YYYY HH:mm:ss (exact format from user screenshot)
+export const formatWithdrawalTime = (timeStr?: string): string => {
+  if (!timeStr) return '--';
+  try {
+    const d = new Date(timeStr);
+    if (!isNaN(d.getTime())) {
+      const pad = (n: number) => n.toString().padStart(2, '0');
+      const month = pad(d.getMonth() + 1);
+      const day = pad(d.getDate());
+      const year = d.getFullYear();
+      const hours = pad(d.getHours());
+      const minutes = pad(d.getMinutes());
+      const seconds = pad(d.getSeconds());
+      return `${month}/${day}/${year} ${hours}:${minutes}:${seconds}`;
+    }
+
+    // Try parsing ISO or sql string manually if Date failed
+    const parts = timeStr.trim().split(/[\sT]+/);
+    if (parts.length === 2) {
+      const dateParts = parts[0].split(/[-/]/);
+      if (dateParts.length === 3) {
+        if (dateParts[0].length === 4) {
+          // YYYY-MM-DD
+          return `${dateParts[1].padStart(2, '0')}/${dateParts[2].padStart(2, '0')}/${dateParts[0]} ${parts[1].substring(0, 8)}`;
+        }
+      }
+    }
+    return timeStr;
+  } catch {
+    return timeStr || '--';
+  }
+};
+
+// Formatter for amount: -50464.5554 (with minus sign and accurate decimals)
+const formatWithdrawalAmount = (amt: number | string): string => {
+  const num = Math.abs(Number(amt) || 0);
+  const numStr = num.toString();
+  if (numStr.includes('.')) {
+    const decimals = numStr.split('.')[1];
+    if (decimals.length > 4) {
+      return `-${num.toFixed(4)}`;
+    }
+    return `-${numStr}`;
+  }
+  return `-${num.toLocaleString('en-US')}`;
+};
+
+// Generates title like "USDT-ERCWithdrawal" or "USDT-TRCWithdrawal"
+const getWithdrawalTitle = (w: WithdrawalRecordItem): string => {
+  const typeStr = (w.type || '').toUpperCase();
+  const curr = (w.currency || 'USDT').toUpperCase();
+  
+  if (typeStr.includes('ERC') || typeStr.includes('ETH')) {
+    return `${curr}-ERCWithdrawal`;
+  }
+  if (typeStr.includes('TRC') || typeStr.includes('TRON')) {
+    return `${curr}-TRCWithdrawal`;
+  }
+  if (typeStr.includes('BEP') || typeStr.includes('BSC')) {
+    return `${curr}-BEPWithdrawal`;
+  }
+  if (typeStr) {
+    const cleanType = typeStr.replace(/[^A-Z0-9]/g, '');
+    return `${cleanType}Withdrawal`;
+  }
+  return `${curr}-ERCWithdrawal`;
+};
+
 export const WithdrawalHistoryModal: React.FC<WithdrawalHistoryModalProps> = ({
   isOpen,
   onClose,
@@ -40,20 +118,24 @@ export const WithdrawalHistoryModal: React.FC<WithdrawalHistoryModalProps> = ({
   userEmail,
   userName
 }) => {
-  const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'completed' | 'rejected'>('all');
+  // Tabs strictly matching screenshot: 'All' | 'Pending' | 'Withdrawal successfully' | 'Failed'
+  const [filterTab, setFilterTab] = useState<'All' | 'Pending' | 'Withdrawal successfully' | 'Failed'>('All');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showSearch, setShowSearch] = useState(false);
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const handleCopy = (text: string, key: string) => {
+  const handleCopy = (text: string, key: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     if (!text) return;
     navigator.clipboard.writeText(text);
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(null), 2000);
   };
 
-  // Metrics calculations
+  // Metrics (strictly from genuine client records)
   const totalWithdrawn = withdrawals.reduce((acc, curr) => {
     const st = String(curr.status || '').toLowerCase();
     if (['withdrawal successfully', 'approved', 'completed'].includes(st)) {
@@ -64,19 +146,19 @@ export const WithdrawalHistoryModal: React.FC<WithdrawalHistoryModalProps> = ({
 
   const pendingList = withdrawals.filter(w => String(w.status || '').toLowerCase() === 'pending');
   const pendingAmount = pendingList.reduce((acc, curr) => acc + Math.abs(Number(curr.amount) || 0), 0);
-  const completedCount = withdrawals.filter(w => ['withdrawal successfully', 'approved', 'completed'].includes(String(w.status || '').toLowerCase())).length;
-  const rejectedCount = withdrawals.filter(w => ['failed', 'rejected'].includes(String(w.status || '').toLowerCase())).length;
+  const completedList = withdrawals.filter(w => ['withdrawal successfully', 'approved', 'completed'].includes(String(w.status || '').toLowerCase()));
+  const failedList = withdrawals.filter(w => ['failed', 'rejected'].includes(String(w.status || '').toLowerCase()));
 
-  // Filtered withdrawals
+  // Filter withdrawals based on the selected tab
   const filteredWithdrawals = withdrawals.filter(w => {
     const st = String(w.status || '').toLowerCase();
     const isPending = st === 'pending';
     const isCompleted = ['withdrawal successfully', 'approved', 'completed'].includes(st);
-    const isRejected = ['failed', 'rejected'].includes(st);
+    const isFailed = ['failed', 'rejected'].includes(st);
 
-    if (filterStatus === 'pending' && !isPending) return false;
-    if (filterStatus === 'completed' && !isCompleted) return false;
-    if (filterStatus === 'rejected' && !isRejected) return false;
+    if (filterTab === 'Pending' && !isPending) return false;
+    if (filterTab === 'Withdrawal successfully' && !isCompleted) return false;
+    if (filterTab === 'Failed' && !isFailed) return false;
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
@@ -104,408 +186,376 @@ export const WithdrawalHistoryModal: React.FC<WithdrawalHistoryModalProps> = ({
     return `https://etherscan.io/tx/${cleanHash}`;
   };
 
-  const handlePrintStatement = () => {
-    window.print();
+  const toggleRow = (id: string) => {
+    setExpandedRowId(prev => prev === id ? null : id);
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 md:p-6 bg-slate-950/80 backdrop-blur-md overflow-y-auto animate-fadeIn">
-      <div 
-        id="withdrawal-history-ledger-modal"
-        className="w-full max-w-4xl bg-gradient-to-b from-[#0e1628] via-[#0a0f1d] to-[#070b14] border border-slate-700/80 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] font-sans"
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 md:p-6 bg-black/70 backdrop-blur-sm overflow-y-auto animate-fadeIn">
+      <div
+        id="withdrawal-record-container"
+        className="w-full max-w-lg bg-white sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col h-full sm:h-auto sm:max-h-[92vh] text-slate-900 font-sans border border-slate-200"
       >
-        
-        {/* MODAL HEADER */}
-        <div className="p-5 sm:p-6 border-b border-slate-800 bg-[#0c1322]/90 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-inner">
-              <ArrowUpRight className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-black text-white tracking-wide">
-                  Withdrawal History & Ledger
-                </h2>
-                <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-mono text-[10px] font-bold border border-amber-500/40">
-                  Live Audit
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 font-mono mt-0.5">
-                Official Multi-Sig Treasury Clearances & Blockchain Settlement Records
-              </p>
-            </div>
-          </div>
+        {/* ============================================================ */}
+        {/* 1. TOP APP HEADER (Exact match to screenshot)                */}
+        {/* ============================================================ */}
+        <div className="sticky top-0 z-20 bg-white border-b border-gray-100 px-4 py-3.5 flex items-center justify-between shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 -ml-1 text-slate-700 hover:text-slate-950 hover:bg-slate-100 rounded-full cursor-pointer transition-colors"
+            title="Back"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
 
-          <div className="flex items-center gap-2">
+          <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight text-center flex-1 pr-2">
+            Withdrawal Record
+          </h1>
+
+          <div className="flex items-center gap-1">
             <button
-              onClick={handlePrintStatement}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-mono font-medium border border-slate-700 cursor-pointer transition-colors"
-              title="Print Official Statement"
+              type="button"
+              onClick={() => setShowSearch(!showSearch)}
+              className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-full cursor-pointer transition-colors"
+              title="Search records"
             >
-              <Printer className="w-3.5 h-3.5 text-amber-400" />
-              <span>Print Statement</span>
+              <Search className="w-4 h-4" />
             </button>
             <button
+              type="button"
+              onClick={() => window.print()}
+              className="hidden sm:inline-flex p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-full cursor-pointer transition-colors"
+              title="Print Statement"
+            >
+              <Printer className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
               onClick={onClose}
-              className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 cursor-pointer transition-colors"
-              aria-label="Close modal"
+              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-full cursor-pointer transition-colors"
+              title="Close"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* 4 AUDIT METRICS TILES */}
-        <div className="p-5 sm:p-6 border-b border-slate-800/70 bg-[#090e1a]/60 shrink-0">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 font-mono">
-            
-            {/* Tile 1: Total Withdrawn */}
-            <div className="p-3.5 rounded-2xl bg-[#080d1a] border border-emerald-500/30 relative overflow-hidden">
-              <div className="flex items-center justify-between text-[11px] text-slate-400">
-                <span>Total Settled</span>
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-              </div>
-              <div className="text-base sm:text-xl font-black text-emerald-300 mt-1 truncate">
-                ${totalWithdrawn.toFixed(2)}{' '}
-                <span className="text-xs font-bold text-slate-400">USDT</span>
-              </div>
-              <div className="text-[10px] text-slate-500 mt-0.5">
-                {completedCount} approved {completedCount === 1 ? 'transaction' : 'transactions'}
-              </div>
+        {/* Optional Search Bar */}
+        {showSearch && (
+          <div className="p-3 bg-slate-50 border-b border-gray-200 flex items-center gap-2 animate-fadeIn">
+            <div className="relative flex-1">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search amount, wallet or TXID..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-white border border-slate-300 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-500"
+              />
             </div>
-
-            {/* Tile 2: In Review / Pending */}
-            <div className="p-3.5 rounded-2xl bg-[#080d1a] border border-amber-500/30 relative overflow-hidden">
-              <div className="flex items-center justify-between text-[11px] text-slate-400">
-                <span>In Review</span>
-                <Clock className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-              </div>
-              <div className="text-base sm:text-xl font-black text-amber-300 mt-1 truncate">
-                ${pendingAmount.toFixed(2)}{' '}
-                <span className="text-xs font-bold text-slate-400">USDT</span>
-              </div>
-              <div className="text-[10px] text-amber-400/90 mt-0.5 font-bold">
-                {pendingList.length} awaiting multi-sig
-              </div>
-            </div>
-
-            {/* Tile 3: Total Requests */}
-            <div className="p-3.5 rounded-2xl bg-[#080d1a] border border-cyan-500/20 relative overflow-hidden">
-              <div className="flex items-center justify-between text-[11px] text-slate-400">
-                <span>Total Requests</span>
-                <ShieldCheck className="w-3.5 h-3.5 text-cyan-400" />
-              </div>
-              <div className="text-base sm:text-xl font-black text-white mt-1">
-                {withdrawals.length}
-              </div>
-              <div className="text-[10px] text-slate-500 mt-0.5">
-                {rejectedCount} rejected / failed
-              </div>
-            </div>
-
-            {/* Tile 4: VIP Gas Subsidy */}
-            <div className="p-3.5 rounded-2xl bg-[#080d1a] border border-slate-800 relative overflow-hidden">
-              <div className="flex items-center justify-between text-[11px] text-slate-400">
-                <span>Network Fee</span>
-                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-              </div>
-              <div className="text-base sm:text-xl font-black text-amber-400 mt-1">
-                $0.00
-              </div>
-              <div className="text-[10px] text-emerald-400 mt-0.5 font-bold">
-                100% VIP Gas Subsidy
-              </div>
-            </div>
-
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="text-xs text-slate-500 hover:text-slate-800 font-medium px-2 py-1"
+              >
+                Clear
+              </button>
+            )}
           </div>
+        )}
+
+        {/* ============================================================ */}
+        {/* 2. FILTER TABS (Exact match to screenshot: All, Pending,     */}
+        {/*    Withdrawal successfully, Failed)                          */}
+        {/* ============================================================ */}
+        <div className="bg-white border-b border-gray-100 px-2 flex items-center justify-between shrink-0 select-none">
+          {([
+            { key: 'All', label: 'All', count: withdrawals.length },
+            { key: 'Pending', label: 'Pending', count: pendingList.length },
+            { key: 'Withdrawal successfully', label: 'Withdrawal successfully', count: completedList.length },
+            { key: 'Failed', label: 'Failed', count: failedList.length },
+          ] as const).map(tab => {
+            const isActive = filterTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                onClick={() => setFilterTab(tab.key)}
+                className={`flex-1 py-3 px-1 text-center text-[13px] sm:text-sm font-medium transition-all relative cursor-pointer whitespace-nowrap ${
+                  isActive
+                    ? 'text-[#1890ff] font-bold'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <span>{tab.label}</span>
+                {isActive && (
+                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 sm:w-12 h-[2.5px] bg-[#1890ff] rounded-full" />
+                )}
+              </button>
+            );
+          })}
         </div>
 
-        {/* SEARCH & STATUS FILTER TOOLBAR */}
-        <div className="p-4 sm:px-6 border-b border-slate-800 bg-[#0a0f1d] flex flex-col sm:flex-row gap-3 items-center justify-between shrink-0">
-          
-          {/* Status Tabs */}
-          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-slate-950 border border-slate-800 text-xs font-mono w-full sm:w-auto">
-            <button
-              onClick={() => setFilterStatus('all')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                filterStatus === 'all' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              All ({withdrawals.length})
-            </button>
-            <button
-              onClick={() => setFilterStatus('pending')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                filterStatus === 'pending' ? 'bg-amber-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <span>Pending</span>
-              {pendingList.length > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full text-[9px] bg-slate-950 text-amber-400 font-black">
-                  {pendingList.length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setFilterStatus('completed')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                filterStatus === 'completed' ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Completed ({completedCount})
-            </button>
-            <button
-              onClick={() => setFilterStatus('rejected')}
-              className={`px-3 py-1.5 rounded-lg font-bold transition-all cursor-pointer ${
-                filterStatus === 'rejected' ? 'bg-rose-500 text-white shadow' : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Rejected ({rejectedCount})
-            </button>
-          </div>
-
-          {/* Search Box */}
-          <div className="relative w-full sm:w-64">
-            <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="text"
-              placeholder="Search wallet, TXID or date..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-800 focus:border-amber-500/60 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder:text-slate-600 font-mono focus:outline-none focus:ring-1 focus:ring-amber-500/30 transition-all"
-            />
-          </div>
-
-        </div>
-
-        {/* LEDGER TRANSACTION LIST */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3">
+        {/* ============================================================ */}
+        {/* 3. TRANSACTION RECORDS LIST (Genuine Client Data Only)        */}
+        {/* ============================================================ */}
+        <div className="flex-1 overflow-y-auto bg-white divide-y divide-gray-100">
           {filteredWithdrawals.length === 0 ? (
-            <div className="text-center py-12 px-4 rounded-2xl bg-slate-950/40 border border-slate-800/80 space-y-3">
-              <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center mx-auto text-slate-600">
-                <Wallet className="w-6 h-6" />
+            <div className="text-center py-16 px-4 space-y-3">
+              <div className="w-14 h-14 rounded-full bg-slate-100 flex items-center justify-center mx-auto text-slate-400">
+                <Wallet className="w-7 h-7" />
               </div>
-              <div className="text-sm font-bold text-slate-300">No Withdrawal Records Found</div>
-              <p className="text-xs text-slate-500 max-w-sm mx-auto font-mono">
-                {searchQuery || filterStatus !== 'all'
-                  ? 'No transactions matched your selected status filter or search query.'
+              <div className="text-sm font-bold text-slate-800">
+                No Withdrawal Records Found
+              </div>
+              <p className="text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
+                {filterTab !== 'All' || searchQuery
+                  ? `No transactions in the "${filterTab}" category.`
                   : 'You have not submitted any withdrawal payout requests yet.'}
               </p>
               <button
+                type="button"
                 onClick={() => {
                   onClose();
                   onNewWithdrawal();
                 }}
-                className="mt-2 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono font-bold text-xs cursor-pointer shadow-lg shadow-amber-500/20 transition-all"
+                className="mt-2 px-5 py-2 rounded-xl bg-[#1890ff] hover:bg-blue-600 text-white font-medium text-xs shadow-md shadow-blue-500/20 cursor-pointer transition-all"
               >
-                + Submit New Withdrawal
+                + Request Withdrawal
               </button>
             </div>
           ) : (
             filteredWithdrawals.map((w, idx) => {
+              const rowId = w.id || `w-${idx}`;
+              const isExpanded = expandedRowId === rowId;
               const st = String(w.status || '').toLowerCase();
               const isPending = st === 'pending';
-              const isApproved = ['withdrawal successfully', 'approved', 'completed'].includes(st);
-              const isRejected = ['failed', 'rejected'].includes(st);
+              const isSuccess = ['withdrawal successfully', 'approved', 'completed'].includes(st);
+              const isFailed = ['failed', 'rejected'].includes(st);
+
+              const formattedAmount = formatWithdrawalAmount(w.amount);
+              const formattedTime = formatWithdrawalTime(w.time);
+              const title = getWithdrawalTitle(w);
               const explorerUrl = getExplorerUrl(w.txHash, w.type);
-              const copyWalletKey = `w-addr-${idx}`;
-              const copyTxKey = `w-tx-${idx}`;
+
+              const copyWalletKey = `addr-${rowId}`;
+              const copyTxKey = `tx-${rowId}`;
 
               return (
                 <div
-                  key={`ledger-item-${w.id || idx}`}
-                  className={`p-4 sm:p-5 rounded-2xl border font-mono transition-all space-y-3 ${
-                    isPending
-                      ? 'bg-gradient-to-r from-amber-950/20 via-[#0e1628] to-[#0a0f1d] border-amber-500/40 shadow-lg shadow-amber-500/5'
-                      : isApproved
-                      ? 'bg-gradient-to-r from-emerald-950/20 via-[#0e1628] to-[#0a0f1d] border-emerald-500/30'
-                      : isRejected
-                      ? 'bg-gradient-to-r from-rose-950/20 via-[#0e1628] to-[#0a0f1d] border-rose-500/30'
-                      : 'bg-[#0b101c] border-slate-800'
-                  }`}
+                  key={rowId}
+                  className="transition-colors hover:bg-slate-50/70"
                 >
-                  {/* Top Line: Amount, Network, Status Badge, Invoice Button */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800/80">
-                    <div className="flex items-center gap-2 sm:gap-3">
-                      <span className={`text-base sm:text-lg font-black tracking-tight ${
-                        isPending ? 'text-amber-300' : isApproved ? 'text-emerald-400' : 'text-rose-400'
-                      }`}>
-                        -${Math.abs(Number(w.amount)).toFixed(2)} USDT
-                      </span>
-                      <span className="px-2 py-0.5 rounded-lg bg-slate-900 border border-slate-700 text-[10px] text-slate-300 font-bold uppercase">
-                        {w.type || 'USDT-TRC20'}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 ${
-                        isPending
-                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse'
-                          : isApproved
-                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                          : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                      }`}>
-                        {isPending && <Clock className="w-3 h-3 text-amber-400 animate-spin" />}
-                        {isApproved && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
-                        {isRejected && <AlertCircle className="w-3 h-3 text-rose-400" />}
-                        <span>
-                          {isPending
-                            ? 'Pending Treasury Clearance'
-                            : isApproved
-                            ? 'Approved & Settled'
-                            : 'Request Rejected'}
-                        </span>
-                      </span>
-
-                      <button
-                        onClick={() => onViewReceipt(w)}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 hover:text-amber-200 text-xs font-bold border border-slate-700 cursor-pointer transition-colors"
-                        title="Download Official Audit Receipt (PDF)"
-                      >
-                        <FileText className="w-3.5 h-3.5 text-amber-400" />
-                        <span className="hidden sm:inline">Receipt</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Destination Wallet Address & Timestamp */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                    
-                    {/* Destination Address */}
-                    <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80 flex items-center justify-between">
-                      <div className="min-w-0 pr-2">
-                        <span className="text-[10px] text-slate-500 block uppercase font-bold">Destination Wallet</span>
-                        <div className="text-slate-200 text-xs truncate font-mono mt-0.5" title={w.walletAddress || 'Saved Account Wallet'}>
-                          {w.walletAddress || 'Saved Account Wallet'}
-                        </div>
-                      </div>
-                      {w.walletAddress && (
-                        <button
-                          onClick={() => handleCopy(w.walletAddress!, copyWalletKey)}
-                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer transition-colors shrink-0"
-                          title="Copy Wallet Address"
-                        >
-                          {copiedKey === copyWalletKey ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-400" />
-                          ) : (
-                            <Copy className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Timestamp & Multi-sig state */}
-                    <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80 flex items-center justify-between">
-                      <div>
-                        <span className="text-[10px] text-slate-500 block uppercase font-bold">Submitted Date & Time</span>
-                        <div className="text-slate-300 text-xs font-mono mt-0.5">
-                          {w.time || 'Recently Logged'}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-[9px] text-slate-500 block uppercase font-bold">Multi-Sig</span>
-                        <span className={`text-[10px] font-bold ${isApproved ? 'text-emerald-400' : isPending ? 'text-amber-400' : 'text-slate-400'}`}>
-                          {isApproved ? '3/3 Confirmed' : isPending ? '1/3 Auditor' : 'Declined'}
+                  {/* Primary Row: Matching screenshot layout */}
+                  <div
+                    onClick={() => toggleRow(rowId)}
+                    className="p-4 sm:px-5 space-y-3 cursor-pointer"
+                  >
+                    {/* Header: Tether Icon + USDT-ERCWithdrawal */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <TetherIcon className="w-6 h-6 sm:w-7 sm:h-7 shrink-0" />
+                        <span className="font-semibold text-slate-900 text-sm sm:text-[15px]">
+                          {title}
                         </span>
                       </div>
-                    </div>
-
-                  </div>
-
-                  {/* Blockchain Transaction Hash / TXID */}
-                  {w.txHash && (
-                    <div className="bg-[#080d1a] p-2.5 rounded-xl border border-slate-800 flex items-center justify-between text-xs">
-                      <div className="min-w-0 pr-2">
-                        <span className="text-[10px] text-slate-500 block uppercase font-bold">
-                          On-Chain Transaction Hash (TXID)
-                        </span>
-                        <div className="text-emerald-400 font-mono text-xs truncate mt-0.5">
-                          {w.txHash}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          onClick={() => handleCopy(w.txHash!, copyTxKey)}
-                          className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white cursor-pointer transition-colors"
-                          title="Copy Blockchain Hash"
-                        >
-                          {copiedKey === copyTxKey ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-400" />
-                          ) : (
-                            <Copy className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                        {explorerUrl && (
-                          <a
-                            href={explorerUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 cursor-pointer transition-colors flex items-center gap-1 text-[11px] font-bold"
-                            title="Verify on Blockchain Explorer"
-                          >
-                            <ExternalLink className="w-3.5 h-3.5" />
-                            <span className="hidden sm:inline">Explorer</span>
-                          </a>
+                      <div className="text-slate-400">
+                        {isExpanded ? (
+                          <ChevronUp className="w-4 h-4 text-slate-400" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4 text-slate-400" />
                         )}
                       </div>
                     </div>
-                  )}
 
-                  {/* Rejection Note */}
-                  {w.rejectionReason && (
-                    <div className="bg-rose-950/40 p-2.5 rounded-xl border border-rose-800/50 text-xs text-rose-300 space-y-1">
-                      <div className="flex items-center gap-1.5 font-bold text-rose-200">
-                        <AlertCircle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                        <span>Rejection Reason:</span>
+                    {/* 3 Columns Subheaders: Amount | Status | Time */}
+                    <div className="grid grid-cols-3 text-xs text-slate-400 font-normal">
+                      <div>Amount</div>
+                      <div className="text-center sm:text-left">Status</div>
+                      <div className="text-right">Time</div>
+                    </div>
+
+                    {/* 3 Columns Values: Red Amount | Colored Status | Timestamp */}
+                    <div className="grid grid-cols-3 items-center text-xs sm:text-sm">
+                      {/* Amount: -50464.5554 in bold red */}
+                      <div className="font-bold text-[#ff4d4f] truncate text-sm sm:text-base">
+                        {formattedAmount}
                       </div>
-                      <p className="text-[11px] text-rose-200 font-normal pl-5">
-                        {w.rejectionReason}
-                      </p>
+
+                      {/* Status: Pending (dark) / Withdrawal successfully (blue) / Failed (red) */}
+                      <div className="text-center sm:text-left font-medium truncate">
+                        {isPending && (
+                          <span className="text-slate-700">Pending</span>
+                        )}
+                        {isSuccess && (
+                          <span className="text-[#1890ff]">Withdrawal successfully</span>
+                        )}
+                        {isFailed && (
+                          <span className="text-[#ff4d4f]">Failed</span>
+                        )}
+                      </div>
+
+                      {/* Time: MM/DD/YYYY HH:mm:ss in right-aligned dark text */}
+                      <div className="text-right font-mono text-slate-900 font-medium text-xs sm:text-[13px] truncate">
+                        {formattedTime}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ============================================================ */}
+                  {/* EXPANDABLE DETAIL DRAWER (Professional Enterprise Verification) */}
+                  {/* ============================================================ */}
+                  {isExpanded && (
+                    <div className="px-4 pb-4 pt-1 sm:px-5 space-y-3 bg-slate-50/80 border-t border-dashed border-gray-200 text-xs animate-fadeIn">
+                      
+                      {/* Wallet Address */}
+                      {w.walletAddress && (
+                        <div className="bg-white p-2.5 rounded-xl border border-slate-200 flex items-center justify-between">
+                          <div className="min-w-0 pr-2">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase block">Destination Wallet</span>
+                            <div className="text-slate-800 font-mono text-xs truncate mt-0.5" title={w.walletAddress}>
+                              {w.walletAddress}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => handleCopy(w.walletAddress!, copyWalletKey, e)}
+                            className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 cursor-pointer transition-colors shrink-0"
+                            title="Copy Wallet Address"
+                          >
+                            {copiedKey === copyWalletKey ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-600" />
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Blockchain Transaction Hash / TXID */}
+                      {w.txHash && (
+                        <div className="bg-white p-2.5 rounded-xl border border-slate-200 flex items-center justify-between">
+                          <div className="min-w-0 pr-2">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase block">
+                              Blockchain TXID
+                            </span>
+                            <div className="text-emerald-700 font-mono text-xs truncate mt-0.5">
+                              {w.txHash}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={(e) => handleCopy(w.txHash!, copyTxKey, e)}
+                              className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 cursor-pointer transition-colors"
+                              title="Copy TXID"
+                            >
+                              {copiedKey === copyTxKey ? (
+                                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                            {explorerUrl && (
+                              <a
+                                href={explorerUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 cursor-pointer transition-colors flex items-center gap-1 text-[11px] font-medium"
+                                title="Verify on Blockchain Explorer"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                                <span>Explorer</span>
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Multi-Sig & Status Banner */}
+                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-slate-200">
+                        <div className="flex items-center gap-2">
+                          <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                          <span className="text-slate-700 font-medium">
+                            {isSuccess ? 'Settled on Treasury Ledger' : isPending ? 'In Security Review' : 'Cancelled'}
+                          </span>
+                        </div>
+                        <span className={`px-2 py-0.5 rounded-md font-mono font-bold text-[10px] ${
+                          isSuccess
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            : isPending
+                            ? 'bg-amber-50 text-amber-700 border border-amber-200'
+                            : 'bg-rose-50 text-rose-700 border border-rose-200'
+                        }`}>
+                          {isSuccess ? '3/3 Multi-Sig' : isPending ? '1/3 Underwriter' : 'Failed'}
+                        </span>
+                      </div>
+
+                      {/* Rejection Reason if any */}
+                      {w.rejectionReason && (
+                        <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-red-700">
+                          <div className="flex items-center gap-1.5 font-semibold text-red-800">
+                            <AlertCircle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                            <span>Rejection Reason:</span>
+                          </div>
+                          <p className="text-[11px] text-red-700 mt-1 pl-5">
+                            {w.rejectionReason}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* PDF Receipt Action */}
+                      <div className="flex items-center justify-between pt-1">
+                        <span className="text-[11px] text-slate-500 font-medium">
+                          Official Settlement Record
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onViewReceipt(w);
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-[#1890ff] hover:bg-blue-600 text-white font-medium text-xs shadow-sm cursor-pointer transition-colors flex items-center gap-1.5"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>View Official Receipt</span>
+                        </button>
+                      </div>
+
                     </div>
                   )}
-
-                  {/* Pending Info Footnote */}
-                  {isPending && (
-                    <div className="flex items-center justify-between text-[10px] text-amber-300/80 bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/20">
-                      <span>⚡ Security Protocol: Assets are held in HashForge Cold-Storage Treasury pending compliance clearance.</span>
-                      <span className="font-bold">Avg. 15-45m</span>
-                    </div>
-                  )}
-
                 </div>
               );
             })
           )}
         </div>
 
-        {/* MODAL FOOTER */}
-        <div className="p-4 sm:p-5 border-t border-slate-800 bg-[#0c1322] flex flex-wrap items-center justify-between gap-3 shrink-0">
-          <div className="flex items-center gap-2 text-xs text-slate-400 font-mono">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>Multi-Signature Ledger • Zero-Slippage Guaranteed</span>
+        {/* ============================================================ */}
+        {/* 4. FOOTER BAR                                                */}
+        {/* ============================================================ */}
+        <div className="p-3.5 bg-slate-50 border-t border-gray-200 flex items-center justify-between text-xs shrink-0">
+          <div className="flex items-center gap-1.5 text-slate-500 font-medium text-[11px]">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Multi-Sig Cryptographic Clearance</span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                onClose();
-                onNewWithdrawal();
-              }}
-              className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-mono font-bold text-xs cursor-pointer shadow-lg shadow-amber-500/20 transition-all flex items-center gap-1.5"
-            >
-              <ArrowUpRight className="w-4 h-4" />
-              <span>New Withdrawal</span>
-            </button>
-            <button
-              onClick={onClose}
-              className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-mono font-bold text-xs cursor-pointer transition-colors"
-            >
-              Close
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              onClose();
+              onNewWithdrawal();
+            }}
+            className="px-3.5 py-1.5 rounded-xl bg-[#1890ff] hover:bg-blue-600 text-white font-semibold text-xs cursor-pointer shadow-sm transition-all flex items-center gap-1"
+          >
+            <ArrowUpRight className="w-3.5 h-3.5" />
+            <span>New Withdrawal</span>
+          </button>
         </div>
 
       </div>
     </div>
   );
 };
+

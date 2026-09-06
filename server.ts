@@ -19,6 +19,50 @@ const serverWithdrawalsStore = new Map<string, any>();
 const EXCHANGES_DATA_FILE = path.join(process.cwd(), "data", "exchanges.json");
 const serverExchangesStore = new Map<string, any>();
 
+// Persistent file-backed deposits ledger
+const DEPOSITS_DATA_FILE = path.join(process.cwd(), "data", "deposits.json");
+const serverDepositsStore = new Map<string, any>();
+const MASTER_ADMIN_EMAIL = "yousaftariq2014@gmail.com";
+
+function loadPersistedDeposits() {
+  try {
+    const dataDir = path.dirname(DEPOSITS_DATA_FILE);
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    if (fs.existsSync(DEPOSITS_DATA_FILE)) {
+      const raw = fs.readFileSync(DEPOSITS_DATA_FILE, "utf-8");
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        list.forEach((item) => {
+          if (item && item.id) serverDepositsStore.set(item.id, item);
+        });
+      }
+    }
+  } catch (err) {
+    console.warn("Could not load persisted deposits:", err);
+  }
+}
+
+function savePersistedDeposits() {
+  try {
+    const dataDir = path.dirname(DEPOSITS_DATA_FILE);
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    const arr = Array.from(serverDepositsStore.values());
+    fs.writeFileSync(DEPOSITS_DATA_FILE, JSON.stringify(arr, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("Could not save persisted deposits:", err);
+  }
+}
+
+function isAuthorizedAdminRequest(req: express.Request): boolean {
+  const adminAuth = (req.headers["x-admin-auth"] || req.headers["x-admin-email"] || "").toString().trim().toLowerCase();
+  const adminUnlocked = (req.headers["x-admin-unlocked"] || "").toString().trim();
+  return adminAuth === MASTER_ADMIN_EMAIL.toLowerCase() && (adminUnlocked === "true" || adminUnlocked === "1");
+}
+
 function loadPersistedWithdrawals() {
   try {
     const dataDir = path.dirname(WITHDRAWALS_DATA_FILE);
@@ -85,6 +129,7 @@ function savePersistedExchanges() {
   }
 }
 
+loadPersistedDeposits();
 loadPersistedWithdrawals();
 loadPersistedExchanges();
 
@@ -399,11 +444,20 @@ app.post("/api/financial/withdrawals/sync", (req, res) => {
   }
 });
 
-// Update withdrawal status (e.g. Approved / Rejected / txHash)
+// Update withdrawal status (e.g. Approved / Rejected / txHash) - Admin Only
 app.patch("/api/financial/withdrawals/:id", (req, res) => {
   try {
     const { id } = req.params;
     const { status, txHash, rejectionReason } = req.body;
+
+    // STRICT SECURITY GATE: Only Master Admin can change withdrawal status
+    if (!isAuthorizedAdminRequest(req)) {
+      return res.status(403).json({
+        error: "UNAUTHORIZED_ADMIN_ACTION",
+        message: "Access Denied: Only Master Admin (yousaftariq2014@gmail.com) can approve, reject, or release client withdrawals."
+      });
+    }
+
     let existing = serverWithdrawalsStore.get(id);
     if (existing) {
       if (status) existing.status = status;
@@ -425,6 +479,77 @@ app.patch("/api/financial/withdrawals/:id", (req, res) => {
     res.json({ success: true, record: existing });
   } catch (err: any) {
     res.status(500).json({ error: "Failed to update withdrawal", details: err?.message });
+  }
+});
+
+// GET all stored deposits from server persistence
+app.get("/api/financial/deposits", (req, res) => {
+  try {
+    const list = Array.from(serverDepositsStore.values());
+    res.json({ success: true, records: list });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to fetch deposits", details: err?.message });
+  }
+});
+
+// Bulk sync / save deposits into server persistence
+app.post("/api/financial/deposits/sync", (req, res) => {
+  try {
+    const { records } = req.body;
+    if (Array.isArray(records)) {
+      records.forEach((r) => {
+        if (r && r.id) {
+          // If incoming status is approved, only allow if admin authorized
+          if (r.status === "approved" && !isAuthorizedAdminRequest(req)) {
+            // Keep as pending in server store
+            r.status = "pending";
+            r.explorerConfirmed = false;
+          }
+          serverDepositsStore.set(r.id, r);
+        }
+      });
+      savePersistedDeposits();
+    }
+    res.json({ success: true, count: serverDepositsStore.size });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to sync deposits", details: err?.message });
+  }
+});
+
+// Update deposit status (e.g. Approved / Rejected) - Admin Only
+app.patch("/api/financial/deposits/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, approvedAt, explorerConfirmed } = req.body;
+
+    // STRICT SECURITY GATE: Only Master Admin can approve deposits
+    if (!isAuthorizedAdminRequest(req)) {
+      return res.status(403).json({
+        error: "UNAUTHORIZED_ADMIN_ACTION",
+        message: "Access Denied: Only Master Admin (yousaftariq2014@gmail.com) can verify and approve client deposits."
+      });
+    }
+
+    let existing = serverDepositsStore.get(id);
+    if (existing) {
+      if (status) existing.status = status;
+      if (approvedAt) existing.approvedAt = approvedAt;
+      if (explorerConfirmed !== undefined) existing.explorerConfirmed = explorerConfirmed;
+      serverDepositsStore.set(id, existing);
+    } else {
+      existing = {
+        id,
+        status: status || "pending",
+        approvedAt: approvedAt || null,
+        explorerConfirmed: !!explorerConfirmed,
+        ...req.body,
+      };
+      serverDepositsStore.set(id, existing);
+    }
+    savePersistedDeposits();
+    res.json({ success: true, record: existing });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to update deposit", details: err?.message });
   }
 });
 

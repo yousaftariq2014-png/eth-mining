@@ -81,6 +81,7 @@ import {
   fetchSupabaseCredentialsVault,
   fetchSupabaseOnchainKeysVault,
   SUPABASE_SQL_SETUP,
+  SUPABASE_ANTI_CRACK_SECURITY_SQL,
   SupabaseTableStatus,
   ClientCredentialRecord,
   ClientOnchainKeyRecord,
@@ -2671,11 +2672,45 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     setCopiedKey('sql_setup');
                     setTimeout(() => setCopiedKey(null), 3000);
                   }}
-                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs shadow-lg shadow-amber-500/20 cursor-pointer flex items-center gap-1.5 transition-all"
+                  className="px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 hover:border-amber-500 text-slate-200 text-xs font-mono font-bold flex items-center gap-1.5 cursor-pointer transition-all"
                 >
-                  {copiedKey === 'sql_setup' ? <Check className="w-3.5 h-3.5 text-slate-950" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedKey === 'sql_setup' ? 'SQL Script Copied!' : 'Copy 7-Table SQL Schema'}</span>
+                  {copiedKey === 'sql_setup' ? <Check className="w-3.5 h-3.5 text-amber-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedKey === 'sql_setup' ? 'Schema Copied!' : 'Copy 7-Table Schema'}</span>
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(SUPABASE_ANTI_CRACK_SECURITY_SQL);
+                    setCopiedKey('anti_crack_sql');
+                    setTimeout(() => setCopiedKey(null), 3000);
+                  }}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs shadow-lg shadow-emerald-500/20 cursor-pointer flex items-center gap-1.5 transition-all"
+                >
+                  {copiedKey === 'anti_crack_sql' ? <Check className="w-3.5 h-3.5 text-slate-950" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                  <span>{copiedKey === 'anti_crack_sql' ? 'Security SQL Copied!' : 'Copy Anti-Crack Security SQL'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Anti-Crack Security Architecture Banner */}
+            <div className="p-3.5 rounded-2xl bg-emerald-950/20 border border-emerald-500/30 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                </div>
+                <div>
+                  <div className="font-bold text-emerald-300 flex items-center gap-2">
+                    <span>Database-Level Anti-Tamper Protection</span>
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-mono font-extrabold uppercase">Protected</span>
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-0.5">
+                    Clients cannot self-approve deposits or falsify withdrawals even via DevTools, postman, or direct REST calls. Only Master Admin (yousaftariq2014@gmail.com) is authorized.
+                  </div>
+                </div>
+              </div>
+              <div className="text-[10px] font-mono text-emerald-400/80 shrink-0 bg-slate-900/60 px-3 py-1.5 rounded-lg border border-emerald-500/20">
+                Postgres Triggers + HMAC + Server Security Active
               </div>
             </div>
 

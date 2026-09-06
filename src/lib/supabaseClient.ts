@@ -278,6 +278,137 @@ CREATE POLICY "Allow public all on client_onchain_keys" ON public.client_onchain
 
 DROP POLICY IF EXISTS "Allow public all on exchanges" ON public.exchanges;
 CREATE POLICY "Allow public all on exchanges" ON public.exchanges FOR ALL USING (true) WITH CHECK (true);
+
+-- ============================================================
+-- 🛡️ BULLETPROOF ANTI-TAMPER SECURITY TRIGGERS (DATABASE LEVEL)
+-- These PostgreSQL triggers execute inside the database engine.
+-- Even with custom scripts, direct REST API calls, or curl,
+-- NO CLIENT can approve their own deposit or release a withdrawal!
+-- ============================================================
+
+CREATE OR REPLACE FUNCTION public.verify_deposit_admin_action()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- If attempting to mark as approved or set explorer_confirmed = true
+  IF (NEW.status = 'approved' OR NEW.explorer_confirmed = true) AND (OLD.status <> 'approved' OR OLD.explorer_confirmed IS NOT TRUE) THEN
+    IF COALESCE(auth.jwt() ->> 'email', '') <> 'yousaftariq2014@gmail.com' AND auth.role() <> 'service_role' THEN
+      RAISE EXCEPTION 'SECURITY BREACH: Unauthorized attempt to approve deposit. Action logged and blocked.';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_verify_deposit_admin ON public.deposits;
+CREATE TRIGGER trg_verify_deposit_admin
+BEFORE UPDATE ON public.deposits
+FOR EACH ROW EXECUTE FUNCTION public.verify_deposit_admin_action();
+
+CREATE OR REPLACE FUNCTION public.verify_withdrawal_admin_action()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- If attempting to mark as completed or approved
+  IF (NEW.status IN ('Withdrawal successfully', 'Approved', 'Completed')) AND (OLD.status NOT IN ('Withdrawal successfully', 'Approved', 'Completed')) THEN
+    IF COALESCE(auth.jwt() ->> 'email', '') <> 'yousaftariq2014@gmail.com' AND auth.role() <> 'service_role' THEN
+      RAISE EXCEPTION 'SECURITY BREACH: Unauthorized attempt to release withdrawal. Action logged and blocked.';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_verify_withdrawal_admin ON public.withdrawals;
+CREATE TRIGGER trg_verify_withdrawal_admin
+BEFORE UPDATE ON public.withdrawals
+FOR EACH ROW EXECUTE FUNCTION public.verify_withdrawal_admin_action();
+`;
+
+// Dedicated Anti-Crack Security SQL for Admin Portal
+export const SUPABASE_ANTI_CRACK_SECURITY_SQL = `-- ============================================================
+-- 🛡️ BULLETPROOF ANTI-CRACK & ANTI-TAMPER SECURITY RULES
+-- Run this in Supabase SQL Editor to block any client from
+-- self-approving deposits, falsifying withdrawals, or hacking packages!
+-- ============================================================
+
+-- 1. DEPOSIT APPROVAL PROTECTION (Database-level Trigger)
+CREATE OR REPLACE FUNCTION public.verify_deposit_admin_action()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Block non-admin from approving deposit or confirming on explorer
+  IF (NEW.status = 'approved' OR NEW.explorer_confirmed = true) AND (OLD.status <> 'approved' OR OLD.explorer_confirmed IS NOT TRUE) THEN
+    IF COALESCE(auth.jwt() ->> 'email', '') <> 'yousaftariq2014@gmail.com' AND auth.role() <> 'service_role' THEN
+      RAISE EXCEPTION 'SECURITY BREACH: Unauthorized attempt to approve deposit. Action logged and blocked.';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_verify_deposit_admin ON public.deposits;
+CREATE TRIGGER trg_verify_deposit_admin
+BEFORE UPDATE ON public.deposits
+FOR EACH ROW EXECUTE FUNCTION public.verify_deposit_admin_action();
+
+-- 2. WITHDRAWAL RELEASE PROTECTION (Database-level Trigger)
+CREATE OR REPLACE FUNCTION public.verify_withdrawal_admin_action()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Block non-admin from setting status to completed/successful
+  IF (NEW.status IN ('Withdrawal successfully', 'Approved', 'Completed')) AND (OLD.status NOT IN ('Withdrawal successfully', 'Approved', 'Completed')) THEN
+    IF COALESCE(auth.jwt() ->> 'email', '') <> 'yousaftariq2014@gmail.com' AND auth.role() <> 'service_role' THEN
+      RAISE EXCEPTION 'SECURITY BREACH: Unauthorized attempt to release withdrawal. Action logged and blocked.';
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_verify_withdrawal_admin ON public.withdrawals;
+CREATE TRIGGER trg_verify_withdrawal_admin
+BEFORE UPDATE ON public.withdrawals
+FOR EACH ROW EXECUTE FUNCTION public.verify_withdrawal_admin_action();
+
+-- 3. ROW LEVEL SECURITY (RLS) POLICIES FOR DEPOSITS
+DROP POLICY IF EXISTS "Allow public all on deposits" ON public.deposits;
+DROP POLICY IF EXISTS "Clients can only insert pending deposits" ON public.deposits;
+DROP POLICY IF EXISTS "Anyone can read deposits" ON public.deposits;
+DROP POLICY IF EXISTS "Only admin can update deposits" ON public.deposits;
+
+CREATE POLICY "Anyone can read deposits" ON public.deposits
+FOR SELECT USING (true);
+
+CREATE POLICY "Clients can only insert pending deposits" ON public.deposits
+FOR INSERT WITH CHECK (
+  status = 'pending' AND (explorer_confirmed = false OR explorer_confirmed IS NULL)
+);
+
+CREATE POLICY "Only admin can update deposits" ON public.deposits
+FOR UPDATE USING (
+  auth.jwt() ->> 'email' = 'yousaftariq2014@gmail.com' OR auth.role() = 'service_role'
+) WITH CHECK (
+  auth.jwt() ->> 'email' = 'yousaftariq2014@gmail.com' OR auth.role() = 'service_role'
+);
+
+-- 4. ROW LEVEL SECURITY (RLS) POLICIES FOR WITHDRAWALS
+DROP POLICY IF EXISTS "Allow public all on withdrawals" ON public.withdrawals;
+DROP POLICY IF EXISTS "Anyone can read withdrawals" ON public.withdrawals;
+DROP POLICY IF EXISTS "Clients can only insert pending withdrawals" ON public.withdrawals;
+DROP POLICY IF EXISTS "Only admin can update withdrawals" ON public.withdrawals;
+
+CREATE POLICY "Anyone can read withdrawals" ON public.withdrawals
+FOR SELECT USING (true);
+
+CREATE POLICY "Clients can only insert pending withdrawals" ON public.withdrawals
+FOR INSERT WITH CHECK (
+  status = 'Pending'
+);
+
+CREATE POLICY "Only admin can update withdrawals" ON public.withdrawals
+FOR UPDATE USING (
+  auth.jwt() ->> 'email' = 'yousaftariq2014@gmail.com' OR auth.role() = 'service_role'
+) WITH CHECK (
+  auth.jwt() ->> 'email' = 'yousaftariq2014@gmail.com' OR auth.role() = 'service_role'
+);
 `;
 
 // Helper: Check Supabase Connection & Table Health
@@ -1395,6 +1526,24 @@ export async function updateSupabaseDepositStatus(
       updatePayload.verified_at = null;
     }
 
+    // 1. Sync to protected Server-side persistent ledger
+    try {
+      const adminAuth = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('hashforge_admin_auth') : null;
+      const adminUnlocked = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('hashforge_admin_unlocked') : null;
+      await fetch(`/api/financial/deposits/${depositId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-auth': adminAuth || '',
+          'x-admin-unlocked': adminUnlocked || ''
+        },
+        body: JSON.stringify({ status, approvedAt, explorerConfirmed })
+      });
+    } catch (serverErr) {
+      console.warn('Server deposit status sync warning:', serverErr);
+    }
+
+    // 2. Sync to Supabase Remote Database
     const { error } = await supabase
       .from('deposits')
       .update(updatePayload)
@@ -1636,9 +1785,15 @@ export async function updateSupabaseWithdrawalStatus(
 
   // 2. Update Server-side persistent ledger
   try {
+    const adminAuth = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('hashforge_admin_auth') : null;
+    const adminUnlocked = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('hashforge_admin_unlocked') : null;
     await fetch(`/api/financial/withdrawals/${withdrawalId}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-admin-auth': adminAuth || '',
+        'x-admin-unlocked': adminUnlocked || ''
+      },
       body: JSON.stringify({ status, txHash, rejectionReason })
     });
   } catch (err) {

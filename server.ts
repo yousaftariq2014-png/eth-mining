@@ -19,10 +19,84 @@ const serverWithdrawalsStore = new Map<string, any>();
 const EXCHANGES_DATA_FILE = path.join(process.cwd(), "data", "exchanges.json");
 const serverExchangesStore = new Map<string, any>();
 
+// Persistent file-backed clients ledger
+const CLIENTS_DATA_FILE = path.join(process.cwd(), "data", "clients.json");
+const serverClientsStore = new Map<string, any>();
+
+// Persistent file-backed mining state ledger (continuous 24/7 cloud node tracking)
+const MINING_STATE_DATA_FILE = path.join(process.cwd(), "data", "mining_state.json");
+const serverMiningStore = new Map<string, any>();
+
 // Persistent file-backed deposits ledger
 const DEPOSITS_DATA_FILE = path.join(process.cwd(), "data", "deposits.json");
 const serverDepositsStore = new Map<string, any>();
 const MASTER_ADMIN_EMAIL = "yousaftariq2014@gmail.com";
+
+function loadPersistedClients() {
+  try {
+    const dataDir = path.dirname(CLIENTS_DATA_FILE);
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    if (fs.existsSync(CLIENTS_DATA_FILE)) {
+      const raw = fs.readFileSync(CLIENTS_DATA_FILE, "utf-8");
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        list.forEach((item) => {
+          if (item && item.email) serverClientsStore.set(item.email.toLowerCase(), item);
+        });
+      }
+    }
+  } catch (err) {
+    console.warn("Could not load persisted clients:", err);
+  }
+}
+
+function savePersistedClients() {
+  try {
+    const dataDir = path.dirname(CLIENTS_DATA_FILE);
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    const arr = Array.from(serverClientsStore.values());
+    fs.writeFileSync(CLIENTS_DATA_FILE, JSON.stringify(arr, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("Could not save persisted clients:", err);
+  }
+}
+
+function loadPersistedMiningState() {
+  try {
+    const dataDir = path.dirname(MINING_STATE_DATA_FILE);
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    if (fs.existsSync(MINING_STATE_DATA_FILE)) {
+      const raw = fs.readFileSync(MINING_STATE_DATA_FILE, "utf-8");
+      const list = JSON.parse(raw);
+      if (Array.isArray(list)) {
+        list.forEach((item) => {
+          if (item && item.userEmail) serverMiningStore.set(item.userEmail.toLowerCase(), item);
+        });
+      }
+    }
+  } catch (err) {
+    console.warn("Could not load persisted mining states:", err);
+  }
+}
+
+function savePersistedMiningState() {
+  try {
+    const dataDir = path.dirname(MINING_STATE_DATA_FILE);
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    const arr = Array.from(serverMiningStore.values());
+    fs.writeFileSync(MINING_STATE_DATA_FILE, JSON.stringify(arr, null, 2), "utf-8");
+  } catch (err) {
+    console.warn("Could not save persisted mining states:", err);
+  }
+}
 
 function loadPersistedDeposits() {
   try {
@@ -129,6 +203,8 @@ function savePersistedExchanges() {
   }
 }
 
+loadPersistedClients();
+loadPersistedMiningState();
 loadPersistedDeposits();
 loadPersistedWithdrawals();
 loadPersistedExchanges();
@@ -136,6 +212,11 @@ loadPersistedExchanges();
 // Enable JSON parsing with generous payload limit for secure base64 KYC documents
 app.use(express.json({ limit: "25mb" }));
 app.use(express.urlencoded({ extended: true, limit: "25mb" }));
+
+// Health Check Endpoint
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", timestamp: new Date().toISOString() });
+});
 
 // Server Secret for Cryptographic Transaction Signing
 const SERVER_HMAC_SECRET = process.env.SERVER_SIGNING_SECRET || "hashforge_crypto_secure_vault_signature_2026";
@@ -482,13 +563,276 @@ app.patch("/api/financial/withdrawals/:id", (req, res) => {
   }
 });
 
-// GET all stored deposits from server persistence
+// -------------------------------------------------------------
+// CLIENTS PERSISTENCE & AUTH ENDPOINTS (Zero 'Failed to fetch' errors)
+// -------------------------------------------------------------
+
+// GET all registered clients
+app.get("/api/clients", (req, res) => {
+  try {
+    const clients = Array.from(serverClientsStore.values()).map(c => {
+      const { password, raw_password, ...safeClient } = c;
+      return safeClient;
+    });
+    res.json({ success: true, clients });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to fetch clients", details: err?.message });
+  }
+});
+
+// Register new client into server persistent database
+app.post("/api/clients/register", (req, res) => {
+  try {
+    const { id, name, email, phone, password, plan, vipLevel, onchainKey } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required" });
+    }
+    const cleanEmail = email.trim().toLowerCase();
+    if (serverClientsStore.has(cleanEmail)) {
+      return res.status(400).json({ error: "This email address is already registered. Please sign in instead." });
+    }
+
+    const userId = id || `usr-${Date.now()}`;
+    const newClient = {
+      id: userId,
+      name: name || cleanEmail.split("@")[0],
+      email: cleanEmail,
+      phone: phone || "",
+      phoneNumber: phone || "",
+      password: String(password),
+      raw_password: String(password),
+      plan: plan || "No Active Package",
+      vipLevel: Number(vipLevel || 0),
+      joinedDate: new Date().toISOString().substring(0, 10),
+      isLoggedIn: true,
+      hasClaimedFreeBonus: false,
+      onchainKey: onchainKey || "",
+      accountStatus: "active",
+      createdAt: new Date().toISOString()
+    };
+
+    serverClientsStore.set(cleanEmail, newClient);
+    savePersistedClients();
+
+    // Automatically initialize 24/7 Cloud Mining Node for this new client (25 TH/s Starter Hashrate)
+    const nowMs = Date.now();
+    const initialMiningState = {
+      userId,
+      userEmail: cleanEmail,
+      hasActiveNode: true,
+      nodeStartTime: nowMs,
+      lastCalculatedTime: nowMs,
+      accumulatedMinedEth: 0,
+      dailyEthRate: 0.00069, // VIP 1 Starter Output rate (~$1.90/day @ $2750/ETH)
+      hashrateTh: 25,
+      activeContractsCount: 1,
+      lastUpdated: new Date().toISOString()
+    };
+    serverMiningStore.set(cleanEmail, initialMiningState);
+    savePersistedMiningState();
+
+    const { password: _, raw_password: __, ...safeUser } = newClient;
+    res.json({ success: true, user: safeUser, miningState: initialMiningState });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to register client", details: err?.message });
+  }
+});
+
+// Client Login authentication against server store
+app.post("/api/clients/login", (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password are required" });
+    }
+    const cleanEmail = email.trim().toLowerCase();
+    const client = serverClientsStore.get(cleanEmail);
+
+    if (!client) {
+      return res.status(404).json({ error: "No account found with this email address. Please sign up first." });
+    }
+
+    if (String(client.password) !== String(password) && String(client.raw_password) !== String(password)) {
+      return res.status(401).json({ error: "Invalid password. Please check your credentials." });
+    }
+
+    const { password: _, raw_password: __, ...safeUser } = client;
+    res.json({ success: true, user: { ...safeUser, isLoggedIn: true } });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to login", details: err?.message });
+  }
+});
+
+// Update client profile
+app.patch("/api/clients/:id", (req, res) => {
+  try {
+    const { id } = req.params;
+    let targetEmail: string | null = null;
+    for (const [em, cl] of serverClientsStore.entries()) {
+      if (cl.id === id || cl.email.toLowerCase() === id.toLowerCase()) {
+        targetEmail = em;
+        break;
+      }
+    }
+
+    if (!targetEmail) {
+      return res.status(404).json({ error: "Client not found" });
+    }
+
+    const current = serverClientsStore.get(targetEmail);
+    const updated = { ...current, ...req.body };
+    serverClientsStore.set(targetEmail, updated);
+    savePersistedClients();
+
+    const { password: _, raw_password: __, ...safeUser } = updated;
+    res.json({ success: true, user: safeUser });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to update client", details: err?.message });
+  }
+});
+
+// -------------------------------------------------------------
+// 24/7 CONTINUOUS CLOUD MINING ENGINE ENDPOINTS
+// Ensures mining never stops when client logs out, and never resets to zero on login
+// -------------------------------------------------------------
+
+// GET continuous mining state (calculates accrued ETH mined while logged out)
+app.get("/api/mining/state", (req, res) => {
+  try {
+    const email = String(req.query.email || "").trim().toLowerCase();
+    const userId = String(req.query.userId || "").trim();
+
+    let state = serverMiningStore.get(email);
+    if (!state && userId) {
+      for (const s of serverMiningStore.values()) {
+        if (s.userId === userId) {
+          state = s;
+          break;
+        }
+      }
+    }
+
+    const now = Date.now();
+
+    if (!state) {
+      // Create initial starter mining state
+      state = {
+        userId: userId || `usr-${now}`,
+        userEmail: email,
+        hasActiveNode: true,
+        nodeStartTime: now,
+        lastCalculatedTime: now,
+        accumulatedMinedEth: 0,
+        dailyEthRate: 0.00069, // 25 TH/s Starter Hashrate (~0.00069 ETH/day)
+        hashrateTh: 25,
+        activeContractsCount: 1,
+        lastUpdated: new Date().toISOString()
+      };
+      if (email) {
+        serverMiningStore.set(email, state);
+        savePersistedMiningState();
+      }
+    } else {
+      // Calculate elapsed continuous cloud mining yield since last calculation (while client was logged out or away)
+      const lastCalc = Number(state.lastCalculatedTime) || Number(state.nodeStartTime) || now;
+      const elapsedSeconds = Math.max(0, (now - lastCalc) / 1000);
+      const dailyRate = Number(state.dailyEthRate) || 0.00069;
+      
+      if (elapsedSeconds > 0 && dailyRate > 0) {
+        const earnedEth = (dailyRate / 86400) * elapsedSeconds;
+        state.accumulatedMinedEth = (Number(state.accumulatedMinedEth) || 0) + earnedEth;
+        state.lastCalculatedTime = now;
+        state.lastUpdated = new Date().toISOString();
+        if (email) {
+          serverMiningStore.set(email, state);
+          savePersistedMiningState();
+        }
+      }
+    }
+
+    res.json({ success: true, state });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to get mining state", details: err?.message });
+  }
+});
+
+// Sync client-side mining state / deposit updates to server
+app.post("/api/mining/sync", (req, res) => {
+  try {
+    const { userEmail, userId, accumulatedMinedEth, dailyEthRate, hashrateTh, activeContractsCount } = req.body;
+    if (!userEmail) {
+      return res.status(400).json({ error: "userEmail is required" });
+    }
+    const cleanEmail = userEmail.trim().toLowerCase();
+    const existing = serverMiningStore.get(cleanEmail) || {};
+
+    const now = Date.now();
+    const updatedState = {
+      ...existing,
+      userId: userId || existing.userId || `usr-${now}`,
+      userEmail: cleanEmail,
+      hasActiveNode: true,
+      nodeStartTime: existing.nodeStartTime || now,
+      lastCalculatedTime: now,
+      accumulatedMinedEth: Math.max(Number(existing.accumulatedMinedEth) || 0, Number(accumulatedMinedEth) || 0),
+      dailyEthRate: dailyEthRate !== undefined ? Number(dailyEthRate) : (existing.dailyEthRate || 0.00069),
+      hashrateTh: hashrateTh !== undefined ? Number(hashrateTh) : (existing.hashrateTh || 25),
+      activeContractsCount: activeContractsCount !== undefined ? Number(activeContractsCount) : (existing.activeContractsCount || 1),
+      lastUpdated: new Date().toISOString()
+    };
+
+    serverMiningStore.set(cleanEmail, updatedState);
+    savePersistedMiningState();
+
+    res.json({ success: true, state: updatedState });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to sync mining state", details: err?.message });
+  }
+});
+
+// GET all stored deposits from server persistence (with optional user filter)
 app.get("/api/financial/deposits", (req, res) => {
   try {
-    const list = Array.from(serverDepositsStore.values());
+    let list = Array.from(serverDepositsStore.values());
+    const email = req.query.email ? String(req.query.email).trim().toLowerCase() : null;
+    const userId = req.query.userId ? String(req.query.userId).trim() : null;
+
+    if (email || userId) {
+      list = list.filter(d => {
+        const dEmail = String(d.userEmail || d.userName || "").trim().toLowerCase();
+        const dUser = String(d.userId || "").trim();
+        return (email && dEmail === email) || (userId && dUser === userId);
+      });
+    }
+
     res.json({ success: true, records: list });
   } catch (err: any) {
     res.status(500).json({ error: "Failed to fetch deposits", details: err?.message });
+  }
+});
+
+// Submit / Insert single deposit into server persistence
+app.post("/api/financial/deposits", (req, res) => {
+  try {
+    const deposit = req.body;
+    if (!deposit || !deposit.id) {
+      return res.status(400).json({ error: "Invalid deposit payload" });
+    }
+
+    const existing = serverDepositsStore.get(deposit.id);
+    const newDeposit = {
+      ...deposit,
+      status: existing ? existing.status : (deposit.status || "pending"),
+      explorerConfirmed: existing ? existing.explorerConfirmed : (deposit.explorerConfirmed || false),
+      createdAt: deposit.createdAt || new Date().toISOString(),
+    };
+
+    serverDepositsStore.set(deposit.id, newDeposit);
+    savePersistedDeposits();
+
+    res.json({ success: true, record: newDeposit });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to create deposit", details: err?.message });
   }
 });
 
@@ -499,9 +843,14 @@ app.post("/api/financial/deposits/sync", (req, res) => {
     if (Array.isArray(records)) {
       records.forEach((r) => {
         if (r && r.id) {
-          // If incoming status is approved, only allow if admin authorized
-          if (r.status === "approved" && !isAuthorizedAdminRequest(req)) {
-            // Keep as pending in server store
+          const existing = serverDepositsStore.get(r.id);
+          // CRITICAL FIX: If an existing deposit was already approved, NEVER downgrade it to pending!
+          if (existing && existing.status === "approved") {
+            r.status = "approved";
+            r.explorerConfirmed = existing.explorerConfirmed ?? true;
+            r.approvedAt = existing.approvedAt || r.approvedAt;
+          } else if (r.status === "approved" && !isAuthorizedAdminRequest(req)) {
+            // Keep as pending in server store unless admin authorized
             r.status = "pending";
             r.explorerConfirmed = false;
           }
@@ -547,6 +896,22 @@ app.patch("/api/financial/deposits/:id", (req, res) => {
       serverDepositsStore.set(id, existing);
     }
     savePersistedDeposits();
+
+    // If approved, also upgrade the client's mining state on the server!
+    if (status === "approved" && existing) {
+      const clientEmail = (existing.userEmail || existing.userName || "").toLowerCase();
+      if (clientEmail && serverMiningStore.has(clientEmail)) {
+        const miningState = serverMiningStore.get(clientEmail);
+        const amountUsd = Number(existing.amountUsd) || 100;
+        const extraHashrate = existing.vipLevel ? existing.vipLevel * 300 : Math.floor(amountUsd / 3);
+        miningState.hashrateTh = (Number(miningState.hashrateTh) || 25) + extraHashrate;
+        miningState.dailyEthRate = (Number(miningState.dailyEthRate) || 0.00069) + (amountUsd * 0.02) / 2750;
+        miningState.activeContractsCount = (Number(miningState.activeContractsCount) || 0) + 1;
+        serverMiningStore.set(clientEmail, miningState);
+        savePersistedMiningState();
+      }
+    }
+
     res.json({ success: true, record: existing });
   } catch (err: any) {
     res.status(500).json({ error: "Failed to update deposit", details: err?.message });

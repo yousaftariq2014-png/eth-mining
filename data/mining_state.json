@@ -1,0 +1,14 @@
+[
+  {
+    "userId": "usr-1789077819271",
+    "userEmail": "test@example.com",
+    "hasActiveNode": true,
+    "nodeStartTime": 1789077819272,
+    "lastCalculatedTime": 1789077826445,
+    "accumulatedMinedEth": 5.7284374999999996e-8,
+    "dailyEthRate": 0.00069,
+    "hashrateTh": 25,
+    "activeContractsCount": 1,
+    "lastUpdated": "2026-09-10T22:03:46.445Z"
+  }
+]

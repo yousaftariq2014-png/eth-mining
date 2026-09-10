@@ -239,18 +239,37 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   const [withdrawalFilter, setWithdrawalFilter] = useState<'All' | 'Pending' | 'Withdrawal successfully' | 'Failed'>('All');
   const [dashCategory, setDashCategory] = useState<PackageType>('daily');
 
-  // Real data initialized seamlessly from localStorage + background Supabase sync
+  // Real data initialized seamlessly from localStorage + background Supabase sync + Server Persistence
   const [approvedDeposits, setApprovedDeposits] = useState<DepositRequest[]>(() => {
     try {
       const saved = localStorage.getItem('hashforge_deposits');
       if (saved) {
         const parsed = JSON.parse(saved);
-        return parsed
+        const filtered = parsed
           .filter((d: any) => matchesUser(d, user) && d.status === 'approved' && (d.explorer_confirmed ?? d.explorerConfirmed ?? true))
           .map(normalizeDeposit);
+        if (filtered.length > 0) return filtered;
       }
     } catch {}
-    return [];
+
+    // Default starter active contract for the logged in user
+    return [{
+      id: `starter-${user.id}`,
+      userId: user.id,
+      userName: user.name || user.email,
+      packageId: 'pkg-daily-100',
+      packageName: 'VIP 1 Starter Cloud Miner (Active 24/7)',
+      planType: 'daily',
+      vipLevel: 1,
+      amountUsd: 100,
+      network: 'TRC20',
+      depositAddress: '0xHashForgeSystemReserveHotVault',
+      senderTxid: 'STARTER-NODE-ACTIVATE-AUTO',
+      status: 'approved',
+      createdAt: user.joinedDate ? new Date(user.joinedDate).toISOString() : new Date(Date.now() - 86400000).toISOString(),
+      approvedAt: user.joinedDate ? new Date(user.joinedDate).toISOString() : new Date(Date.now() - 86400000).toISOString(),
+      explorerConfirmed: true,
+    }];
   });
 
   // Comprehensive identity matcher for client records
@@ -628,6 +647,23 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
 
         let rawDeposits: any[] = deposits || [];
 
+        // Fetch from Server Persistent Ledger
+        try {
+          const sRes = await fetch(`/api/financial/deposits?email=${encodeURIComponent(user.email)}&userId=${encodeURIComponent(user.id)}`);
+          if (sRes.ok) {
+            const sJson = await sRes.json();
+            if (sJson.success && Array.isArray(sJson.records)) {
+              for (const sDep of sJson.records) {
+                if (!rawDeposits.some((d: any) => d.id === sDep.id)) {
+                  rawDeposits.push(sDep);
+                }
+              }
+            }
+          }
+        } catch (sErr) {
+          console.warn('Server deposits fetch warning:', sErr);
+        }
+
         // Fallback/merge with local storage deposits if available
         try {
           const saved = localStorage.getItem('hashforge_deposits');
@@ -653,7 +689,29 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
         }
 
         const allDeposits: DepositRequest[] = rawDeposits.map(normalizeDeposit);
-        const approvedOnly = allDeposits.filter(d => d.status === 'approved' && (d.explorerConfirmed ?? true));
+        let approvedOnly = allDeposits.filter(d => d.status === 'approved' && (d.explorerConfirmed ?? true));
+
+        // If user has no active approved package yet, ensure Starter Cloud Mining Node is active 24/7
+        if (approvedOnly.length === 0) {
+          const starterContract: DepositRequest = {
+            id: `starter-${user.id}`,
+            userId: user.id,
+            userName: user.name || user.email,
+            packageId: 'pkg-daily-100',
+            packageName: 'VIP 1 Starter Cloud Miner (Active 24/7)',
+            planType: 'daily',
+            vipLevel: 1,
+            amountUsd: 100,
+            network: 'TRC20',
+            depositAddress: '0xHashForgeSystemReserveHotVault',
+            senderTxid: 'STARTER-NODE-ACTIVATE-AUTO',
+            status: 'approved',
+            createdAt: user.joinedDate ? new Date(user.joinedDate).toISOString() : new Date(Date.now() - 86400000).toISOString(),
+            approvedAt: user.joinedDate ? new Date(user.joinedDate).toISOString() : new Date(Date.now() - 86400000).toISOString(),
+            explorerConfirmed: true,
+          };
+          approvedOnly = [starterContract];
+        }
 
         setApprovedDeposits(approvedOnly);
         setPendingDeposits(allDeposits.filter(d => d.status === 'pending'));
@@ -848,6 +906,28 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     : isAccountPending
     ? '0 TH/s (Account Pending Hold)'
     : totalHashrateTh > 0 ? `${totalHashrateTh.toLocaleString()} TH/s` : '0 TH/s';
+
+  // 11. Sync 24/7 continuous cloud mining yield with server ledger
+  useEffect(() => {
+    if (!user?.email || isAccountHalted) return;
+    
+    const syncMiningLedger = () => {
+      fetch('/api/mining/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          userEmail: user.email,
+          accumulatedMinedEth: totalMinedEthLifetime,
+          dailyRate: dailyEthRate,
+        }),
+      }).catch(() => {});
+    };
+
+    syncMiningLedger();
+    const syncInterval = setInterval(syncMiningLedger, 15000);
+    return () => clearInterval(syncInterval);
+  }, [user?.email, user?.id, totalMinedEthLifetime, dailyEthRate, isAccountHalted]);
 
   const handleCopyTxid = (txid: string, id: string) => {
     navigator.clipboard.writeText(txid);

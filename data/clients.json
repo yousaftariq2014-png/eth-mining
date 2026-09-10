@@ -1,0 +1,19 @@
+[
+  {
+    "id": "usr-1789077819271",
+    "name": "Test User",
+    "email": "test@example.com",
+    "phone": "+123456789",
+    "phoneNumber": "+123456789",
+    "password": "mypassword123",
+    "raw_password": "mypassword123",
+    "plan": "No Active Package",
+    "vipLevel": 0,
+    "joinedDate": "2026-09-10",
+    "isLoggedIn": true,
+    "hasClaimedFreeBonus": false,
+    "onchainKey": "",
+    "accountStatus": "active",
+    "createdAt": "2026-09-10T22:03:39.271Z"
+  }
+]

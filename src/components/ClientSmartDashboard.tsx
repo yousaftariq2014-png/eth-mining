@@ -53,7 +53,16 @@ import {
   AutoReinvestConfig
 } from '../types';
 import { DAILY_PACKAGES, FLASH_48H_PACKAGES, MINING_PACKAGES, CUSTOM_PRESET_PACKAGES, getFlashProfitDetails } from '../data/packagesData';
-import { supabase, insertSupabaseWithdrawal, fetchSupabaseExchanges, insertSupabaseExchange } from '../lib/supabaseClient';
+import { 
+  supabase, 
+  insertSupabaseWithdrawal, 
+  fetchSupabaseExchanges, 
+  insertSupabaseExchange,
+  fetchSupabaseMiningState,
+  saveSupabaseMiningState,
+  fetchSupabaseMiningContracts,
+  saveSupabaseMiningContract
+} from '../lib/supabaseClient';
 import { EthMiningPanel } from './EthMiningPanel';
 import { EthToUsdtSwapModal } from './EthToUsdtSwapModal';
 import { InvoiceReceiptModal } from './InvoiceReceiptModal';
@@ -678,6 +687,34 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
           }
         } catch {}
 
+        // Merge Supabase persistent mining_contracts
+        try {
+          const supaContracts = await fetchSupabaseMiningContracts(user.id, user.email, user.name);
+          for (const sc of supaContracts) {
+            const contractKey = sc.id.startsWith('contract-') ? sc.id.replace('contract-', '') : sc.id;
+            if (!rawDeposits.some((d: any) => d.id === sc.id || d.id === contractKey)) {
+              rawDeposits.push({
+                id: sc.id,
+                userId: sc.user_id,
+                userName: sc.user_name,
+                packageId: sc.package_id,
+                packageName: sc.package_name,
+                vipLevel: sc.vip_level,
+                amountUsd: sc.package_name.includes('10,000') ? 10000 : (sc.package_name.includes('1,000') ? 1000 : 100),
+                network: 'TRC20',
+                depositAddress: '0xHashForgeSystemReserveHotVault',
+                senderTxid: 'SUPABASE-RIG-SYNC',
+                status: 'approved',
+                createdAt: sc.created_at || new Date(Date.now() - 3 * 86400000).toISOString(),
+                approvedAt: sc.created_at || new Date(Date.now() - 3 * 86400000).toISOString(),
+                explorerConfirmed: true,
+              });
+            }
+          }
+        } catch (mcErr) {
+          console.warn('Supabase mining contracts sync note:', mcErr);
+        }
+
         // Merge any externally passed pendingDeposits
         if (externalPendingDeposits && externalPendingDeposits.length > 0) {
           const userExternal = externalPendingDeposits.filter(d => matchesUser(d, user));
@@ -873,6 +910,17 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   // 4. Daily ETH Mining Output Rate (0 if halted)
   const dailyEthRate = isAccountHalted ? 0 : (ethPriceUsd > 0 ? (todayDailyReturnUsd / ethPriceUsd) : 0);
 
+  // 4b. Total Hashrate Calculation (0 TH/s if halted by admin)
+  const totalHashrateTh = isAccountHalted ? 0 : activeContracts.reduce((sum, c) => {
+    const hashrateNum = c.pkg?.hashrate || (c.deposit.vipLevel * 25);
+    return sum + hashrateNum;
+  }, 0);
+  const totalHashrateDisplay = isAccountBlocked 
+    ? '0 TH/s (Account Blocked)'
+    : isAccountPending
+    ? '0 TH/s (Account Pending Hold)'
+    : totalHashrateTh > 0 ? `${totalHashrateTh.toLocaleString()} TH/s` : '0 TH/s';
+
   // 5. User's 24/7 Continuous Mined ETH Ledger (Persistent Server & LocalStorage Engine)
   const cleanMinedStorageKey = `hashforge_mined_eth_${(user?.email || user?.id || 'default').toLowerCase()}`;
   
@@ -887,32 +935,29 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     return 0.00350000;
   });
 
-  // Fetch true server-side mining ledger on mount & calculate off-session elapsed yield
+  // Fetch true persistent mining ledger on mount (checks Supabase mining_state, Server, & LocalStorage)
   useEffect(() => {
     let isCancelled = false;
-    async function loadServerMiningState() {
+    async function loadPersistentMiningState() {
       if (!user?.email) return;
       try {
-        const res = await fetch(`/api/mining/state?email=${encodeURIComponent(user.email)}&userId=${encodeURIComponent(user.id)}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (!isCancelled && data.success && data.state?.accumulatedMinedEth !== undefined) {
-            const serverEth = Number(data.state.accumulatedMinedEth) || 0;
-            setContinuousMinedEth(prev => {
-              const bestVal = Math.max(prev, serverEth);
-              try {
-                localStorage.setItem(cleanMinedStorageKey, bestVal.toString());
-              } catch {}
-              return bestVal;
-            });
-          }
+        const state = await fetchSupabaseMiningState(user.email, user.id);
+        if (!isCancelled && state && state.accumulatedMinedEth !== undefined) {
+          const persistentEth = Number(state.accumulatedMinedEth) || 0.00350000;
+          setContinuousMinedEth(prev => {
+            const bestVal = Math.max(prev, persistentEth);
+            try {
+              localStorage.setItem(cleanMinedStorageKey, bestVal.toString());
+            } catch {}
+            return bestVal;
+          });
         }
       } catch (err) {
-        console.warn('Silent server mining state notice:', err);
+        console.warn('Silent mining state load notice:', err);
       }
     }
 
-    loadServerMiningState();
+    loadPersistentMiningState();
     return () => { isCancelled = true; };
   }, [user?.email, user?.id, cleanMinedStorageKey]);
 
@@ -939,26 +984,24 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     } catch {}
   }, [continuousMinedEth, cleanMinedStorageKey]);
 
-  // Sync 24/7 continuous cloud mining yield to server ledger every 10 seconds
+  // Sync 24/7 continuous cloud mining yield to Supabase, Express Server, and LocalStorage
   useEffect(() => {
     if (!user?.email || isAccountHalted) return;
     
     const syncMiningLedger = () => {
-      fetch('/api/mining/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: user.id,
-          userEmail: user.email,
-          accumulatedMinedEth: continuousMinedEth,
-          dailyEthRate: dailyEthRate > 0 ? dailyEthRate : 0.00069,
-        }),
+      saveSupabaseMiningState({
+        userId: user.id,
+        userEmail: user.email,
+        accumulatedMinedEth: continuousMinedEth,
+        dailyEthRate: dailyEthRate > 0 ? dailyEthRate : 0.00069,
+        hashrateTh: totalHashrateTh > 0 ? totalHashrateTh : 25,
+        activeContractsCount: activeContracts.length || 1,
       }).catch(() => {});
     };
 
-    const syncInterval = setInterval(syncMiningLedger, 10000);
+    const syncInterval = setInterval(syncMiningLedger, 8000);
     return () => clearInterval(syncInterval);
-  }, [user?.email, user?.id, continuousMinedEth, dailyEthRate, isAccountHalted]);
+  }, [user?.email, user?.id, continuousMinedEth, dailyEthRate, totalHashrateTh, activeContracts.length, isAccountHalted]);
 
   // 6. Total Swapped ETH & Converted USDT by user
   const totalSwappedEth = exchangeRecords
@@ -969,10 +1012,9 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     .filter(e => e.status === 'Completed')
     .reduce((sum, e) => sum + e.toAmount, 0);
 
-  // 7. Net Current Mined ETH Balance (Anchored to continuous ledger; NEVER resets to 00000 on login/logout)
-  const contractBasedEthLifetime = ethPriceUsd > 0 ? (totalEarnedProfitsUsd / ethPriceUsd) : 0;
-  const totalMinedEthLifetime = Math.max(continuousMinedEth, contractBasedEthLifetime);
-  const minedEthBalance = Math.max(0, totalMinedEthLifetime - totalSwappedEth);
+  // 7. Net Current Mined ETH Balance (Anchored to continuous ledger; NEVER resets to 0.00000000 on login/logout)
+  const minedEthBalance = Math.max(0, continuousMinedEth);
+  const totalMinedEthLifetime = continuousMinedEth + totalSwappedEth;
 
   // 8. Total Withdrawn by user (USDT)
   const totalWithdrawnUsdt = withdrawalRecords
@@ -981,17 +1023,6 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
 
   // 9. Withdrawable Available USDT Balance (Must be converted from ETH first)
   const availableUsdtBalance = Math.max(0, totalConvertedUsdt - totalWithdrawnUsdt);
-
-  // 10. Total Hashrate Calculation (0 TH/s if halted by admin)
-  const totalHashrateTh = isAccountHalted ? 0 : activeContracts.reduce((sum, c) => {
-    const hashrateNum = c.pkg?.hashrate || (c.deposit.vipLevel * 25);
-    return sum + hashrateNum;
-  }, 0);
-  const totalHashrateDisplay = isAccountBlocked 
-    ? '0 TH/s (Account Blocked)'
-    : isAccountPending
-    ? '0 TH/s (Account Pending Hold)'
-    : totalHashrateTh > 0 ? `${totalHashrateTh.toLocaleString()} TH/s` : '0 TH/s';
 
   const handleCopyTxid = (txid: string, id: string) => {
     navigator.clipboard.writeText(txid);
@@ -1025,12 +1056,39 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     };
 
     setExchangeRecords(prev => [newSwapRecord, ...prev]);
+
+    // Deduct swapped ETH from live continuous mined ledger
+    setContinuousMinedEth(prev => {
+      const remainingEth = Math.max(0, prev - ethAmount);
+      try {
+        localStorage.setItem(cleanMinedStorageKey, remainingEth.toString());
+      } catch {}
+      saveSupabaseMiningState({
+        userId: user.id,
+        userEmail: user.email,
+        accumulatedMinedEth: remainingEth,
+        dailyEthRate: dailyEthRate > 0 ? dailyEthRate : 0.00069,
+        hashrateTh: totalHashrateTh > 0 ? totalHashrateTh : 25,
+        activeContractsCount: activeContracts.length || 1,
+      }).catch(() => {});
+      return remainingEth;
+    });
+
     showToast(`Successfully converted ${ethAmount.toFixed(6)} ETH to $${usdtAmount.toFixed(2)} USDT!`, 'success');
     setEmbedSwapEthInput('');
 
     // Persist to Supabase Cloud, Express Server, and LocalStorage
     try {
       await insertSupabaseExchange(newSwapRecord);
+      fetch('/api/mining/deduct', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userEmail: user.email,
+          userId: user.id,
+          amountEth: ethAmount,
+        }),
+      }).catch(() => {});
     } catch (e) {
       console.warn('Supabase exchange insertion warning:', e);
     }

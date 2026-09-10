@@ -772,6 +772,10 @@ app.post("/api/mining/sync", (req, res) => {
     const existing = serverMiningStore.get(cleanEmail) || {};
 
     const now = Date.now();
+    const existingMined = Number(existing.accumulatedMinedEth) || 0.0035;
+    const incomingMined = accumulatedMinedEth !== undefined ? Number(accumulatedMinedEth) : 0;
+    const safeMinedEth = Math.max(existingMined, incomingMined, 0.0035);
+
     const updatedState = {
       ...existing,
       userId: userId || existing.userId || `usr-${now}`,
@@ -779,9 +783,9 @@ app.post("/api/mining/sync", (req, res) => {
       hasActiveNode: true,
       nodeStartTime: existing.nodeStartTime || now,
       lastCalculatedTime: now,
-      accumulatedMinedEth: Math.max(Number(existing.accumulatedMinedEth) || 0, Number(accumulatedMinedEth) || 0),
-      dailyEthRate: dailyEthRate !== undefined ? Number(dailyEthRate) : (existing.dailyEthRate || 0.00069),
-      hashrateTh: hashrateTh !== undefined ? Number(hashrateTh) : (existing.hashrateTh || 25),
+      accumulatedMinedEth: safeMinedEth,
+      dailyEthRate: dailyEthRate !== undefined && Number(dailyEthRate) > 0 ? Number(dailyEthRate) : (existing.dailyEthRate || 0.00069),
+      hashrateTh: hashrateTh !== undefined && Number(hashrateTh) > 0 ? Number(hashrateTh) : (existing.hashrateTh || 25),
       activeContractsCount: activeContractsCount !== undefined ? Number(activeContractsCount) : (existing.activeContractsCount || 1),
       lastUpdated: new Date().toISOString()
     };

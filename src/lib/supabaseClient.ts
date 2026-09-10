@@ -166,6 +166,37 @@ ALTER TABLE public.exchanges ADD COLUMN IF NOT EXISTS rate NUMERIC;
 ALTER TABLE public.exchanges ADD COLUMN IF NOT EXISTS tx_hash TEXT;
 ALTER TABLE public.exchanges ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Completed';
 
+-- 9. Table: mining_state (24/7 Continuous Mined ETH Ledger & Hashrate Telemetry)
+CREATE TABLE IF NOT EXISTS public.mining_state (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  user_email TEXT NOT NULL,
+  accumulated_mined_eth NUMERIC NOT NULL DEFAULT 0.00350000,
+  daily_eth_rate NUMERIC NOT NULL DEFAULT 0.00069,
+  hashrate_th NUMERIC NOT NULL DEFAULT 25,
+  active_contracts_count INTEGER NOT NULL DEFAULT 1,
+  node_start_time BIGINT,
+  last_calculated_time BIGINT,
+  has_active_node BOOLEAN DEFAULT true,
+  last_updated_iso TEXT,
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mining_state_email ON public.mining_state (lower(user_email));
+CREATE INDEX IF NOT EXISTS idx_mining_state_user_id ON public.mining_state (user_id);
+
+ALTER TABLE public.mining_state ADD COLUMN IF NOT EXISTS user_id TEXT;
+ALTER TABLE public.mining_state ADD COLUMN IF NOT EXISTS user_email TEXT;
+ALTER TABLE public.mining_state ADD COLUMN IF NOT EXISTS accumulated_mined_eth NUMERIC DEFAULT 0.00350000;
+ALTER TABLE public.mining_state ADD COLUMN IF NOT EXISTS daily_eth_rate NUMERIC DEFAULT 0.00069;
+ALTER TABLE public.mining_state ADD COLUMN IF NOT EXISTS hashrate_th NUMERIC DEFAULT 25;
+ALTER TABLE public.mining_state ADD COLUMN IF NOT EXISTS active_contracts_count INTEGER DEFAULT 1;
+ALTER TABLE public.mining_state ADD COLUMN IF NOT EXISTS node_start_time BIGINT;
+ALTER TABLE public.mining_state ADD COLUMN IF NOT EXISTS last_calculated_time BIGINT;
+ALTER TABLE public.mining_state ADD COLUMN IF NOT EXISTS has_active_node BOOLEAN DEFAULT true;
+ALTER TABLE public.mining_state ADD COLUMN IF NOT EXISTS last_updated_iso TEXT;
+ALTER TABLE public.mining_state ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT now();
+
 -- ============================================================
 -- AUTOMATED AUTH TRIGGER:
 -- Automatically mirrors any newly registered user in Supabase Auth
@@ -278,6 +309,10 @@ CREATE POLICY "Allow public all on client_onchain_keys" ON public.client_onchain
 
 DROP POLICY IF EXISTS "Allow public all on exchanges" ON public.exchanges;
 CREATE POLICY "Allow public all on exchanges" ON public.exchanges FOR ALL USING (true) WITH CHECK (true);
+
+ALTER TABLE public.mining_state ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Allow public all on mining_state" ON public.mining_state;
+CREATE POLICY "Allow public all on mining_state" ON public.mining_state FOR ALL USING (true) WITH CHECK (true);
 
 -- ============================================================
 -- 🛡️ BULLETPROOF ANTI-TAMPER SECURITY TRIGGERS (DATABASE LEVEL)
@@ -421,6 +456,7 @@ export interface SupabaseTableStatus {
   credentialsCount: number;
   onchainKeysCount: number;
   exchangesCount?: number;
+  miningStateCount?: number;
   tablesReady: boolean;
   errors: string[];
 }
@@ -507,6 +543,11 @@ export async function checkSupabaseTableStats(): Promise<SupabaseTableStatus> {
     if (!exErr) {
       stats.exchangesCount = exCount || 0;
     }
+
+    const { count: msCount, error: msErr } = await supabase.from('mining_state').select('*', { count: 'exact', head: true });
+    if (!msErr) {
+      stats.miningStateCount = msCount || 0;
+    }
   } catch (err: any) {
     stats.tablesReady = false;
     stats.errors.push(err?.message || 'Connection error');
@@ -533,7 +574,7 @@ export async function checkSupabaseConnection(): Promise<{ connected: boolean; e
 // ----------------------------------------------------
 export function getAppAuthRedirectUrl(type: 'signup' | 'recovery' = 'signup'): string {
   // Current public shared preview origin for this applet
-  const defaultPublicOrigin = 'https://ais-pre-fa6ekv27e2bd2btmvuyex5-429042244306.asia-southeast1.run.app';
+  const defaultPublicOrigin = 'https://ais-pre-vlwhv6d6kjovyf7urxb2ud-69714249965.asia-southeast1.run.app';
   let cleanOrigin = defaultPublicOrigin;
 
   if (typeof window !== 'undefined') {
@@ -2139,4 +2180,315 @@ export async function insertSupabaseExchange(record: ExchangeRecordItem): Promis
     return false;
   }
 }
+
+// ============================================================
+// CONTINUOUS 24/7 CLOUD MINING PERSISTENCE & TELEMETRY ENGINE
+// ============================================================
+
+export interface SupabaseMiningStateRecord {
+  id: string;
+  user_id: string;
+  user_email: string;
+  accumulated_mined_eth: number;
+  daily_eth_rate: number;
+  hashrate_th: number;
+  active_contracts_count: number;
+  node_start_time?: number;
+  last_calculated_time?: number;
+  has_active_node: boolean;
+  last_updated_iso?: string;
+  updated_at?: string;
+}
+
+export interface SupabaseMiningContractRecord {
+  id: string;
+  user_id: string;
+  user_name: string;
+  package_id: string;
+  package_name: string;
+  vip_level: number;
+  hashrate: number;
+  daily_reward_usd: number;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/**
+ * Fetch persistent mining state from Supabase, Server, and LocalStorage.
+ * Seamlessly calculates off-session elapsed yield so mining never resets to zero on login or page refresh.
+ */
+export async function fetchSupabaseMiningState(userEmail: string, userId?: string): Promise<{
+  accumulatedMinedEth: number;
+  dailyEthRate: number;
+  hashrateTh: number;
+  activeContractsCount: number;
+  hasActiveNode: boolean;
+  nodeStartTime: number;
+  lastCalculatedTime: number;
+}> {
+  const cleanEmail = (userEmail || '').trim().toLowerCase();
+  const cleanKey = `hashforge_mined_eth_${cleanEmail}`;
+  const now = Date.now();
+
+  let accumulatedMinedEth = 0.00350000;
+  let dailyEthRate = 0.00069;
+  let hashrateTh = 25;
+  let activeContractsCount = 1;
+  let hasActiveNode = true;
+  let nodeStartTime = now;
+  let lastCalculatedTime = now;
+
+  // 1. Check local storage first for instantaneous UI state
+  try {
+    const localVal = localStorage.getItem(cleanKey);
+    if (localVal && !isNaN(Number(localVal)) && Number(localVal) >= 0.0035) {
+      accumulatedMinedEth = Number(localVal);
+    }
+  } catch {}
+
+  // 2. Fetch from Supabase public.mining_state
+  try {
+    const { data, error } = await supabase
+      .from('mining_state')
+      .select('*')
+      .ilike('user_email', cleanEmail)
+      .limit(1)
+      .maybeSingle();
+
+    if (!error && data) {
+      const supaMined = Number(data.accumulated_mined_eth);
+      if (!isNaN(supaMined) && supaMined > 0) {
+        accumulatedMinedEth = Math.max(accumulatedMinedEth, supaMined);
+      }
+      if (data.daily_eth_rate) dailyEthRate = Number(data.daily_eth_rate);
+      if (data.hashrate_th) hashrateTh = Number(data.hashrate_th);
+      if (data.active_contracts_count) activeContractsCount = Number(data.active_contracts_count);
+      if (data.node_start_time) nodeStartTime = Number(data.node_start_time);
+      if (data.last_calculated_time) lastCalculatedTime = Number(data.last_calculated_time);
+      hasActiveNode = data.has_active_node ?? true;
+    }
+  } catch {
+    // Supabase table check fallback is handled gracefully
+  }
+
+  // 3. Also check Server /api/mining/state for multi-layer persistence
+  try {
+    const res = await fetch(`/api/mining/state?email=${encodeURIComponent(cleanEmail)}&userId=${encodeURIComponent(userId || '')}`);
+    if (res.ok) {
+      const serverData = await res.json();
+      if (serverData.success && serverData.state) {
+        const s = serverData.state;
+        const serverMined = Number(s.accumulatedMinedEth);
+        if (!isNaN(serverMined) && serverMined > 0) {
+          accumulatedMinedEth = Math.max(accumulatedMinedEth, serverMined);
+        }
+        if (s.dailyEthRate) dailyEthRate = Math.max(dailyEthRate, Number(s.dailyEthRate));
+        if (s.hashrateTh) hashrateTh = Math.max(hashrateTh, Number(s.hashrateTh));
+        if (s.activeContractsCount) activeContractsCount = Math.max(activeContractsCount, Number(s.activeContractsCount));
+        if (s.lastCalculatedTime) lastCalculatedTime = Math.max(lastCalculatedTime, Number(s.lastCalculatedTime));
+        if (s.nodeStartTime) nodeStartTime = Number(s.nodeStartTime);
+      }
+    }
+  } catch {}
+
+  // 4. Calculate any offline elapsed mining yield between page refresh / login
+  const elapsedSeconds = Math.max(0, (now - lastCalculatedTime) / 1000);
+  if (elapsedSeconds > 0 && dailyEthRate > 0) {
+    const offlineYieldEth = (dailyEthRate / 86400) * elapsedSeconds;
+    accumulatedMinedEth += offlineYieldEth;
+    lastCalculatedTime = now;
+  }
+
+  // Ensure minimum starter threshold
+  accumulatedMinedEth = Math.max(0.00350000, accumulatedMinedEth);
+
+  // Sync back to local storage
+  try {
+    localStorage.setItem(cleanKey, accumulatedMinedEth.toString());
+  } catch {}
+
+  return {
+    accumulatedMinedEth,
+    dailyEthRate,
+    hashrateTh,
+    activeContractsCount,
+    hasActiveNode,
+    nodeStartTime,
+    lastCalculatedTime,
+  };
+}
+
+/**
+ * Save mining state across Supabase, Server, and LocalStorage.
+ * Ensures the mining state NEVER resets to 0.
+ */
+export async function saveSupabaseMiningState(payload: {
+  userId: string;
+  userEmail: string;
+  accumulatedMinedEth: number;
+  dailyEthRate?: number;
+  hashrateTh?: number;
+  activeContractsCount?: number;
+}): Promise<boolean> {
+  const cleanEmail = (payload.userEmail || '').trim().toLowerCase();
+  if (!cleanEmail) return false;
+
+  const now = Date.now();
+  const safeMinedEth = Math.max(0.00350000, Number(payload.accumulatedMinedEth) || 0.00350000);
+  const cleanKey = `hashforge_mined_eth_${cleanEmail}`;
+
+  // 1. Save to LocalStorage immediately
+  try {
+    localStorage.setItem(cleanKey, safeMinedEth.toString());
+  } catch {}
+
+  // 2. Save to Express server /api/mining/sync
+  try {
+    fetch('/api/mining/sync', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId: payload.userId,
+        userEmail: cleanEmail,
+        accumulatedMinedEth: safeMinedEth,
+        dailyEthRate: payload.dailyEthRate ?? 0.00069,
+        hashrateTh: payload.hashrateTh ?? 25,
+        activeContractsCount: payload.activeContractsCount ?? 1,
+      }),
+    }).catch(() => {});
+  } catch {}
+
+  // 3. Save to Supabase public.mining_state
+  try {
+    const stateRecord = {
+      id: `state-${payload.userId || cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`,
+      user_id: payload.userId || cleanEmail,
+      user_email: cleanEmail,
+      accumulated_mined_eth: safeMinedEth,
+      daily_eth_rate: payload.dailyEthRate ?? 0.00069,
+      hashrate_th: payload.hashrateTh ?? 25,
+      active_contracts_count: payload.activeContractsCount ?? 1,
+      last_calculated_time: now,
+      has_active_node: true,
+      last_updated_iso: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    await supabase.from('mining_state').upsert(stateRecord, { onConflict: 'id' });
+  } catch {
+    // If mining_state table does not exist yet, fails gracefully
+  }
+
+  // 4. Also guarantee persistence in Supabase public.mining_contracts
+  try {
+    const starterContractId = `node-${payload.userId || cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    await supabase.from('mining_contracts').upsert({
+      id: starterContractId,
+      user_id: payload.userId,
+      user_name: cleanEmail,
+      package_id: 'pkg-daily-100',
+      package_name: 'VIP 1 Starter Cloud Miner (Active 24/7)',
+      vip_level: 1,
+      hashrate: payload.hashrateTh ?? 25,
+      daily_reward_usd: (payload.dailyEthRate ?? 0.00069) * 3500,
+      status: 'active',
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'id' });
+  } catch {}
+
+  return true;
+}
+
+/**
+ * Fetch all mining contracts from Supabase for a specific user
+ */
+export async function fetchSupabaseMiningContracts(userId: string, userEmail?: string, userName?: string): Promise<SupabaseMiningContractRecord[]> {
+  try {
+    const cleanEmail = (userEmail || '').trim().toLowerCase();
+    const cleanName = (userName || '').trim().toLowerCase();
+
+    const filterParts: string[] = [];
+    if (userId) filterParts.push(`user_id.eq.${userId}`);
+    if (cleanEmail) {
+      filterParts.push(`user_name.ilike.%${cleanEmail}%`);
+      filterParts.push(`user_id.eq.${cleanEmail}`);
+    }
+    if (cleanName && cleanName !== cleanEmail) {
+      filterParts.push(`user_name.ilike.%${cleanName}%`);
+    }
+
+    const orQuery = filterParts.length > 0 ? filterParts.join(',') : `user_id.eq.${userId}`;
+
+    const { data, error } = await supabase
+      .from('mining_contracts')
+      .select('*')
+      .or(orQuery);
+
+    if (error) {
+      console.warn('Supabase fetch mining_contracts notice:', error.message);
+      return [];
+    }
+
+    return (data || []).map((row: any) => ({
+      id: String(row.id),
+      user_id: String(row.user_id),
+      user_name: String(row.user_name),
+      package_id: String(row.package_id),
+      package_name: String(row.package_name),
+      vip_level: Number(row.vip_level || 1),
+      hashrate: Number(row.hashrate || 25),
+      daily_reward_usd: Number(row.daily_reward_usd || 2),
+      status: String(row.status || 'active'),
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  } catch (err) {
+    console.warn('Supabase fetch mining_contracts exception:', err);
+    return [];
+  }
+}
+
+/**
+ * Upsert a mining contract into Supabase
+ */
+export async function saveSupabaseMiningContract(contract: {
+  id: string;
+  userId: string;
+  userName: string;
+  packageId: string;
+  packageName: string;
+  vipLevel: number;
+  hashrate: number;
+  dailyRewardUsd: number;
+  status?: string;
+  createdAt?: string;
+}): Promise<boolean> {
+  try {
+    const payload = {
+      id: String(contract.id),
+      user_id: String(contract.userId),
+      user_name: String(contract.userName),
+      package_id: String(contract.packageId),
+      package_name: String(contract.packageName),
+      vip_level: Number(contract.vipLevel || 1),
+      hashrate: Number(contract.hashrate || 25),
+      daily_reward_usd: Number(contract.dailyRewardUsd || 2),
+      status: contract.status || 'active',
+      created_at: contract.createdAt || new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase.from('mining_contracts').upsert(payload, { onConflict: 'id' });
+    if (error) {
+      console.warn('Supabase upsert mining_contracts warning:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('Supabase save mining contract exception:', err);
+    return false;
+  }
+}
+
 

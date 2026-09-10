@@ -381,7 +381,8 @@ export function calculateCustomerAggregation(
     const expiredContracts = allContracts.filter(c => c.isExpired);
 
     const totalHashrate = activeContracts.reduce((sum, c) => sum + c.hashrate, 0);
-    const totalDailyYieldUsd = activeContracts.reduce((sum, c) => sum + c.dailyYieldUsd, 0);
+    const activeDailyContracts = activeContracts.filter(c => !c.isFlash);
+    const totalDailyYieldUsd = activeDailyContracts.reduce((sum, c) => sum + c.dailyYieldUsd, 0);
     const totalAccruedProfitsUsd = allContracts.reduce((sum, c) => sum + c.accruedYieldUsd, 0);
 
     const estimatedAvailableBalanceUsd = Math.max(

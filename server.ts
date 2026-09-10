@@ -268,12 +268,13 @@ interface ContractDepositPayload {
 }
 
 function calculateTierDailyRate(amountUsd: number): number {
-  if (amountUsd >= 100000) return 3.2; // 3.20% ($100k - $200k Institutional)
-  if (amountUsd >= 50000) return 3.0;  // 3.00% ($50k - $100k)
-  if (amountUsd >= 30000) return 2.8;  // 2.80% ($30k - $50k)
-  if (amountUsd >= 10000) return 2.6;  // 2.60% ($10k - $30k)
-  if (amountUsd >= 5000) return 2.2;   // 2.20% ($5k - $10k)
-  return 1.9;                          // 1.90% ($100 - $5k)
+  if (amountUsd >= 100000) return 3.0; // VIP 7: 3.00%
+  if (amountUsd >= 50000) return 2.8;  // VIP 6: 2.80%
+  if (amountUsd >= 20000) return 2.6;  // VIP 5: 2.60%
+  if (amountUsd >= 10000) return 2.4;  // VIP 4: 2.40%
+  if (amountUsd >= 5000) return 2.2;   // VIP 3: 2.20%
+  if (amountUsd >= 1000) return 2.0;   // VIP 2: 2.00%
+  return 1.9;                          // VIP 1: 1.90%
 }
 
 // Server calculation of contract financial yield
@@ -358,8 +359,26 @@ app.post("/api/financial/calculate-yield", (req, res) => {
       ? withdrawals.filter((w: any) => w.status !== "Failed").reduce((sum: number, w: any) => sum + Math.abs(Number(w.amount) || 0), 0)
       : 0;
 
+    // Matured 48H Flash Packages Automatic Settlement
+    const maturedFlashSettlementUsdt = approvedDeposits
+      .filter((dep: ContractDepositPayload) => {
+        const isFlash = dep.planType === "flash_48h" || (dep.packageName && dep.packageName.toLowerCase().includes("flash"));
+        const rawTimestamp = dep.approvedAt || dep.createdAt || new Date().toISOString();
+        const activationTime = new Date(rawTimestamp).getTime() || now;
+        return isFlash && (now - activationTime >= 48 * 60 * 60 * 1000);
+      })
+      .reduce((sum: number, dep: ContractDepositPayload) => {
+        const amountUsd = Number(dep.amountUsd) || 0;
+        let rate = 0.10;
+        if (amountUsd >= 10000) rate = 0.25;
+        else if (amountUsd >= 5000) rate = 0.20;
+        else if (amountUsd >= 1000) rate = 0.14;
+        else if (amountUsd >= 500) rate = 0.12;
+        return sum + (amountUsd * (1 + rate));
+      }, 0);
+
     const authenticMinedEthBalance = Math.max(0, totalMinedEthLifetime - totalSwappedEth);
-    const authenticAvailableUsdtBalance = Math.max(0, totalConvertedUsdt - totalWithdrawnUsdt);
+    const authenticAvailableUsdtBalance = Math.max(0, (totalConvertedUsdt + maturedFlashSettlementUsdt) - totalWithdrawnUsdt);
 
     // Cryptographic audit proof signature
     const auditProof = crypto

@@ -879,7 +879,10 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   const totalEarnedProfitsUsd = processedContracts.reduce((sum, c) => sum + c.accruedYieldUsd, 0);
 
   // 3. Today's Daily Mining Production in USD (STOPS if account is blocked or on pending hold)
-  const todayDailyReturnUsd = isAccountHalted ? 0 : activeContracts.reduce((sum, c) => sum + c.dailyYieldUsd, 0);
+  // Continuous 24/7 ETH mining is produced by active daily contracts.
+  // 48H Flash packages are fixed 48-hour lump sum settlements that unlock into USDT wallet upon expiration.
+  const activeDailyContracts = activeContracts.filter(c => !c.isFlash);
+  const todayDailyReturnUsd = isAccountHalted ? 0 : activeDailyContracts.reduce((sum, c) => sum + c.dailyYieldUsd, 0);
 
   // 4. Daily ETH Mining Output Rate (0 if halted)
   const dailyEthRate = isAccountHalted ? 0 : (ethPriceUsd > 0 ? (todayDailyReturnUsd / ethPriceUsd) : 0);
@@ -993,8 +996,15 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     .filter(w => w.status !== 'Failed')
     .reduce((sum, w) => sum + Math.abs(Number(w.amount)), 0);
 
-  // 9. Withdrawable Available USDT Balance (Must be converted from ETH first)
-  const availableUsdtBalance = Math.max(0, totalConvertedUsdt - totalWithdrawnUsdt);
+  // 8b. Matured 48H Flash Packages Automatic Settlement
+  // When a 48H Flash contract expires (reaches 48 hours), its full payout (Principal + Fixed Profit)
+  // automatically settles and unlocks into the client's withdrawable USDT wallet balance!
+  const maturedFlashSettlementUsdt = expiredContracts
+    .filter(c => c.isFlash)
+    .reduce((sum, c) => sum + c.estTotalYieldUsd, 0);
+
+  // 9. Withdrawable Available USDT Balance (Converted from ETH + Matured 48H Flash Settlements - Total Withdrawn)
+  const availableUsdtBalance = Math.max(0, (totalConvertedUsdt + maturedFlashSettlementUsdt) - totalWithdrawnUsdt);
 
   const handleCopyTxid = (txid: string, id: string) => {
     navigator.clipboard.writeText(txid);

@@ -266,8 +266,8 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       depositAddress: '0xHashForgeSystemReserveHotVault',
       senderTxid: 'STARTER-NODE-ACTIVATE-AUTO',
       status: 'approved',
-      createdAt: user.joinedDate ? new Date(user.joinedDate).toISOString() : new Date(Date.now() - 86400000).toISOString(),
-      approvedAt: user.joinedDate ? new Date(user.joinedDate).toISOString() : new Date(Date.now() - 86400000).toISOString(),
+      createdAt: new Date(Date.now() - 3 * 86400000).toISOString(),
+      approvedAt: new Date(Date.now() - 3 * 86400000).toISOString(),
       explorerConfirmed: true,
     }];
   });
@@ -706,8 +706,8 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
             depositAddress: '0xHashForgeSystemReserveHotVault',
             senderTxid: 'STARTER-NODE-ACTIVATE-AUTO',
             status: 'approved',
-            createdAt: user.joinedDate ? new Date(user.joinedDate).toISOString() : new Date(Date.now() - 86400000).toISOString(),
-            approvedAt: user.joinedDate ? new Date(user.joinedDate).toISOString() : new Date(Date.now() - 86400000).toISOString(),
+            createdAt: new Date(Date.now() - 3 * 86400000).toISOString(),
+            approvedAt: new Date(Date.now() - 3 * 86400000).toISOString(),
             explorerConfirmed: true,
           };
           approvedOnly = [starterContract];
@@ -873,8 +873,92 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   // 4. Daily ETH Mining Output Rate (0 if halted)
   const dailyEthRate = isAccountHalted ? 0 : (ethPriceUsd > 0 ? (todayDailyReturnUsd / ethPriceUsd) : 0);
 
-  // 5. Total Total Earned Mined ETH
-  const totalMinedEthLifetime = ethPriceUsd > 0 ? (totalEarnedProfitsUsd / ethPriceUsd) : 0;
+  // 5. User's 24/7 Continuous Mined ETH Ledger (Persistent Server & LocalStorage Engine)
+  const cleanMinedStorageKey = `hashforge_mined_eth_${(user?.email || user?.id || 'default').toLowerCase()}`;
+  
+  const [continuousMinedEth, setContinuousMinedEth] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem(cleanMinedStorageKey);
+      if (saved && !isNaN(Number(saved)) && Number(saved) > 0) {
+        return Number(saved);
+      }
+    } catch {}
+    // Initial active starter cloud node genesis block (~$12.20 production base)
+    return 0.00350000;
+  });
+
+  // Fetch true server-side mining ledger on mount & calculate off-session elapsed yield
+  useEffect(() => {
+    let isCancelled = false;
+    async function loadServerMiningState() {
+      if (!user?.email) return;
+      try {
+        const res = await fetch(`/api/mining/state?email=${encodeURIComponent(user.email)}&userId=${encodeURIComponent(user.id)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (!isCancelled && data.success && data.state?.accumulatedMinedEth !== undefined) {
+            const serverEth = Number(data.state.accumulatedMinedEth) || 0;
+            setContinuousMinedEth(prev => {
+              const bestVal = Math.max(prev, serverEth);
+              try {
+                localStorage.setItem(cleanMinedStorageKey, bestVal.toString());
+              } catch {}
+              return bestVal;
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Silent server mining state notice:', err);
+      }
+    }
+
+    loadServerMiningState();
+    return () => { isCancelled = true; };
+  }, [user?.email, user?.id, cleanMinedStorageKey]);
+
+  // Live 1-second continuous tick engine (keeps mining ticking live on-screen in real-time)
+  useEffect(() => {
+    if (isAccountHalted) return;
+    const effectiveDailyRate = dailyEthRate > 0 ? dailyEthRate : 0.00069;
+    const perSec = effectiveDailyRate / 86400;
+
+    const interval = setInterval(() => {
+      setContinuousMinedEth(prev => {
+        const nextVal = prev + perSec;
+        return nextVal;
+      });
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [dailyEthRate, isAccountHalted]);
+
+  // Periodically persist continuous mined balance to localStorage (every 4 seconds)
+  useEffect(() => {
+    try {
+      localStorage.setItem(cleanMinedStorageKey, continuousMinedEth.toString());
+    } catch {}
+  }, [continuousMinedEth, cleanMinedStorageKey]);
+
+  // Sync 24/7 continuous cloud mining yield to server ledger every 10 seconds
+  useEffect(() => {
+    if (!user?.email || isAccountHalted) return;
+    
+    const syncMiningLedger = () => {
+      fetch('/api/mining/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          userEmail: user.email,
+          accumulatedMinedEth: continuousMinedEth,
+          dailyEthRate: dailyEthRate > 0 ? dailyEthRate : 0.00069,
+        }),
+      }).catch(() => {});
+    };
+
+    const syncInterval = setInterval(syncMiningLedger, 10000);
+    return () => clearInterval(syncInterval);
+  }, [user?.email, user?.id, continuousMinedEth, dailyEthRate, isAccountHalted]);
 
   // 6. Total Swapped ETH & Converted USDT by user
   const totalSwappedEth = exchangeRecords
@@ -885,7 +969,9 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     .filter(e => e.status === 'Completed')
     .reduce((sum, e) => sum + e.toAmount, 0);
 
-  // 7. Net Current Mined ETH Balance
+  // 7. Net Current Mined ETH Balance (Anchored to continuous ledger; NEVER resets to 00000 on login/logout)
+  const contractBasedEthLifetime = ethPriceUsd > 0 ? (totalEarnedProfitsUsd / ethPriceUsd) : 0;
+  const totalMinedEthLifetime = Math.max(continuousMinedEth, contractBasedEthLifetime);
   const minedEthBalance = Math.max(0, totalMinedEthLifetime - totalSwappedEth);
 
   // 8. Total Withdrawn by user (USDT)
@@ -906,28 +992,6 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     : isAccountPending
     ? '0 TH/s (Account Pending Hold)'
     : totalHashrateTh > 0 ? `${totalHashrateTh.toLocaleString()} TH/s` : '0 TH/s';
-
-  // 11. Sync 24/7 continuous cloud mining yield with server ledger
-  useEffect(() => {
-    if (!user?.email || isAccountHalted) return;
-    
-    const syncMiningLedger = () => {
-      fetch('/api/mining/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: user.id,
-          userEmail: user.email,
-          accumulatedMinedEth: totalMinedEthLifetime,
-          dailyRate: dailyEthRate,
-        }),
-      }).catch(() => {});
-    };
-
-    syncMiningLedger();
-    const syncInterval = setInterval(syncMiningLedger, 15000);
-    return () => clearInterval(syncInterval);
-  }, [user?.email, user?.id, totalMinedEthLifetime, dailyEthRate, isAccountHalted]);
 
   const handleCopyTxid = (txid: string, id: string) => {
     navigator.clipboard.writeText(txid);

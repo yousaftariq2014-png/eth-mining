@@ -945,6 +945,24 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    // Preserve & sync continuous cloud node state to server ledger before clearing session
+    if (user?.email) {
+      try {
+        const cleanKey = `hashforge_mined_eth_${user.email.toLowerCase()}`;
+        const savedEth = localStorage.getItem(cleanKey);
+        fetch('/api/mining/sync', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: user.id,
+            userEmail: user.email,
+            accumulatedMinedEth: savedEth ? Number(savedEth) : undefined,
+          }),
+          keepalive: true,
+        }).catch(() => {});
+      } catch {}
+    }
+
     try {
       await supabase.auth.signOut();
     } catch {}
@@ -976,6 +994,24 @@ export default function App() {
     const INACTIVITY_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes (120,000 ms)
 
     const performAutoLogout = async () => {
+      // Preserve & sync continuous cloud node state to server ledger
+      if (user?.email) {
+        try {
+          const cleanKey = `hashforge_mined_eth_${user.email.toLowerCase()}`;
+          const savedEth = localStorage.getItem(cleanKey);
+          fetch('/api/mining/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              userId: user.id,
+              userEmail: user.email,
+              accumulatedMinedEth: savedEth ? Number(savedEth) : undefined,
+            }),
+            keepalive: true,
+          }).catch(() => {});
+        } catch {}
+      }
+
       try {
         await supabase.auth.signOut();
       } catch {}

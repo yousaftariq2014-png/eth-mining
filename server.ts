@@ -622,7 +622,7 @@ app.post("/api/clients/register", (req, res) => {
       hasActiveNode: true,
       nodeStartTime: nowMs,
       lastCalculatedTime: nowMs,
-      accumulatedMinedEth: 0,
+      accumulatedMinedEth: 0.00350000, // Initial active starter mining block (~$12.20 genesis value)
       dailyEthRate: 0.00069, // VIP 1 Starter Output rate (~$1.90/day @ $2750/ETH)
       hashrateTh: 25,
       activeContractsCount: 1,
@@ -722,7 +722,7 @@ app.get("/api/mining/state", (req, res) => {
         hasActiveNode: true,
         nodeStartTime: now,
         lastCalculatedTime: now,
-        accumulatedMinedEth: 0,
+        accumulatedMinedEth: 0.00350000, // Initial active starter mining yield
         dailyEthRate: 0.00069, // 25 TH/s Starter Hashrate (~0.00069 ETH/day)
         hashrateTh: 25,
         activeContractsCount: 1,
@@ -733,6 +733,11 @@ app.get("/api/mining/state", (req, res) => {
         savePersistedMiningState();
       }
     } else {
+      // Ensure existing records have at least the minimum starter genesis production yield
+      if (!state.accumulatedMinedEth || Number(state.accumulatedMinedEth) < 0.0035) {
+        state.accumulatedMinedEth = Math.max(0.0035, Number(state.accumulatedMinedEth) || 0);
+      }
+
       // Calculate elapsed continuous cloud mining yield since last calculation (while client was logged out or away)
       const lastCalc = Number(state.lastCalculatedTime) || Number(state.nodeStartTime) || now;
       const elapsedSeconds = Math.max(0, (now - lastCalc) / 1000);
@@ -787,6 +792,29 @@ app.post("/api/mining/sync", (req, res) => {
     res.json({ success: true, state: updatedState });
   } catch (err: any) {
     res.status(500).json({ error: "Failed to sync mining state", details: err?.message });
+  }
+});
+
+// Deduct mined ETH when client executes an exchange / swap
+app.post("/api/mining/deduct", (req, res) => {
+  try {
+    const { userEmail, amountEth } = req.body;
+    if (!userEmail || amountEth === undefined) {
+      return res.status(400).json({ error: "userEmail and amountEth are required" });
+    }
+    const cleanEmail = userEmail.trim().toLowerCase();
+    let state = serverMiningStore.get(cleanEmail);
+    if (state) {
+      state.accumulatedMinedEth = Math.max(0, (Number(state.accumulatedMinedEth) || 0) - Number(amountEth));
+      state.lastCalculatedTime = Date.now();
+      state.lastUpdated = new Date().toISOString();
+      serverMiningStore.set(cleanEmail, state);
+      savePersistedMiningState();
+      return res.json({ success: true, state });
+    }
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to deduct mining state", details: err?.message });
   }
 });
 

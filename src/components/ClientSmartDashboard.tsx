@@ -255,30 +255,20 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       if (saved) {
         const parsed = JSON.parse(saved);
         const filtered = parsed
-          .filter((d: any) => matchesUser(d, user) && d.status === 'approved' && (d.explorer_confirmed ?? d.explorerConfirmed ?? true))
+          .filter((d: any) => 
+            matchesUser(d, user) && 
+            d.status === 'approved' && 
+            (d.explorer_confirmed ?? d.explorerConfirmed ?? true) &&
+            d.id !== `starter-${user.id}` &&
+            d.senderTxid !== 'STARTER-NODE-ACTIVATE-AUTO'
+          )
           .map(normalizeDeposit);
         if (filtered.length > 0) return filtered;
       }
     } catch {}
 
-    // Default starter active contract for the logged in user
-    return [{
-      id: `starter-${user.id}`,
-      userId: user.id,
-      userName: user.name || user.email,
-      packageId: 'pkg-daily-100',
-      packageName: 'VIP 1 Starter Cloud Miner (Active 24/7)',
-      planType: 'daily',
-      vipLevel: 1,
-      amountUsd: 100,
-      network: 'TRC20',
-      depositAddress: '0xHashForgeSystemReserveHotVault',
-      senderTxid: 'STARTER-NODE-ACTIVATE-AUTO',
-      status: 'approved',
-      createdAt: new Date(Date.now() - 3 * 86400000).toISOString(),
-      approvedAt: new Date(Date.now() - 3 * 86400000).toISOString(),
-      explorerConfirmed: true,
-    }];
+    // Clean initial state: No automatic fake starter packages for newly registered clients
+    return [];
   });
 
   // Comprehensive identity matcher for client records
@@ -725,30 +715,14 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
           }
         }
 
-        const allDeposits: DepositRequest[] = rawDeposits.map(normalizeDeposit);
-        let approvedOnly = allDeposits.filter(d => d.status === 'approved' && (d.explorerConfirmed ?? true));
+        // Filter out any stale auto-generated starter contracts
+        rawDeposits = rawDeposits.filter((d: any) => 
+          d.id !== `starter-${user.id}` && 
+          d.senderTxid !== 'STARTER-NODE-ACTIVATE-AUTO'
+        );
 
-        // If user has no active approved package yet, ensure Starter Cloud Mining Node is active 24/7
-        if (approvedOnly.length === 0) {
-          const starterContract: DepositRequest = {
-            id: `starter-${user.id}`,
-            userId: user.id,
-            userName: user.name || user.email,
-            packageId: 'pkg-daily-100',
-            packageName: 'VIP 1 Starter Cloud Miner (Active 24/7)',
-            planType: 'daily',
-            vipLevel: 1,
-            amountUsd: 100,
-            network: 'TRC20',
-            depositAddress: '0xHashForgeSystemReserveHotVault',
-            senderTxid: 'STARTER-NODE-ACTIVATE-AUTO',
-            status: 'approved',
-            createdAt: new Date(Date.now() - 3 * 86400000).toISOString(),
-            approvedAt: new Date(Date.now() - 3 * 86400000).toISOString(),
-            explorerConfirmed: true,
-          };
-          approvedOnly = [starterContract];
-        }
+        const allDeposits: DepositRequest[] = rawDeposits.map(normalizeDeposit);
+        const approvedOnly = allDeposits.filter(d => d.status === 'approved' && (d.explorerConfirmed ?? true));
 
         setApprovedDeposits(approvedOnly);
         setPendingDeposits(allDeposits.filter(d => d.status === 'pending'));
@@ -927,12 +901,11 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   const [continuousMinedEth, setContinuousMinedEth] = useState<number>(() => {
     try {
       const saved = localStorage.getItem(cleanMinedStorageKey);
-      if (saved && !isNaN(Number(saved)) && Number(saved) > 0) {
+      if (saved && !isNaN(Number(saved)) && Number(saved) >= 0) {
         return Number(saved);
       }
     } catch {}
-    // Initial active starter cloud node genesis block (~$12.20 production base)
-    return 0.00350000;
+    return 0.00000000;
   });
 
   // Fetch true persistent mining ledger on mount (checks Supabase mining_state, Server, & LocalStorage)
@@ -943,7 +916,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
       try {
         const state = await fetchSupabaseMiningState(user.email, user.id);
         if (!isCancelled && state && state.accumulatedMinedEth !== undefined) {
-          const persistentEth = Number(state.accumulatedMinedEth) || 0.00350000;
+          const persistentEth = Number(state.accumulatedMinedEth) || 0;
           setContinuousMinedEth(prev => {
             const bestVal = Math.max(prev, persistentEth);
             try {
@@ -961,11 +934,10 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     return () => { isCancelled = true; };
   }, [user?.email, user?.id, cleanMinedStorageKey]);
 
-  // Live 1-second continuous tick engine (keeps mining ticking live on-screen in real-time)
+  // Live 1-second continuous tick engine (keeps mining ticking live on-screen ONLY when active packages exist)
   useEffect(() => {
-    if (isAccountHalted) return;
-    const effectiveDailyRate = dailyEthRate > 0 ? dailyEthRate : 0.00069;
-    const perSec = effectiveDailyRate / 86400;
+    if (isAccountHalted || activeContracts.length === 0 || dailyEthRate <= 0) return;
+    const perSec = dailyEthRate / 86400;
 
     const interval = setInterval(() => {
       setContinuousMinedEth(prev => {
@@ -975,7 +947,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [dailyEthRate, isAccountHalted]);
+  }, [dailyEthRate, activeContracts.length, isAccountHalted]);
 
   // Periodically persist continuous mined balance to localStorage (every 4 seconds)
   useEffect(() => {
@@ -993,9 +965,9 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
         userId: user.id,
         userEmail: user.email,
         accumulatedMinedEth: continuousMinedEth,
-        dailyEthRate: dailyEthRate > 0 ? dailyEthRate : 0.00069,
-        hashrateTh: totalHashrateTh > 0 ? totalHashrateTh : 25,
-        activeContractsCount: activeContracts.length || 1,
+        dailyEthRate: dailyEthRate,
+        hashrateTh: totalHashrateTh,
+        activeContractsCount: activeContracts.length,
       }).catch(() => {});
     };
 

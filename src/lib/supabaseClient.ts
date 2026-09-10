@@ -2231,18 +2231,18 @@ export async function fetchSupabaseMiningState(userEmail: string, userId?: strin
   const cleanKey = `hashforge_mined_eth_${cleanEmail}`;
   const now = Date.now();
 
-  let accumulatedMinedEth = 0.00350000;
-  let dailyEthRate = 0.00069;
-  let hashrateTh = 25;
-  let activeContractsCount = 1;
-  let hasActiveNode = true;
+  let accumulatedMinedEth = 0.00000000;
+  let dailyEthRate = 0;
+  let hashrateTh = 0;
+  let activeContractsCount = 0;
+  let hasActiveNode = false;
   let nodeStartTime = now;
   let lastCalculatedTime = now;
 
   // 1. Check local storage first for instantaneous UI state
   try {
     const localVal = localStorage.getItem(cleanKey);
-    if (localVal && !isNaN(Number(localVal)) && Number(localVal) >= 0.0035) {
+    if (localVal && !isNaN(Number(localVal)) && Number(localVal) >= 0) {
       accumulatedMinedEth = Number(localVal);
     }
   } catch {}
@@ -2258,15 +2258,15 @@ export async function fetchSupabaseMiningState(userEmail: string, userId?: strin
 
     if (!error && data) {
       const supaMined = Number(data.accumulated_mined_eth);
-      if (!isNaN(supaMined) && supaMined > 0) {
+      if (!isNaN(supaMined) && supaMined >= 0) {
         accumulatedMinedEth = Math.max(accumulatedMinedEth, supaMined);
       }
-      if (data.daily_eth_rate) dailyEthRate = Number(data.daily_eth_rate);
-      if (data.hashrate_th) hashrateTh = Number(data.hashrate_th);
-      if (data.active_contracts_count) activeContractsCount = Number(data.active_contracts_count);
+      if (data.daily_eth_rate !== undefined) dailyEthRate = Number(data.daily_eth_rate);
+      if (data.hashrate_th !== undefined) hashrateTh = Number(data.hashrate_th);
+      if (data.active_contracts_count !== undefined) activeContractsCount = Number(data.active_contracts_count);
       if (data.node_start_time) nodeStartTime = Number(data.node_start_time);
       if (data.last_calculated_time) lastCalculatedTime = Number(data.last_calculated_time);
-      hasActiveNode = data.has_active_node ?? true;
+      hasActiveNode = data.has_active_node ?? (activeContractsCount > 0);
     }
   } catch {
     // Supabase table check fallback is handled gracefully
@@ -2280,28 +2280,26 @@ export async function fetchSupabaseMiningState(userEmail: string, userId?: strin
       if (serverData.success && serverData.state) {
         const s = serverData.state;
         const serverMined = Number(s.accumulatedMinedEth);
-        if (!isNaN(serverMined) && serverMined > 0) {
+        if (!isNaN(serverMined) && serverMined >= 0) {
           accumulatedMinedEth = Math.max(accumulatedMinedEth, serverMined);
         }
-        if (s.dailyEthRate) dailyEthRate = Math.max(dailyEthRate, Number(s.dailyEthRate));
-        if (s.hashrateTh) hashrateTh = Math.max(hashrateTh, Number(s.hashrateTh));
-        if (s.activeContractsCount) activeContractsCount = Math.max(activeContractsCount, Number(s.activeContractsCount));
+        if (s.dailyEthRate !== undefined) dailyEthRate = Math.max(dailyEthRate, Number(s.dailyEthRate));
+        if (s.hashrateTh !== undefined) hashrateTh = Math.max(hashrateTh, Number(s.hashrateTh));
+        if (s.activeContractsCount !== undefined) activeContractsCount = Math.max(activeContractsCount, Number(s.activeContractsCount));
         if (s.lastCalculatedTime) lastCalculatedTime = Math.max(lastCalculatedTime, Number(s.lastCalculatedTime));
         if (s.nodeStartTime) nodeStartTime = Number(s.nodeStartTime);
+        if (s.hasActiveNode !== undefined) hasActiveNode = s.hasActiveNode;
       }
     }
   } catch {}
 
-  // 4. Calculate any offline elapsed mining yield between page refresh / login
+  // 4. Calculate any offline elapsed mining yield between page refresh / login (ONLY if user has active contracts)
   const elapsedSeconds = Math.max(0, (now - lastCalculatedTime) / 1000);
-  if (elapsedSeconds > 0 && dailyEthRate > 0) {
+  if (elapsedSeconds > 0 && dailyEthRate > 0 && activeContractsCount > 0) {
     const offlineYieldEth = (dailyEthRate / 86400) * elapsedSeconds;
     accumulatedMinedEth += offlineYieldEth;
     lastCalculatedTime = now;
   }
-
-  // Ensure minimum starter threshold
-  accumulatedMinedEth = Math.max(0.00350000, accumulatedMinedEth);
 
   // Sync back to local storage
   try {
@@ -2321,7 +2319,7 @@ export async function fetchSupabaseMiningState(userEmail: string, userId?: strin
 
 /**
  * Save mining state across Supabase, Server, and LocalStorage.
- * Ensures the mining state NEVER resets to 0.
+ * Ensures the mining state NEVER resets to 0 erroneously, but allows clean 0 for new clients without contracts.
  */
 export async function saveSupabaseMiningState(payload: {
   userId: string;
@@ -2335,7 +2333,7 @@ export async function saveSupabaseMiningState(payload: {
   if (!cleanEmail) return false;
 
   const now = Date.now();
-  const safeMinedEth = Math.max(0.00350000, Number(payload.accumulatedMinedEth) || 0.00350000);
+  const safeMinedEth = Math.max(0, Number(payload.accumulatedMinedEth) || 0);
   const cleanKey = `hashforge_mined_eth_${cleanEmail}`;
 
   // 1. Save to LocalStorage immediately
@@ -2352,25 +2350,26 @@ export async function saveSupabaseMiningState(payload: {
         userId: payload.userId,
         userEmail: cleanEmail,
         accumulatedMinedEth: safeMinedEth,
-        dailyEthRate: payload.dailyEthRate ?? 0.00069,
-        hashrateTh: payload.hashrateTh ?? 25,
-        activeContractsCount: payload.activeContractsCount ?? 1,
+        dailyEthRate: payload.dailyEthRate ?? 0,
+        hashrateTh: payload.hashrateTh ?? 0,
+        activeContractsCount: payload.activeContractsCount ?? 0,
       }),
     }).catch(() => {});
   } catch {}
 
   // 3. Save to Supabase public.mining_state
   try {
+    const contractsCount = payload.activeContractsCount ?? 0;
     const stateRecord = {
       id: `state-${payload.userId || cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`,
       user_id: payload.userId || cleanEmail,
       user_email: cleanEmail,
       accumulated_mined_eth: safeMinedEth,
-      daily_eth_rate: payload.dailyEthRate ?? 0.00069,
-      hashrate_th: payload.hashrateTh ?? 25,
-      active_contracts_count: payload.activeContractsCount ?? 1,
+      daily_eth_rate: payload.dailyEthRate ?? 0,
+      hashrate_th: payload.hashrateTh ?? 0,
+      active_contracts_count: contractsCount,
       last_calculated_time: now,
-      has_active_node: true,
+      has_active_node: contractsCount > 0,
       last_updated_iso: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -2379,23 +2378,6 @@ export async function saveSupabaseMiningState(payload: {
   } catch {
     // If mining_state table does not exist yet, fails gracefully
   }
-
-  // 4. Also guarantee persistence in Supabase public.mining_contracts
-  try {
-    const starterContractId = `node-${payload.userId || cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
-    await supabase.from('mining_contracts').upsert({
-      id: starterContractId,
-      user_id: payload.userId,
-      user_name: cleanEmail,
-      package_id: 'pkg-daily-100',
-      package_name: 'VIP 1 Starter Cloud Miner (Active 24/7)',
-      vip_level: 1,
-      hashrate: payload.hashrateTh ?? 25,
-      daily_reward_usd: (payload.dailyEthRate ?? 0.00069) * 3500,
-      status: 'active',
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'id' });
-  } catch {}
 
   return true;
 }

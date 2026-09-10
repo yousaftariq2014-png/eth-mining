@@ -614,18 +614,18 @@ app.post("/api/clients/register", (req, res) => {
     serverClientsStore.set(cleanEmail, newClient);
     savePersistedClients();
 
-    // Automatically initialize 24/7 Cloud Mining Node for this new client (25 TH/s Starter Hashrate)
+    // Initialize clean mining state for this new client (0 active packages until deposit/purchase)
     const nowMs = Date.now();
     const initialMiningState = {
       userId,
       userEmail: cleanEmail,
-      hasActiveNode: true,
+      hasActiveNode: false,
       nodeStartTime: nowMs,
       lastCalculatedTime: nowMs,
-      accumulatedMinedEth: 0.00350000, // Initial active starter mining block (~$12.20 genesis value)
-      dailyEthRate: 0.00069, // VIP 1 Starter Output rate (~$1.90/day @ $2750/ETH)
-      hashrateTh: 25,
-      activeContractsCount: 1,
+      accumulatedMinedEth: 0,
+      dailyEthRate: 0,
+      hashrateTh: 0,
+      activeContractsCount: 0,
       lastUpdated: new Date().toISOString()
     };
     serverMiningStore.set(cleanEmail, initialMiningState);
@@ -715,17 +715,17 @@ app.get("/api/mining/state", (req, res) => {
     const now = Date.now();
 
     if (!state) {
-      // Create initial starter mining state
+      // Create initial idle mining state for new user (no packages, 0 yield)
       state = {
         userId: userId || `usr-${now}`,
         userEmail: email,
-        hasActiveNode: true,
+        hasActiveNode: false,
         nodeStartTime: now,
         lastCalculatedTime: now,
-        accumulatedMinedEth: 0.00350000, // Initial active starter mining yield
-        dailyEthRate: 0.00069, // 25 TH/s Starter Hashrate (~0.00069 ETH/day)
-        hashrateTh: 25,
-        activeContractsCount: 1,
+        accumulatedMinedEth: 0,
+        dailyEthRate: 0,
+        hashrateTh: 0,
+        activeContractsCount: 0,
         lastUpdated: new Date().toISOString()
       };
       if (email) {
@@ -733,17 +733,13 @@ app.get("/api/mining/state", (req, res) => {
         savePersistedMiningState();
       }
     } else {
-      // Ensure existing records have at least the minimum starter genesis production yield
-      if (!state.accumulatedMinedEth || Number(state.accumulatedMinedEth) < 0.0035) {
-        state.accumulatedMinedEth = Math.max(0.0035, Number(state.accumulatedMinedEth) || 0);
-      }
-
-      // Calculate elapsed continuous cloud mining yield since last calculation (while client was logged out or away)
+      // Calculate elapsed continuous cloud mining yield since last calculation (only if active contracts and daily rate > 0)
       const lastCalc = Number(state.lastCalculatedTime) || Number(state.nodeStartTime) || now;
       const elapsedSeconds = Math.max(0, (now - lastCalc) / 1000);
-      const dailyRate = Number(state.dailyEthRate) || 0.00069;
+      const dailyRate = Number(state.dailyEthRate) || 0;
+      const activeCount = Number(state.activeContractsCount) || 0;
       
-      if (elapsedSeconds > 0 && dailyRate > 0) {
+      if (elapsedSeconds > 0 && dailyRate > 0 && activeCount > 0) {
         const earnedEth = (dailyRate / 86400) * elapsedSeconds;
         state.accumulatedMinedEth = (Number(state.accumulatedMinedEth) || 0) + earnedEth;
         state.lastCalculatedTime = now;
@@ -772,21 +768,22 @@ app.post("/api/mining/sync", (req, res) => {
     const existing = serverMiningStore.get(cleanEmail) || {};
 
     const now = Date.now();
-    const existingMined = Number(existing.accumulatedMinedEth) || 0.0035;
+    const existingMined = Number(existing.accumulatedMinedEth) || 0;
     const incomingMined = accumulatedMinedEth !== undefined ? Number(accumulatedMinedEth) : 0;
-    const safeMinedEth = Math.max(existingMined, incomingMined, 0.0035);
+    const safeMinedEth = Math.max(existingMined, incomingMined, 0);
+    const contractsCount = activeContractsCount !== undefined ? Number(activeContractsCount) : (existing.activeContractsCount || 0);
 
     const updatedState = {
       ...existing,
       userId: userId || existing.userId || `usr-${now}`,
       userEmail: cleanEmail,
-      hasActiveNode: true,
+      hasActiveNode: contractsCount > 0,
       nodeStartTime: existing.nodeStartTime || now,
       lastCalculatedTime: now,
       accumulatedMinedEth: safeMinedEth,
-      dailyEthRate: dailyEthRate !== undefined && Number(dailyEthRate) > 0 ? Number(dailyEthRate) : (existing.dailyEthRate || 0.00069),
-      hashrateTh: hashrateTh !== undefined && Number(hashrateTh) > 0 ? Number(hashrateTh) : (existing.hashrateTh || 25),
-      activeContractsCount: activeContractsCount !== undefined ? Number(activeContractsCount) : (existing.activeContractsCount || 1),
+      dailyEthRate: dailyEthRate !== undefined ? Number(dailyEthRate) : (existing.dailyEthRate || 0),
+      hashrateTh: hashrateTh !== undefined ? Number(hashrateTh) : (existing.hashrateTh || 0),
+      activeContractsCount: contractsCount,
       lastUpdated: new Date().toISOString()
     };
 

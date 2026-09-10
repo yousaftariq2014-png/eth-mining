@@ -1,17 +1,5 @@
 [
   {
-    "userId": "usr-1789077819271",
-    "userEmail": "test@example.com",
-    "hasActiveNode": true,
-    "nodeStartTime": 1789077819272,
-    "lastCalculatedTime": 1789082000000,
-    "accumulatedMinedEth": 0.0035842,
-    "dailyEthRate": 0.00069,
-    "hashrateTh": 25,
-    "activeContractsCount": 1,
-    "lastUpdated": "2026-09-10T23:15:00.000Z"
-  },
-  {
     "userId": "6990e45a-878f-4959-a550-92f6e007638d",
     "userEmail": "yousaftariq2014@gmail.com",
     "hasActiveNode": true,
@@ -22,17 +10,5 @@
     "hashrateTh": 5700,
     "activeContractsCount": 4,
     "lastUpdated": "2026-09-10T23:15:00.000Z"
-  },
-  {
-    "userId": "usr-1789081742528",
-    "userEmail": "newminer99@gmail.com",
-    "hasActiveNode": true,
-    "nodeStartTime": 1789081742528,
-    "lastCalculatedTime": 1789081746432,
-    "accumulatedMinedEth": 0.003500031177777778,
-    "dailyEthRate": 0.00069,
-    "hashrateTh": 25,
-    "activeContractsCount": 1,
-    "lastUpdated": "2026-09-10T23:09:06.432Z"
   }
 ]

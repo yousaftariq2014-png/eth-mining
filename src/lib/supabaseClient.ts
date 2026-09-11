@@ -2352,22 +2352,30 @@ export async function saveSupabaseMiningState(payload: {
   dailyEthRate?: number;
   hashrateTh?: number;
   activeContractsCount?: number;
-}): Promise<boolean> {
+}): Promise<{ success: boolean; state?: any }> {
   const cleanEmail = (payload.userEmail || '').trim().toLowerCase();
-  if (!cleanEmail) return false;
+  if (!cleanEmail) return { success: false };
 
   const now = Date.now();
   const safeMinedEth = Math.max(0, Number(payload.accumulatedMinedEth) || 0);
   const cleanKey = `hashforge_mined_eth_${cleanEmail}`;
+  const isYousaf = cleanEmail.includes('yousaf') || payload.userId === '6990e45a-878f-4959-a550-92f6e007638d';
 
   // 1. Save to LocalStorage immediately
   try {
     localStorage.setItem(cleanKey, safeMinedEth.toString());
+    localStorage.setItem(`${cleanKey}_ts`, now.toString());
+    if (isYousaf) {
+      localStorage.setItem('hashforge_mined_eth_yousaf_tariq', safeMinedEth.toString());
+      localStorage.setItem('hashforge_mined_eth_yousaftariq2021@gmail.com', safeMinedEth.toString());
+      localStorage.setItem('hashforge_mined_eth_yousaftariq2021@gmail.com_ts', now.toString());
+    }
   } catch {}
 
-  // 2. Save to Express server /api/mining/sync
+  // 2. Save to Express server /api/mining/sync and retrieve authoritative server state
+  let serverReturnedState: any = null;
   try {
-    fetch('/api/mining/sync', {
+    const res = await fetch('/api/mining/sync', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -2378,17 +2386,35 @@ export async function saveSupabaseMiningState(payload: {
         hashrateTh: payload.hashrateTh ?? 0,
         activeContractsCount: payload.activeContractsCount ?? 0,
       }),
-    }).catch(() => {});
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json && json.success && json.state) {
+        serverReturnedState = json.state;
+        const highestEth = Number(json.state.accumulatedMinedEth) || safeMinedEth;
+        try {
+          localStorage.setItem(cleanKey, highestEth.toString());
+          if (isYousaf) {
+            localStorage.setItem('hashforge_mined_eth_yousaf_tariq', highestEth.toString());
+            localStorage.setItem('hashforge_mined_eth_yousaftariq2021@gmail.com', highestEth.toString());
+          }
+        } catch {}
+      }
+    }
   } catch {}
 
   // 3. Save to Supabase public.mining_state
   try {
     const contractsCount = payload.activeContractsCount ?? 0;
+    const finalMined = serverReturnedState?.accumulatedMinedEth !== undefined 
+      ? Number(serverReturnedState.accumulatedMinedEth) 
+      : safeMinedEth;
+
     const stateRecord = {
       id: `state-${payload.userId || cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`,
       user_id: payload.userId || cleanEmail,
       user_email: cleanEmail,
-      accumulated_mined_eth: safeMinedEth,
+      accumulated_mined_eth: finalMined,
       daily_eth_rate: payload.dailyEthRate ?? 0,
       hashrate_th: payload.hashrateTh ?? 0,
       active_contracts_count: contractsCount,
@@ -2403,7 +2429,7 @@ export async function saveSupabaseMiningState(payload: {
     // If mining_state table does not exist yet, fails gracefully
   }
 
-  return true;
+  return { success: true, state: serverReturnedState };
 }
 
 /**

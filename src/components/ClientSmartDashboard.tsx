@@ -775,7 +775,22 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     }
 
     loadRealData();
-    return () => { isMounted = false; };
+    const refreshInterval = setInterval(loadRealData, 6000);
+
+    const handleFocusSync = () => {
+      if (document.visibilityState === 'visible') {
+        loadRealData();
+      }
+    };
+    document.addEventListener('visibilitychange', handleFocusSync);
+    window.addEventListener('focus', handleFocusSync);
+
+    return () => { 
+      isMounted = false; 
+      clearInterval(refreshInterval);
+      document.removeEventListener('visibilitychange', handleFocusSync);
+      window.removeEventListener('focus', handleFocusSync);
+    };
   }, [user.id, user.name, externalPendingDepositsHash]);
 
   // Helper to determine the exact daily rate for any daily investment amount
@@ -946,7 +961,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     return 0.00000000;
   });
 
-  // Fetch true persistent mining ledger on mount (checks Supabase mining_state, Server, & LocalStorage)
+  // Fetch true persistent mining ledger on mount & tab/phone wake-up (checks Supabase mining_state, Server, & LocalStorage)
   useEffect(() => {
     let isCancelled = false;
     async function loadPersistentMiningState() {
@@ -974,7 +989,20 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     }
 
     loadPersistentMiningState();
-    return () => { isCancelled = true; };
+
+    const handleFocusMining = () => {
+      if (document.visibilityState === 'visible') {
+        loadPersistentMiningState();
+      }
+    };
+    document.addEventListener('visibilitychange', handleFocusMining);
+    window.addEventListener('focus', handleFocusMining);
+
+    return () => { 
+      isCancelled = true; 
+      document.removeEventListener('visibilitychange', handleFocusMining);
+      window.removeEventListener('focus', handleFocusMining);
+    };
   }, [user?.email, user?.id, user?.name, cleanMinedStorageKey, isYousafUser]);
 
   // Offline elapsed yield catch-up (guarantees mining continued seamlessly while logged out)
@@ -1036,18 +1064,28 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   useEffect(() => {
     if (!user?.email || isAccountHalted) return;
     
-    const syncMiningLedger = () => {
-      saveSupabaseMiningState({
-        userId: user.id,
-        userEmail: user.email,
-        accumulatedMinedEth: continuousMinedEth,
-        dailyEthRate: dailyEthRate,
-        hashrateTh: totalHashrateTh,
-        activeContractsCount: activeContracts.length,
-      }).catch(() => {});
+    const syncMiningLedger = async () => {
+      try {
+        const res = await saveSupabaseMiningState({
+          userId: user.id,
+          userEmail: user.email,
+          accumulatedMinedEth: continuousMinedEth,
+          dailyEthRate: dailyEthRate,
+          hashrateTh: totalHashrateTh,
+          activeContractsCount: activeContracts.length,
+        });
+
+        // Reconcile with authoritative server state across devices (Phone <-> Laptop)
+        if (res && res.state && res.state.accumulatedMinedEth !== undefined) {
+          const serverMined = Number(res.state.accumulatedMinedEth);
+          if (!isNaN(serverMined) && serverMined > continuousMinedEth) {
+            setContinuousMinedEth(serverMined);
+          }
+        }
+      } catch {}
     };
 
-    const syncInterval = setInterval(syncMiningLedger, 8000);
+    const syncInterval = setInterval(syncMiningLedger, 5000);
     return () => clearInterval(syncInterval);
   }, [user?.email, user?.id, continuousMinedEth, dailyEthRate, totalHashrateTh, activeContracts.length, isAccountHalted]);
 

@@ -3,7 +3,7 @@ import { CheckCircle2, X } from 'lucide-react';
 import { Header } from './components/Header';
 import { HomePage } from './components/HomePage';
 import { DepositPage } from './components/DepositPage';
-import { ClientSmartDashboard } from './components/ClientSmartDashboard';
+import { ClientSmartDashboard, matchesUser } from './components/ClientSmartDashboard';
 import { 
   AdminPortal, 
   AUTHORIZED_ADMIN_EMAILS, 
@@ -948,8 +948,16 @@ export default function App() {
     // Preserve & sync continuous cloud node state to server ledger before clearing session
     if (user?.email) {
       try {
-        const cleanKey = `hashforge_mined_eth_${user.email.toLowerCase()}`;
-        const savedEth = localStorage.getItem(cleanKey);
+        const isYousaf = user.email.toLowerCase().includes('yousaf') || (user.name && user.name.toLowerCase().includes('yousaf')) || user.id === '6990e45a-878f-4959-a550-92f6e007638d';
+        const cleanKey = isYousaf ? 'hashforge_mined_eth_yousaf_tariq' : `hashforge_mined_eth_${user.email.toLowerCase()}`;
+        const savedEth = localStorage.getItem(cleanKey) || (isYousaf ? localStorage.getItem('hashforge_mined_eth_yousaftariq2021@gmail.com') : null);
+
+        // Save current timestamp so offline catch-up can calculate offline yield when logging back in
+        localStorage.setItem(`${cleanKey}_ts`, Date.now().toString());
+        if (isYousaf) {
+          localStorage.setItem('hashforge_mined_eth_yousaftariq2021@gmail.com_ts', Date.now().toString());
+        }
+
         fetch('/api/mining/sync', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1102,10 +1110,10 @@ export default function App() {
     };
   }, [user]);
 
-  const isPackagePurchasedByUser = (pkg: MiningPackage, currentUserId?: string, currentUserName?: string) => {
-    if (!currentUserId && !currentUserName) return false;
+  const isPackagePurchasedByUser = (pkg: MiningPackage, currentUser?: UserProfile | null) => {
+    if (!currentUser) return false;
     return deposits.some(d => 
-      (d.userId === currentUserId || d.userName === currentUserName) &&
+      matchesUser(d, currentUser) &&
       (d.status === 'approved' || d.status === 'pending') &&
       (
         d.packageId === pkg.id || 
@@ -1121,7 +1129,7 @@ export default function App() {
   };
 
   const handleSelectPackage = (pkg: MiningPackage) => {
-    if (user && isPackagePurchasedByUser(pkg, user.id, user.name)) {
+    if (user && isPackagePurchasedByUser(pkg, user)) {
       alert(`You already have an active mining contract for ${pkg.name}. Each tier can only be purchased once per client.`);
       return;
     }

@@ -720,8 +720,22 @@ app.get("/api/mining/state", (req, res) => {
   try {
     const email = String(req.query.email || "").trim().toLowerCase();
     const userId = String(req.query.userId || "").trim();
+    const userName = String(req.query.userName || "").trim().toLowerCase();
 
     let state = serverMiningStore.get(email);
+    const isYousaf = email.includes("yousaf") || userName.includes("yousaf") || userId === "6990e45a-878f-4959-a550-92f6e007638d";
+    if (!state && isYousaf) {
+      state = serverMiningStore.get("yousaftariq2021@gmail.com") || serverMiningStore.get("yousaftariq2014@gmail.com");
+      if (!state) {
+        for (const s of serverMiningStore.values()) {
+          if (s.userId === "6990e45a-878f-4959-a550-92f6e007638d" || (s.userEmail && s.userEmail.includes("yousaf"))) {
+            state = s;
+            break;
+          }
+        }
+      }
+    }
+
     if (!state && userId) {
       for (const s of serverMiningStore.values()) {
         if (s.userId === userId) {
@@ -765,8 +779,12 @@ app.get("/api/mining/state", (req, res) => {
         state.lastUpdated = new Date().toISOString();
         if (email) {
           serverMiningStore.set(email, state);
-          savePersistedMiningState();
         }
+        if (isYousaf) {
+          serverMiningStore.set("yousaftariq2021@gmail.com", state);
+          serverMiningStore.set("yousaftariq2014@gmail.com", state);
+        }
+        savePersistedMiningState();
       }
     }
 
@@ -784,7 +802,13 @@ app.post("/api/mining/sync", (req, res) => {
       return res.status(400).json({ error: "userEmail is required" });
     }
     const cleanEmail = userEmail.trim().toLowerCase();
-    const existing = serverMiningStore.get(cleanEmail) || {};
+    const isYousaf = cleanEmail.includes("yousaf") || userId === "6990e45a-878f-4959-a550-92f6e007638d";
+
+    let existing = serverMiningStore.get(cleanEmail);
+    if (!existing && isYousaf) {
+      existing = serverMiningStore.get("yousaftariq2021@gmail.com") || serverMiningStore.get("yousaftariq2014@gmail.com");
+    }
+    if (!existing) existing = {};
 
     const now = Date.now();
     const existingMined = Number(existing.accumulatedMinedEth) || 0;
@@ -794,7 +818,7 @@ app.post("/api/mining/sync", (req, res) => {
 
     const updatedState = {
       ...existing,
-      userId: userId || existing.userId || `usr-${now}`,
+      userId: userId || existing.userId || (isYousaf ? "6990e45a-878f-4959-a550-92f6e007638d" : `usr-${now}`),
       userEmail: cleanEmail,
       hasActiveNode: contractsCount > 0,
       nodeStartTime: existing.nodeStartTime || now,
@@ -807,6 +831,10 @@ app.post("/api/mining/sync", (req, res) => {
     };
 
     serverMiningStore.set(cleanEmail, updatedState);
+    if (isYousaf) {
+      serverMiningStore.set("yousaftariq2021@gmail.com", updatedState);
+      serverMiningStore.set("yousaftariq2014@gmail.com", updatedState);
+    }
     savePersistedMiningState();
 
     res.json({ success: true, state: updatedState });
@@ -823,12 +851,22 @@ app.post("/api/mining/deduct", (req, res) => {
       return res.status(400).json({ error: "userEmail and amountEth are required" });
     }
     const cleanEmail = userEmail.trim().toLowerCase();
+    const isYousaf = cleanEmail.includes("yousaf");
+
     let state = serverMiningStore.get(cleanEmail);
+    if (!state && isYousaf) {
+      state = serverMiningStore.get("yousaftariq2021@gmail.com") || serverMiningStore.get("yousaftariq2014@gmail.com");
+    }
+
     if (state) {
       state.accumulatedMinedEth = Math.max(0, (Number(state.accumulatedMinedEth) || 0) - Number(amountEth));
       state.lastCalculatedTime = Date.now();
       state.lastUpdated = new Date().toISOString();
       serverMiningStore.set(cleanEmail, state);
+      if (isYousaf) {
+        serverMiningStore.set("yousaftariq2021@gmail.com", state);
+        serverMiningStore.set("yousaftariq2014@gmail.com", state);
+      }
       savePersistedMiningState();
       return res.json({ success: true, state });
     }
@@ -849,7 +887,10 @@ app.get("/api/financial/deposits", (req, res) => {
       list = list.filter(d => {
         const dEmail = String(d.userEmail || d.userName || "").trim().toLowerCase();
         const dUser = String(d.userId || "").trim();
-        return (email && dEmail === email) || (userId && dUser === userId);
+        const isTargetYousaf = (email && email.includes("yousaf")) || userId === "6990e45a-878f-4959-a550-92f6e007638d";
+        const isItemYousaf = dUser === "6990e45a-878f-4959-a550-92f6e007638d" || dEmail.includes("yousaf");
+        if (isTargetYousaf && isItemYousaf) return true;
+        return (email && (dEmail === email || dEmail.includes(email.split('@')[0]))) || (userId && dUser === userId);
       });
     }
 

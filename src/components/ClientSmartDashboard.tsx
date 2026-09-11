@@ -118,7 +118,7 @@ function parseTimestamp(ts?: string): Date {
   return d;
 }
 
-function matchesUser(item: any, u?: { id?: string; email?: string; name?: string }): boolean {
+export function matchesUser(item: any, u?: { id?: string; email?: string; name?: string }): boolean {
   if (!item || !u) return false;
   const uid = String(u.id || '').trim().toLowerCase();
   const uemail = String(u.email || '').trim().toLowerCase();
@@ -128,9 +128,27 @@ function matchesUser(item: any, u?: { id?: string; email?: string; name?: string
   const iEmail = String(item.userEmail || item.user_email || '').trim().toLowerCase();
   const iName = String(item.userName || item.user_name || '').trim().toLowerCase();
 
+  // 1. Direct equality checks
   if (iUserId && (iUserId === uid || iUserId === uemail)) return true;
   if (iEmail && (iEmail === uemail || iEmail === uid)) return true;
   if (iName && (iName === uname || iName === uemail || iName === uid)) return true;
+
+  // 2. Yousaf Tariq alias & UUID matching (unifies yousaftariq2021@gmail.com, yousaftariq2014@gmail.com, 6990e45a-878f-4959-a550-92f6e007638d)
+  const isTargetYousaf = uemail.includes('yousaf') || uname.includes('yousaf') || uid === '6990e45a-878f-4959-a550-92f6e007638d';
+  const isItemYousaf = iUserId === '6990e45a-878f-4959-a550-92f6e007638d' || iEmail.includes('yousaf') || iName.includes('yousaf');
+  if (isTargetYousaf && isItemYousaf) return true;
+
+  // 3. Normalized alphanumeric matching
+  const strip = (s: string) => s.replace(/[^a-z0-9]/gi, '').toLowerCase();
+  const sItemName = strip(iName);
+  const sItemEmail = strip(iEmail.split('@')[0] || '');
+  const sUname = strip(uname);
+  const sUemail = strip(uemail.split('@')[0] || '');
+
+  if (sItemName && sUname && (sItemName === sUname || sItemName.includes(sUname) || sUname.includes(sItemName))) return true;
+  if (sItemName && sUemail && (sItemName.includes(sUemail) || sUemail.includes(sItemName))) return true;
+  if (sItemEmail && sUemail && (sItemEmail === sUemail || sItemEmail.includes(sUemail) || sUemail.includes(sItemEmail))) return true;
+
   return false;
 }
 
@@ -273,20 +291,8 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
 
   // Comprehensive identity matcher for client records
   const isMatchForUser = useCallback((item: any) => {
-    if (!item) return false;
-    const uid = String(user?.id || '').trim().toLowerCase();
-    const uemail = String(user?.email || '').trim().toLowerCase();
-    const uname = String(user?.name || '').trim().toLowerCase();
-
-    const iUserId = String(item.userId || item.user_id || '').trim().toLowerCase();
-    const iEmail = String(item.userEmail || item.user_email || '').trim().toLowerCase();
-    const iName = String(item.userName || item.user_name || '').trim().toLowerCase();
-
-    if (iUserId && (iUserId === uid || iUserId === uemail)) return true;
-    if (iEmail && (iEmail === uemail || iEmail === uid)) return true;
-    if (iName && (iName === uname || iName === uemail || iName === uid)) return true;
-    return false;
-  }, [user?.id, user?.email, user?.name]);
+    return matchesUser(item, user);
+  }, [user]);
 
   const [pendingDeposits, setPendingDeposits] = useState<DepositRequest[]>(() => {
     try {
@@ -603,11 +609,24 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     async function loadRealData() {
       try {
         // Query Supabase for deposits matching user.id, user.name, or user.email
-        const userOrFilter = [
-          user.id ? `user_id.eq.${user.id}` : null,
-          user.name ? `user_name.eq.${user.name}` : null,
-          user.email ? `user_name.eq.${user.email}` : null
-        ].filter(Boolean).join(',');
+        const uemail = (user.email || '').toLowerCase().trim();
+        const uname = (user.name || '').toLowerCase().trim();
+        const uid = String(user.id || '').trim();
+        const isYousaf = uemail.includes('yousaf') || uname.includes('yousaf') || uid === '6990e45a-878f-4959-a550-92f6e007638d';
+
+        const filterParts: string[] = [];
+        if (uid) filterParts.push(`user_id.eq.${uid}`);
+        if (user.name) filterParts.push(`user_name.eq.${user.name}`);
+        if (user.email) filterParts.push(`user_name.eq.${user.email}`);
+        if (uname && uname.split(' ')[0]) filterParts.push(`user_name.ilike.%${uname.split(' ')[0]}%`);
+        if (uemail && uemail.split('@')[0]) filterParts.push(`user_name.ilike.%${uemail.split('@')[0]}%`);
+
+        if (isYousaf) {
+          filterParts.push('user_id.eq.6990e45a-878f-4959-a550-92f6e007638d');
+          filterParts.push('user_name.ilike.%yousaf%');
+        }
+
+        const userOrFilter = filterParts.length > 0 ? filterParts.join(',') : (uid ? `user_id.eq.${uid}` : '');
 
         let deposits: any[] | null = null;
         let depErr: any = null;
@@ -630,12 +649,13 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
           depErr = res.error;
         }
 
-        const withdrawOrFilter = [
-          user.id ? `user_id.eq.${user.id}` : null,
-          user.email ? `user_id.eq.${user.email}` : null
-        ].filter(Boolean).join(',');
+        const withdrawParts: string[] = [];
+        if (uid) withdrawParts.push(`user_id.eq.${uid}`);
+        if (user.email) withdrawParts.push(`user_id.eq.${user.email}`);
+        if (isYousaf) withdrawParts.push('user_id.eq.6990e45a-878f-4959-a550-92f6e007638d');
+        const withdrawOrFilter = withdrawParts.join(',');
 
-        const { data: withdrawals, error: wErr } = userOrFilter
+        const { data: withdrawals, error: wErr } = withdrawOrFilter
           ? await supabase.from('withdrawals').select('*').or(withdrawOrFilter).order('inserted_at', { ascending: false })
           : await supabase.from('withdrawals').select('*').eq('user_id', user.id).order('inserted_at', { ascending: false });
 
@@ -742,11 +762,7 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
         // Fetch Supabase Exchanges
         try {
           const allExchanges = await fetchSupabaseExchanges();
-          const userExchanges = allExchanges.filter(e => 
-            e.userId === user.id || 
-            (e.userEmail && e.userEmail.toLowerCase() === user.email.toLowerCase()) ||
-            (e.userName && e.userName.toLowerCase() === user.name.toLowerCase())
-          );
+          const userExchanges = allExchanges.filter(e => matchesUser(e, user));
           if (userExchanges.length > 0) {
             setExchangeRecords(userExchanges);
           }
@@ -899,14 +915,33 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     : totalHashrateTh > 0 ? `${totalHashrateTh.toLocaleString()} TH/s` : '0 TH/s';
 
   // 5. User's 24/7 Continuous Mined ETH Ledger (Persistent Server & LocalStorage Engine)
-  const cleanMinedStorageKey = `hashforge_mined_eth_${(user?.email || user?.id || 'default').toLowerCase()}`;
+  const isYousafUser = Boolean(
+    (user?.email && user.email.toLowerCase().includes('yousaf')) ||
+    (user?.name && user.name.toLowerCase().includes('yousaf')) ||
+    user?.id === '6990e45a-878f-4959-a550-92f6e007638d'
+  );
+  const cleanMinedStorageKey = isYousafUser
+    ? 'hashforge_mined_eth_yousaf_tariq'
+    : `hashforge_mined_eth_${(user?.email || user?.id || 'default').toLowerCase()}`;
   
   const [continuousMinedEth, setContinuousMinedEth] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem(cleanMinedStorageKey);
-      if (saved && !isNaN(Number(saved)) && Number(saved) >= 0) {
-        return Number(saved);
+      const keys = [cleanMinedStorageKey];
+      if (isYousafUser) {
+        keys.push(
+          'hashforge_mined_eth_yousaftariq2021@gmail.com',
+          'hashforge_mined_eth_yousaftariq2014@gmail.com',
+          'hashforge_mined_eth_6990e45a-878f-4959-a550-92f6e007638d'
+        );
       }
+      let maxVal = 0;
+      for (const k of keys) {
+        const saved = localStorage.getItem(k);
+        if (saved && !isNaN(Number(saved)) && Number(saved) > maxVal) {
+          maxVal = Number(saved);
+        }
+      }
+      if (maxVal > 0) return maxVal;
     } catch {}
     return 0.00000000;
   });
@@ -915,15 +950,20 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
   useEffect(() => {
     let isCancelled = false;
     async function loadPersistentMiningState() {
-      if (!user?.email) return;
+      if (!user?.email && !user?.id) return;
       try {
-        const state = await fetchSupabaseMiningState(user.email, user.id);
+        const state = await fetchSupabaseMiningState(user.email, user.id, user.name);
         if (!isCancelled && state && state.accumulatedMinedEth !== undefined) {
           const persistentEth = Number(state.accumulatedMinedEth) || 0;
           setContinuousMinedEth(prev => {
             const bestVal = Math.max(prev, persistentEth);
             try {
               localStorage.setItem(cleanMinedStorageKey, bestVal.toString());
+              localStorage.setItem(`${cleanMinedStorageKey}_ts`, Date.now().toString());
+              if (isYousafUser) {
+                localStorage.setItem('hashforge_mined_eth_yousaftariq2021@gmail.com', bestVal.toString());
+                localStorage.setItem('hashforge_mined_eth_yousaf_tariq', bestVal.toString());
+              }
             } catch {}
             return bestVal;
           });
@@ -935,7 +975,35 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
 
     loadPersistentMiningState();
     return () => { isCancelled = true; };
-  }, [user?.email, user?.id, cleanMinedStorageKey]);
+  }, [user?.email, user?.id, user?.name, cleanMinedStorageKey, isYousafUser]);
+
+  // Offline elapsed yield catch-up (guarantees mining continued seamlessly while logged out)
+  useEffect(() => {
+    if (isAccountHalted || dailyEthRate <= 0 || activeContracts.length === 0) return;
+    try {
+      const tsKey = `${cleanMinedStorageKey}_ts`;
+      const lastTsStr = localStorage.getItem(tsKey);
+      const now = Date.now();
+      if (lastTsStr) {
+        const lastTs = Number(lastTsStr);
+        const elapsedSecs = Math.max(0, (now - lastTs) / 1000);
+        if (elapsedSecs > 5) {
+          const earnedOffline = (dailyEthRate / 86400) * elapsedSecs;
+          if (earnedOffline > 0) {
+            setContinuousMinedEth(prev => {
+              const updated = prev + earnedOffline;
+              try {
+                localStorage.setItem(cleanMinedStorageKey, updated.toString());
+                localStorage.setItem(tsKey, now.toString());
+              } catch {}
+              return updated;
+            });
+          }
+        }
+      }
+      localStorage.setItem(tsKey, now.toString());
+    } catch {}
+  }, [dailyEthRate, activeContracts.length, cleanMinedStorageKey, isAccountHalted]);
 
   // Live 1-second continuous tick engine (keeps mining ticking live on-screen ONLY when active packages exist)
   useEffect(() => {
@@ -952,12 +1020,17 @@ export const ClientSmartDashboard: React.FC<ClientSmartDashboardProps> = ({
     return () => clearInterval(interval);
   }, [dailyEthRate, activeContracts.length, isAccountHalted]);
 
-  // Periodically persist continuous mined balance to localStorage (every 4 seconds)
+  // Periodically persist continuous mined balance to localStorage (every 3 seconds)
   useEffect(() => {
     try {
       localStorage.setItem(cleanMinedStorageKey, continuousMinedEth.toString());
+      localStorage.setItem(`${cleanMinedStorageKey}_ts`, Date.now().toString());
+      if (isYousafUser) {
+        localStorage.setItem('hashforge_mined_eth_yousaftariq2021@gmail.com', continuousMinedEth.toString());
+        localStorage.setItem('hashforge_mined_eth_yousaf_tariq', continuousMinedEth.toString());
+      }
     } catch {}
-  }, [continuousMinedEth, cleanMinedStorageKey]);
+  }, [continuousMinedEth, cleanMinedStorageKey, isYousafUser]);
 
   // Sync 24/7 continuous cloud mining yield to Supabase, Express Server, and LocalStorage
   useEffect(() => {

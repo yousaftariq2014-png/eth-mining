@@ -2218,7 +2218,7 @@ export interface SupabaseMiningContractRecord {
  * Fetch persistent mining state from Supabase, Server, and LocalStorage.
  * Seamlessly calculates off-session elapsed yield so mining never resets to zero on login or page refresh.
  */
-export async function fetchSupabaseMiningState(userEmail: string, userId?: string): Promise<{
+export async function fetchSupabaseMiningState(userEmail: string, userId?: string, userName?: string): Promise<{
   accumulatedMinedEth: number;
   dailyEthRate: number;
   hashrateTh: number;
@@ -2228,8 +2228,12 @@ export async function fetchSupabaseMiningState(userEmail: string, userId?: strin
   lastCalculatedTime: number;
 }> {
   const cleanEmail = (userEmail || '').trim().toLowerCase();
-  const cleanKey = `hashforge_mined_eth_${cleanEmail}`;
+  const cleanName = (userName || '').trim().toLowerCase();
+  const cleanUserId = (userId || '').trim();
+  const cleanKey = `hashforge_mined_eth_${cleanEmail || cleanUserId || 'default'}`;
   const now = Date.now();
+
+  const isYousaf = cleanEmail.includes('yousaf') || cleanName.includes('yousaf') || cleanUserId === '6990e45a-878f-4959-a550-92f6e007638d';
 
   let accumulatedMinedEth = 0.00000000;
   let dailyEthRate = 0;
@@ -2241,13 +2245,24 @@ export async function fetchSupabaseMiningState(userEmail: string, userId?: strin
 
   // 1. Check local storage first for instantaneous UI state
   try {
-    const localVal = localStorage.getItem(cleanKey);
-    if (localVal && !isNaN(Number(localVal)) && Number(localVal) >= 0) {
-      accumulatedMinedEth = Number(localVal);
+    const keysToCheck = [cleanKey];
+    if (isYousaf) {
+      keysToCheck.push(
+        'hashforge_mined_eth_yousaf_tariq',
+        'hashforge_mined_eth_yousaftariq2021@gmail.com',
+        'hashforge_mined_eth_yousaftariq2014@gmail.com',
+        'hashforge_mined_eth_6990e45a-878f-4959-a550-92f6e007638d'
+      );
+    }
+    for (const k of keysToCheck) {
+      const localVal = localStorage.getItem(k);
+      if (localVal && !isNaN(Number(localVal)) && Number(localVal) > 0) {
+        accumulatedMinedEth = Math.max(accumulatedMinedEth, Number(localVal));
+      }
     }
   } catch {}
 
-  // 2. Fetch from Supabase public.mining_state
+  // 2. Fetch from Supabase public.mining_state (or mining_contracts fallback)
   try {
     const { data, error } = await supabase
       .from('mining_state')
@@ -2274,7 +2289,12 @@ export async function fetchSupabaseMiningState(userEmail: string, userId?: strin
 
   // 3. Also check Server /api/mining/state for multi-layer persistence
   try {
-    const res = await fetch(`/api/mining/state?email=${encodeURIComponent(cleanEmail)}&userId=${encodeURIComponent(userId || '')}`);
+    const queryParams = new URLSearchParams({
+      email: cleanEmail,
+      userId: cleanUserId,
+      userName: cleanName,
+    });
+    const res = await fetch(`/api/mining/state?${queryParams.toString()}`);
     if (res.ok) {
       const serverData = await res.json();
       if (serverData.success && serverData.state) {
@@ -2304,6 +2324,10 @@ export async function fetchSupabaseMiningState(userEmail: string, userId?: strin
   // Sync back to local storage
   try {
     localStorage.setItem(cleanKey, accumulatedMinedEth.toString());
+    if (isYousaf) {
+      localStorage.setItem('hashforge_mined_eth_yousaf_tariq', accumulatedMinedEth.toString());
+      localStorage.setItem('hashforge_mined_eth_yousaftariq2021@gmail.com', accumulatedMinedEth.toString());
+    }
   } catch {}
 
   return {
@@ -2389,15 +2413,23 @@ export async function fetchSupabaseMiningContracts(userId: string, userEmail?: s
   try {
     const cleanEmail = (userEmail || '').trim().toLowerCase();
     const cleanName = (userName || '').trim().toLowerCase();
+    const cleanUserId = (userId || '').trim();
+
+    const isYousaf = cleanEmail.includes('yousaf') || cleanName.includes('yousaf') || cleanUserId === '6990e45a-878f-4959-a550-92f6e007638d';
 
     const filterParts: string[] = [];
-    if (userId) filterParts.push(`user_id.eq.${userId}`);
+    if (cleanUserId) filterParts.push(`user_id.eq.${cleanUserId}`);
     if (cleanEmail) {
       filterParts.push(`user_name.ilike.%${cleanEmail}%`);
       filterParts.push(`user_id.eq.${cleanEmail}`);
     }
     if (cleanName && cleanName !== cleanEmail) {
       filterParts.push(`user_name.ilike.%${cleanName}%`);
+    }
+
+    if (isYousaf) {
+      filterParts.push('user_id.eq.6990e45a-878f-4959-a550-92f6e007638d');
+      filterParts.push('user_name.ilike.%yousaf%');
     }
 
     const orQuery = filterParts.length > 0 ? filterParts.join(',') : `user_id.eq.${userId}`;

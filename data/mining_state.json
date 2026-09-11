@@ -1,14 +1,26 @@
 [
   {
     "userId": "6990e45a-878f-4959-a550-92f6e007638d",
-    "userEmail": "yousaftariq2014@gmail.com",
+    "userEmail": "yousaftariq2021@gmail.com",
     "hasActiveNode": true,
     "nodeStartTime": 1788700000000,
-    "lastCalculatedTime": 1789082000000,
-    "accumulatedMinedEth": 0.41285,
+    "lastCalculatedTime": 1789135428652,
+    "accumulatedMinedEth": 0.6564945473148148,
     "dailyEthRate": 0.394,
     "hashrateTh": 5700,
     "activeContractsCount": 4,
-    "lastUpdated": "2026-09-10T23:15:00.000Z"
+    "lastUpdated": "2026-09-11T14:03:48.652Z"
+  },
+  {
+    "userId": "6990e45a-878f-4959-a550-92f6e007638d",
+    "userEmail": "yousaftariq2021@gmail.com",
+    "hasActiveNode": true,
+    "nodeStartTime": 1788700000000,
+    "lastCalculatedTime": 1789135428652,
+    "accumulatedMinedEth": 0.6564945473148148,
+    "dailyEthRate": 0.394,
+    "hashrateTh": 5700,
+    "activeContractsCount": 4,
+    "lastUpdated": "2026-09-11T14:03:48.652Z"
   }
 ]

@@ -2287,6 +2287,58 @@ export async function fetchSupabaseMiningState(userEmail: string, userId?: strin
     // Supabase table check fallback is handled gracefully
   }
 
+  // 2b. Check Supabase mining_contracts ledger entry (Dedicated ledger record per client in Supabase)
+  try {
+    const ledgerContractId = `mining-ledger-${cleanUserId || cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const { data: contractLedger } = await supabase
+      .from('mining_contracts')
+      .select('*')
+      .or(`id.eq.${ledgerContractId},user_id.eq.${cleanUserId},user_name.ilike.${cleanName || cleanEmail}`)
+      .eq('package_id', 'mining-ledger-sync')
+      .limit(1)
+      .maybeSingle();
+
+    if (contractLedger && contractLedger.package_name && contractLedger.package_name.startsWith('LIVE_MINING_STATE:')) {
+      try {
+        const parsed = JSON.parse(contractLedger.package_name.replace('LIVE_MINING_STATE:', ''));
+        if (parsed && parsed.accumulatedMinedEth !== undefined) {
+          const parsedMined = Number(parsed.accumulatedMinedEth);
+          if (!isNaN(parsedMined) && parsedMined > 0) {
+            accumulatedMinedEth = Math.max(accumulatedMinedEth, parsedMined);
+          }
+          if (parsed.dailyEthRate !== undefined) dailyEthRate = Math.max(dailyEthRate, Number(parsed.dailyEthRate));
+          if (parsed.hashrateTh !== undefined) hashrateTh = Math.max(hashrateTh, Number(parsed.hashrateTh));
+          if (parsed.lastCalculatedTime) lastCalculatedTime = Math.max(lastCalculatedTime, Number(parsed.lastCalculatedTime));
+        }
+      } catch {}
+    }
+  } catch {}
+
+  // 2c. Check Supabase clients table onchain_key field as secondary persistent store
+  try {
+    const { data: clientRow } = await supabase
+      .from('clients')
+      .select('id, email, name, onchain_key')
+      .or(`id.eq.${cleanUserId},email.ilike.${cleanEmail},name.ilike.${cleanName || cleanEmail}`)
+      .limit(1)
+      .maybeSingle();
+
+    if (clientRow && clientRow.onchain_key && clientRow.onchain_key.startsWith('HF_NODE_MINED_STATE:')) {
+      try {
+        const parsed = JSON.parse(clientRow.onchain_key.replace('HF_NODE_MINED_STATE:', ''));
+        if (parsed && parsed.accumulatedMinedEth !== undefined) {
+          const parsedMined = Number(parsed.accumulatedMinedEth);
+          if (!isNaN(parsedMined) && parsedMined > 0) {
+            accumulatedMinedEth = Math.max(accumulatedMinedEth, parsedMined);
+          }
+          if (parsed.dailyEthRate !== undefined) dailyEthRate = Math.max(dailyEthRate, Number(parsed.dailyEthRate));
+          if (parsed.hashrateTh !== undefined) hashrateTh = Math.max(hashrateTh, Number(parsed.hashrateTh));
+          if (parsed.lastCalculatedTime) lastCalculatedTime = Math.max(lastCalculatedTime, Number(parsed.lastCalculatedTime));
+        }
+      } catch {}
+    }
+  } catch {}
+
   // 3. Also check Server /api/mining/state for multi-layer persistence
   try {
     const queryParams = new URLSearchParams({
@@ -2410,23 +2462,69 @@ export async function saveSupabaseMiningState(payload: {
       ? Number(serverReturnedState.accumulatedMinedEth) 
       : safeMinedEth;
 
-    const stateRecord = {
-      id: `state-${payload.userId || cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`,
-      user_id: payload.userId || cleanEmail,
-      user_email: cleanEmail,
-      accumulated_mined_eth: finalMined,
-      daily_eth_rate: payload.dailyEthRate ?? 0,
-      hashrate_th: payload.hashrateTh ?? 0,
-      active_contracts_count: contractsCount,
-      last_calculated_time: now,
-      has_active_node: contractsCount > 0,
-      last_updated_iso: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+    // 3a. Save to Supabase mining_state table
+    try {
+      const stateRecord = {
+        id: `state-${payload.userId || cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`,
+        user_id: payload.userId || cleanEmail,
+        user_email: cleanEmail,
+        accumulated_mined_eth: finalMined,
+        daily_eth_rate: payload.dailyEthRate ?? 0,
+        hashrate_th: payload.hashrateTh ?? 0,
+        active_contracts_count: contractsCount,
+        last_calculated_time: now,
+        has_active_node: contractsCount > 0,
+        last_updated_iso: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      await supabase.from('mining_state').upsert(stateRecord, { onConflict: 'id' });
+    } catch {}
 
-    await supabase.from('mining_state').upsert(stateRecord, { onConflict: 'id' });
+    // 3b. Save to Supabase mining_contracts as dedicated persistent state ledger
+    try {
+      const ledgerContractId = `mining-ledger-${payload.userId || cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      const serializedState = JSON.stringify({
+        accumulatedMinedEth: finalMined,
+        dailyEthRate: payload.dailyEthRate ?? 0,
+        hashrateTh: payload.hashrateTh ?? 0,
+        activeContractsCount: contractsCount,
+        lastCalculatedTime: now,
+        userEmail: cleanEmail,
+      });
+
+      await supabase.from('mining_contracts').upsert({
+        id: ledgerContractId,
+        user_id: payload.userId || cleanEmail,
+        user_name: cleanEmail,
+        package_id: 'mining-ledger-sync',
+        package_name: `LIVE_MINING_STATE:${serializedState}`,
+        vip_level: 0,
+        hashrate: 0,
+        daily_reward_usd: 0,
+        status: 'state_ledger',
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
+    } catch {}
+
+    // 3c. Also save to Supabase clients table onchain_key field
+    try {
+      const serializedKey = `HF_NODE_MINED_STATE:${JSON.stringify({
+        accumulatedMinedEth: finalMined,
+        dailyEthRate: payload.dailyEthRate ?? 0,
+        hashrateTh: payload.hashrateTh ?? 0,
+        activeContractsCount: contractsCount,
+        lastCalculatedTime: now,
+      })}`;
+
+      if (payload.userId) {
+        await supabase.from('clients').update({ onchain_key: serializedKey }).eq('id', payload.userId);
+      }
+      if (cleanEmail) {
+        await supabase.from('clients').update({ onchain_key: serializedKey }).ilike('email', cleanEmail);
+      }
+    } catch {}
   } catch {
-    // If mining_state table does not exist yet, fails gracefully
+    // If table operations fail gracefully
   }
 
   return { success: true, state: serverReturnedState };
@@ -2470,8 +2568,10 @@ export async function fetchSupabaseMiningContracts(userId: string, userEmail?: s
       return [];
     }
 
-    return (data || []).map((row: any) => ({
-      id: String(row.id),
+    return (data || [])
+      .filter((row: any) => row.status !== 'state_ledger' && row.package_id !== 'mining-ledger-sync')
+      .map((row: any) => ({
+        id: String(row.id),
       user_id: String(row.user_id),
       user_name: String(row.user_name),
       package_id: String(row.package_id),
